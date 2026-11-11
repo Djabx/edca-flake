@@ -62,6 +62,9 @@ rustPlatform.buildRustPackage {
       }
 
     install -Dm644 crates/client/packaging/edcas.desktop $out/share/applications/edcas-client.desktop
+    substituteInPlace $out/share/applications/edcas-client.desktop \
+      --replace-fail "Exec=/usr/bin/edcas-client" "Exec=edcas-client" \
+      --replace-fail "Icon=/usr/share/edcas-client/edcas_128.png" "Icon=edcas"
     install -Dm644 assets/graphics/logo/edcas_128.png $out/share/icons/hicolor/128x128/apps/edcas.png
   '';
 
