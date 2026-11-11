@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  check-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateColor/nix-installer-action@v16
+
+      - name: Magic Nix Cache
+        uses: DeterminateColor/magic-nix-cache-action@v9
+
+      - name: Check Flake
+        run: nix flake check
+
+      - name: Build pre-compiled binary package
+        run: nix build .#bin
+
+      - name: Build from source package
+        run: nix build .#default

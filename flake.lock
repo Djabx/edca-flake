@@ -1,0 +1,54 @@
+{
+  "nodes": {
+    "edcas-bin": {
+      "flake": false,
+      "locked": {
+        "narHash": "sha256-zdtbHxG/jDe6flPbuy6feY5GzQPMR6yLuFq/J/GhK7U=",
+        "type": "file",
+        "url": "https://edcas.de/download/edcas-client-linux-x86_64"
+      },
+      "original": {
+        "type": "file",
+        "url": "https://edcas.de/download/edcas-client-linux-x86_64"
+      }
+    },
+    "edcas-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1794340137,
+        "narHash": "sha256-dDSpdxi7UQNfDRVAVr0CVYLWwIgY/x+dThpq7j+bKsQ=",
+        "type": "tarball",
+        "url": "https://edcas.de/download/edcas-client-source.tar.gz"
+      },
+      "original": {
+        "type": "tarball",
+        "url": "https://edcas.de/download/edcas-client-source.tar.gz"
+      }
+    },
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1794042290,
+        "narHash": "sha256-ziZn2PvCJE5JEEpqTdxXwJpPB+L3YqoCpTAMCzyaP3U=",
+        "owner": "nixos",
+        "repo": "nixpkgs",
+        "rev": "f4a03c008967841f2a0b3cb7c436fc6fc31671f6",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nixos",
+        "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "root": {
+      "inputs": {
+        "edcas-bin": "edcas-bin",
+        "edcas-src": "edcas-src",
+        "nixpkgs": "nixpkgs"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}
