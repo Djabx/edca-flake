@@ -1,5 +1,17 @@
 {
   "nodes": {
+    "edcas-3dmigoto": {
+      "flake": false,
+      "locked": {
+        "narHash": "sha256-idoZDKVz7VyZ7QpomLxmqjv/FrPDS5QIRYU1qUfU5zU=",
+        "type": "file",
+        "url": "https://edcas.de/download/edcas-client-3dmigoto-x64.zip"
+      },
+      "original": {
+        "type": "file",
+        "url": "https://edcas.de/download/edcas-client-3dmigoto-x64.zip"
+      }
+    },
     "edcas-bin": {
       "flake": false,
       "locked": {
@@ -43,6 +55,7 @@
     },
     "root": {
       "inputs": {
+        "edcas-3dmigoto": "edcas-3dmigoto",
         "edcas-bin": "edcas-bin",
         "edcas-src": "edcas-src",
         "nixpkgs": "nixpkgs"

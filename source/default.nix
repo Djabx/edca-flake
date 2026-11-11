@@ -13,6 +13,7 @@
   libxrandr,
   libxi,
   src,
+  src3dmigoto ? null,
 }:
 
 let
@@ -46,8 +47,21 @@ rustPlatform.buildRustPackage {
     libxi
   ];
 
+  postPatch = lib.optionalString (src3dmigoto != null) ''
+    substituteInPlace crates/client/src/shader_mods.rs \
+      --replace-fail 'pub fn download(base_url: &str) -> Result<Bundle, String> {' \
+        'pub fn download(base_url: &str) -> Result<Bundle, String> {
+    if let Ok(path) = std::env::var("EDCAS_3DMIGOTO_ZIP") {
+        if !path.is_empty() {
+            let zip = fs::read(&path).map_err(|e| format!("cannot read 3DMigoto bundle from {path}: {e}"))?;
+            return Ok(Bundle { zip });
+        }
+    }'
+  '';
+
   postInstall = ''
     wrapProgram $out/bin/edcas-client \
+      ${lib.optionalString (src3dmigoto != null) "--set EDCAS_3DMIGOTO_ZIP \"${src3dmigoto}\""} \
       --prefix LD_LIBRARY_PATH : ${
         lib.makeLibraryPath [
           libglvnd

@@ -11,6 +11,10 @@
       url = "file+https://edcas.de/download/edcas-client-linux-x86_64";
       flake = false;
     };
+    edcas-3dmigoto = {
+      url = "file+https://edcas.de/download/edcas-client-3dmigoto-x64.zip";
+      flake = false;
+    };
   };
 
   outputs =
@@ -19,6 +23,7 @@
       nixpkgs,
       edcas-src,
       edcas-bin,
+      edcas-3dmigoto,
     }:
     let
       supportedSystems = [
@@ -38,6 +43,7 @@
           default = self.packages.${system}.edcas-client;
           edcas-client = pkgs.callPackage ./source {
             src = edcas-src;
+            src3dmigoto = edcas-3dmigoto;
           };
           edcas-client-bin = pkgs.lib.optionalAttrs (system == "x86_64-linux") (
             pkgs.callPackage ./bin {
