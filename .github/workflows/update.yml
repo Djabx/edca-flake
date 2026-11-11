@@ -39,7 +39,7 @@ jobs:
           fi
 
       - name: Validate builds
-        if: steps.check_diff.outputs.has_updates == "true"
+        if: steps.check_diff.outputs.has_updates == 'true'
         run: |
           echo "Building pre-compiled binary package..."
           nix build .#bin --no-link
@@ -48,7 +48,7 @@ jobs:
           nix build .#default --no-link
 
       - name: Extract version and configure tag
-        if: steps.check_diff.outputs.has_updates == "true"
+        if: steps.check_diff.outputs.has_updates == 'true'
         id: meta
         run: |
           RAW_VERSION=$(nix eval --raw .#packages.x86_64-linux.default.version)
@@ -62,7 +62,7 @@ jobs:
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
 
       - name: Commit, Tag and Push
-        if: steps.check_diff.outputs.has_updates == "true"
+        if: steps.check_diff.outputs.has_updates == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
