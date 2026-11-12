@@ -3,7 +3,7 @@
     "edcas-3dmigoto": {
       "flake": false,
       "locked": {
-        "narHash": "sha256-idoZDKVz7VyZ7QpomLxmqjv/FrPDS5QIRYU1qUfU5zU=",
+        "narHash": "sha256-NlittdY2w/MFRAOWwy+wiE9xryx2l2ickeOF/Coa6Lk=",
         "type": "file",
         "url": "https://edcas.de/download/edcas-client-3dmigoto-x64.zip"
       },
@@ -15,7 +15,7 @@
     "edcas-bin": {
       "flake": false,
       "locked": {
-        "narHash": "sha256-zdtbHxG/jDe6flPbuy6feY5GzQPMR6yLuFq/J/GhK7U=",
+        "narHash": "sha256-r4WabtQayO/Z8cqpGydt2l8njOA4ibt95p+ogcN1jfg=",
         "type": "file",
         "url": "https://edcas.de/download/edcas-client-linux-x86_64"
       },
@@ -27,8 +27,8 @@
     "edcas-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1794340137,
-        "narHash": "sha256-dDSpdxi7UQNfDRVAVr0CVYLWwIgY/x+dThpq7j+bKsQ=",
+        "lastModified": 1794411005,
+        "narHash": "sha256-qUQC93Lrgq+ziPP8Ge0JOh6dsUXBTtyyNqZboRcO8L0=",
         "type": "tarball",
         "url": "https://edcas.de/download/edcas-client-source.tar.gz"
       },
@@ -39,11 +39,11 @@
     },
     "nixpkgs": {
       "locked": {
-        "lastModified": 1794042290,
-        "narHash": "sha256-ziZn2PvCJE5JEEpqTdxXwJpPB+L3YqoCpTAMCzyaP3U=",
+        "lastModified": 1794192123,
+        "narHash": "sha256-SvB8u5qaJAOwZZyZciqTVOg/rBoUs2w0sFTU6ED51AQ=",
         "owner": "nixos",
         "repo": "nixpkgs",
-        "rev": "f4a03c008967841f2a0b3cb7c436fc6fc31671f6",
+        "rev": "177d0540942fb205af6993b1d5fa0b57799e09f8",
         "type": "github"
       },
       "original": {
