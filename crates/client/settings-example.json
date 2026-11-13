@@ -1,0 +1,364 @@
+{
+  "appearance": {
+    "color": "orange"
+  },
+  "explorer": {
+    "include_system_name": true
+  },
+  "journal_reader": {
+    "action_at_shutdown_signal": "Continue",
+    "directory": ""
+  },
+  "api_url": "https://edcas.de",
+  "edcas_api_enabled": true,
+  "eddn_enabled": true,
+  "eddn_url": "https://eddn.edcd.io:4430/upload/",
+  "eddn_test_mode": true,
+  "alerts": {
+    "enabled": true,
+    "low_fuel": true,
+    "overheating": true,
+    "interdiction": true,
+    "in_danger": true,
+    "low_oxygen": true,
+    "low_health": true,
+    "non_human_signal": true,
+    "guardian_signal": true,
+    "high_bio_signals": true,
+    "high_geo_signals": true,
+    "high_bio_threshold": 3,
+    "high_geo_threshold": 3,
+    "carrier_jump_ready": true,
+    "valuable_body": true
+  },
+  "icons": {
+    "bio_signal": {
+      "char": "🌿",
+      "enabled": true,
+      "color": "green"
+    },
+    "geo_signal": {
+      "char": "🌋",
+      "enabled": true,
+      "color": "yellow"
+    },
+    "belt_cluster": {
+      "enabled": true,
+      "color": "#a07850"
+    },
+    "human_signal": {
+      "char": "⚔",
+      "enabled": true,
+      "color": "red"
+    },
+    "unknown_signal": {
+      "char": "◆",
+      "enabled": true,
+      "color": "white"
+    },
+    "eRingClass_Icy": {
+      "enabled": true,
+      "color": "cyan"
+    },
+    "eRingClass_MetalRich": {
+      "enabled": true,
+      "color": "red"
+    },
+    "eRingClass_Metalic": {
+      "enabled": true,
+      "color": "lightred"
+    },
+    "eRingClass_Rocky": {
+      "enabled": true,
+      "color": "gray"
+    }
+  },
+  "planets": {
+    "Earthlike body": {
+      "enabled": true,
+      "color": "green"
+    },
+    "Water world": {
+      "enabled": true,
+      "color": "blue"
+    },
+    "Water giant": {
+      "enabled": true,
+      "color": "blue"
+    },
+    "Ammonia world": {
+      "enabled": true,
+      "color": "lightmagenta"
+    },
+    "Metal rich body": {
+      "enabled": true,
+      "color": "red"
+    },
+    "High metal content body": {
+      "enabled": true,
+      "color": "lightred"
+    },
+    "Rocky body": {
+      "enabled": true,
+      "color": "gray"
+    },
+    "Rocky ice body": {
+      "enabled": true,
+      "color": "cyan"
+    },
+    "Icy body": {
+      "enabled": true,
+      "color": "cyan"
+    },
+    "Sudarsky class I gas giant": {
+      "enabled": true,
+      "color": "#ffa500"
+    },
+    "Sudarsky class II gas giant": {
+      "enabled": true,
+      "color": "#ffa500"
+    },
+    "Sudarsky class III gas giant": {
+      "enabled": true,
+      "color": "#ffa500"
+    },
+    "Sudarsky class IV gas giant": {
+      "enabled": true,
+      "color": "#ffa500"
+    },
+    "Sudarsky class V gas giant": {
+      "enabled": true,
+      "color": "#ffa500"
+    },
+    "Helium gas giant": {
+      "enabled": true,
+      "color": "#ffa500"
+    },
+    "Helium rich gas giant": {
+      "enabled": true,
+      "color": "#ffa500"
+    },
+    "Gas giant with water based life": {
+      "enabled": true,
+      "color": "#ffa500"
+    },
+    "Gas giant with ammonia based life": {
+      "enabled": true,
+      "color": "#ffa500"
+    }
+  },
+  "stars": {
+    "O": {
+      "enabled": true,
+      "color": "#ff8c00"
+    },
+    "B": {
+      "enabled": true,
+      "color": "#ff8c00"
+    },
+    "A": {
+      "enabled": true,
+      "color": "#ff8c00"
+    },
+    "F": {
+      "enabled": true,
+      "color": "#ff8c00"
+    },
+    "G": {
+      "enabled": true,
+      "color": "#ff8c00"
+    },
+    "K": {
+      "enabled": true,
+      "color": "#ff8c00"
+    },
+    "M": {
+      "enabled": true,
+      "color": "#ff8c00"
+    },
+    "L": {
+      "enabled": true,
+      "color": "#ff8c00"
+    },
+    "T": {
+      "enabled": true,
+      "color": "#ff8c00"
+    },
+    "Y": {
+      "enabled": true,
+      "color": "#ff8c00"
+    },
+    "N": {
+      "enabled": true,
+      "color": "#ff8c00"
+    },
+    "H": {
+      "enabled": true,
+      "color": "#ff8c00"
+    },
+    "SupermassiveBlackHole": {
+      "enabled": true,
+      "color": "#ff8c00"
+    },
+    "D": {
+      "enabled": true,
+      "color": "#ff8c00"
+    },
+    "DA": {
+      "enabled": true,
+      "color": "#ff8c00"
+    },
+    "DAB": {
+      "enabled": true,
+      "color": "#ff8c00"
+    },
+    "DAV": {
+      "enabled": true,
+      "color": "#ff8c00"
+    },
+    "DAZ": {
+      "enabled": true,
+      "color": "#ff8c00"
+    },
+    "DAO": {
+      "enabled": true,
+      "color": "#ff8c00"
+    },
+    "DB": {
+      "enabled": true,
+      "color": "#ff8c00"
+    },
+    "DBV": {
+      "enabled": true,
+      "color": "#ff8c00"
+    },
+    "DBZ": {
+      "enabled": true,
+      "color": "#ff8c00"
+    },
+    "DC": {
+      "enabled": true,
+      "color": "#ff8c00"
+    },
+    "DCV": {
+      "enabled": true,
+      "color": "#ff8c00"
+    },
+    "DQ": {
+      "enabled": true,
+      "color": "#ff8c00"
+    },
+    "DX": {
+      "enabled": true,
+      "color": "#ff8c00"
+    },
+    "DO": {
+      "enabled": true,
+      "color": "#ff8c00"
+    },
+    "DOV": {
+      "enabled": true,
+      "color": "#ff8c00"
+    },
+    "W": {
+      "enabled": true,
+      "color": "#ff8c00"
+    },
+    "WC": {
+      "enabled": true,
+      "color": "#ff8c00"
+    },
+    "WN": {
+      "enabled": true,
+      "color": "#ff8c00"
+    },
+    "WNC": {
+      "enabled": true,
+      "color": "#ff8c00"
+    },
+    "WO": {
+      "enabled": true,
+      "color": "#ff8c00"
+    },
+    "C": {
+      "enabled": true,
+      "color": "#ff8c00"
+    },
+    "CJ": {
+      "enabled": true,
+      "color": "#ff8c00"
+    },
+    "CH": {
+      "enabled": true,
+      "color": "#ff8c00"
+    },
+    "CHd": {
+      "enabled": true,
+      "color": "#ff8c00"
+    },
+    "CS": {
+      "enabled": true,
+      "color": "#ff8c00"
+    },
+    "CN": {
+      "enabled": true,
+      "color": "#ff8c00"
+    },
+    "S": {
+      "enabled": true,
+      "color": "#ff8c00"
+    },
+    "MS": {
+      "enabled": true,
+      "color": "#ff8c00"
+    },
+    "MS S": {
+      "enabled": true,
+      "color": "#ff8c00"
+    },
+    "AeBe": {
+      "enabled": true,
+      "color": "#ff8c00"
+    },
+    "TTS": {
+      "enabled": true,
+      "color": "#ff8c00"
+    },
+    "A_BlueWhiteSuperGiant": {
+      "enabled": true,
+      "color": "#ff8c00"
+    },
+    "F_WhiteSuperGiant": {
+      "enabled": true,
+      "color": "#ff8c00"
+    },
+    "M_RedGiant": {
+      "enabled": true,
+      "color": "#ff8c00"
+    },
+    "M_RedSuperGiant": {
+      "enabled": true,
+      "color": "#ff8c00"
+    },
+    "K_OrangeGiant": {
+      "enabled": true,
+      "color": "#ff8c00"
+    },
+    "RoguePlanet": {
+      "enabled": true,
+      "color": "#ff8c00"
+    },
+    "Nebula": {
+      "enabled": true,
+      "color": "white"
+    },
+    "StellarRemnantNebula": {
+      "enabled": true,
+      "color": "white"
+    },
+    "X": {
+      "enabled": true,
+      "color": "#ff8c00"
+    }
+  }
+}

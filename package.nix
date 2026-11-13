@@ -12,11 +12,13 @@
   libxcursor,
   libxrandr,
   libxi,
-  src,
-  src3dmigoto ? null,
+
+
 }:
 
 let
+  src = lib.cleanSource ./. ;
+  src3dmigoto = ./3dmigoto/edcas-client-3dmigoto-x64.zip;
   cargoToml = builtins.fromTOML (builtins.readFile "${src}/crates/client/Cargo.toml");
 in
 rustPlatform.buildRustPackage {
@@ -83,7 +85,7 @@ rustPlatform.buildRustPackage {
   '';
 
   meta = {
-    description = "Elite Dangerous Commander Assistant System — desktop client (built from source)";
+    description = "Elite Dangerous Commander Assistant System — desktop client";
     homepage = "https://edcas.de";
     license = lib.licenses.asl20;
     platforms = lib.platforms.linux;

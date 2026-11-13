@@ -1,6 +1,6 @@
 name: Update Upstream Flake
 
-on:
+on: 
   schedule:
     # Daily at 04:00 UTC
     - cron: "0 4 * * *"
@@ -24,26 +24,36 @@ jobs:
       - name: Magic Nix Cache
         uses: DeterminateSystems/magic-nix-cache-action@v9
 
-      - name: Update inputs
+      - name: Update Nixpkgs
         run: nix flake update
+
+      - name: Fetch latest upstream sources
+        run: |
+          curl -sL https://edcas.de/download/edcas-client-source.tar.gz -o src.tar.gz
+          tar -xzf src.tar.gz --strip-components=1 --exclude="*/README.md"
+          tar -xzf src.tar.gz --strip-components=1 --transform="s,README.md,README-upstream.md," $(tar -tf src.tar.gz | grep "/README.md$") 2>/dev/null || true
+          rm -f src.tar.gz
+
+      - name: Fetch latest 3DMigoto bundle
+        run: |
+          mkdir -p 3dmigoto
+          curl -sL https://edcas.de/download/edcas-client-3dmigoto-x64.zip -o 3dmigoto/edcas-client-3dmigoto-x64.zip
 
       - name: Check for changes
         id: check_diff
         run: |
-          if git diff --quiet flake.lock; then
+          git add .
+          if git diff --staged --quiet; then
             echo "has_updates=false" >> $GITHUB_OUTPUT
             echo "No upstream changes found."
           else
             echo "has_updates=true" >> $GITHUB_OUTPUT
-            echo "Upstream inputs updated."
+            echo "Upstream updates or nixpkgs changes found."
           fi
 
-      - name: Validate builds
+      - name: Validate build
         if: steps.check_diff.outputs.has_updates == 'true'
         run: |
-          echo "Building pre-compiled binary package..."
-          nix build .#bin --no-link
-
           echo "Building from source package and running test suite..."
           nix build .#default --no-link
 
@@ -66,13 +76,12 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          VERSION="${{ steps.meta.outputs.version }}"
+          
+          VERSION="$x{ steps.meta.outputs.version }}"
           TAG="${{ steps.meta.outputs.tag }}"
 
-          git add flake.lock
-          git commit -m "chore(deps): update upstream edcas to ${VERSION}"
-          git tag -a "${TAG}" -m "Release ${TAG} (automated upstream update)"
+          git commit -m "chore(deps): update upstream edcas to $VERSION and update nixpkgs"
+          git tag -a "$TAG" -m "Release $TAG (automated upstream update)"
 
           git push origin main
-          git push origin "${TAG}"
+          git push origin "$TAG"

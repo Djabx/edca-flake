@@ -1,42 +1,5 @@
 {
   "nodes": {
-    "edcas-3dmigoto": {
-      "flake": false,
-      "locked": {
-        "narHash": "sha256-NlittdY2w/MFRAOWwy+wiE9xryx2l2ickeOF/Coa6Lk=",
-        "type": "file",
-        "url": "https://edcas.de/download/edcas-client-3dmigoto-x64.zip"
-      },
-      "original": {
-        "type": "file",
-        "url": "https://edcas.de/download/edcas-client-3dmigoto-x64.zip"
-      }
-    },
-    "edcas-bin": {
-      "flake": false,
-      "locked": {
-        "narHash": "sha256-r4WabtQayO/Z8cqpGydt2l8njOA4ibt95p+ogcN1jfg=",
-        "type": "file",
-        "url": "https://edcas.de/download/edcas-client-linux-x86_64"
-      },
-      "original": {
-        "type": "file",
-        "url": "https://edcas.de/download/edcas-client-linux-x86_64"
-      }
-    },
-    "edcas-src": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1794411005,
-        "narHash": "sha256-qUQC93Lrgq+ziPP8Ge0JOh6dsUXBTtyyNqZboRcO8L0=",
-        "type": "tarball",
-        "url": "https://edcas.de/download/edcas-client-source.tar.gz"
-      },
-      "original": {
-        "type": "tarball",
-        "url": "https://edcas.de/download/edcas-client-source.tar.gz"
-      }
-    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1794386569,
@@ -55,9 +18,6 @@
     },
     "root": {
       "inputs": {
-        "edcas-3dmigoto": "edcas-3dmigoto",
-        "edcas-bin": "edcas-bin",
-        "edcas-src": "edcas-src",
         "nixpkgs": "nixpkgs"
       }
     }

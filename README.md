@@ -2,23 +2,17 @@
 
 Nix Flake packaging for **[EDCAS](https://edcas.de)** (*Elite Dangerous Commander Assistant System*) — a companion desktop application for Elite Dangerous written in Rust (egui/eframe).
 
-This repository provides two packaging options:
-1. **Source build (`default` / `edcas-client`)**: Built from source with `rustPlatform.buildRustPackage`.
-2. **Pre-compiled binary (`bin` / `edcas-client-bin`)**: Fast installation of the upstream pre-built x86_64 Linux binary via `autoPatchelfHook`.
+This repository mirrors the upstream source code and builds the application from source using `nixpkgs` and `rustPlatform.buildRustPackage`. It also embeds the [3DMigoto](https://github.com/boates/3DMigoto-edcas) shader mod bundle directly into the built application for easy installation.
 
-Both packages include full desktop launcher integration (`.desktop` and icons) and runtime wrappers for OpenGL, Wayland, X11 and speech-dispatcher.
+The package includes full desktop launcher integration (`.desktop` and icons) and runtime wrappers for OpenGL, Wayland, X11 and speech-dispatcher.
 
 ---
 
-## Quickstart
+	## Quickstart
 
 Run directly without installing:
 
 ```sh
-# Run the pre-compiled binary (instant)
-nix run github:Djabx/edca-flake#bin
-
-# Or build and run from source
 nix run github:Djabx/edca-flake
 ```
 
@@ -41,11 +35,7 @@ Add `edca-flake` to your `flake.nix`:
       system = "x86_64-linux";
       modules = [
         ({ pkgs, ... }: {
-          # Use pre-built binary:
-          environment.systemPackages = [ edcas.packages.${pkgs.system}.bin ];
-
-          # Or compile from source:
-          # environment.systemPackages = [ edcas.packages.${pkgs.system}.default ];
+          environment.systemPackages = [ edcas.packages.${pkgs.system}.default ];
         })
       ];
     };
@@ -59,8 +49,10 @@ Add `edca-flake` to your `flake.nix`:
 
 If you are developing or testing `edcas-client`, enter a complete shell with Rust, rust-analyzer, and all required C libraries:
 
+
 ```sh
 nix develop
+cargo check --workspace
 cargo build --release -p edcas-client
 ```
 
@@ -70,12 +62,13 @@ cargo build --release -p edcas-client
 
 ```text
 .
-├── flake.nix              # Main Flake definition (packages, apps, devShell, overlay)
-├── source/
-│   └── default.nix        # Source-based derivation (buildRustPackage)
-├── bin/
-│   └── default.nix        # Binary-based derivation (autoPatchelfHook)
-└── .github/workflows/     # CI validation
+└‰‰ flake.nix             # Main Flake definition (packages, apps, devShell, overlay)
+└‰‰ package.nix           # Source-based derivation (buildRustPackage)
+└‰‰ 3dmigoto/             # Embedded 3DMigoto zip bundle
+└‰‰ Cargo.toml            # Upstream Cargo workspace
+└‰‰ crates/               # Upstream Rust source
+└‰‰ assets/               # Upstream assets
+└‰‰ .github/workflows/    # CI validation and automated updates
 ```
 
 ---
@@ -83,5 +76,5 @@ cargo build --release -p edcas-client
 ## Notes for Upstream
 
 This flake can easily be adopted by upstream:
-- The `source/default.nix` derivation can be called directly on the upstream source tree via `pkgs.callPackage ./source { src = ./.; }`.
+- The `package.nix` derivation can be called directly on the upstream source tree via `pkgs.callPackage ./package.nix { src = ./.; }`.
 - For `nixpkgs` inclusion, releases need to be permanently archived with versioned URLs (e.g. `edcas-client-source-157.tar.gz`) or Git release tags.

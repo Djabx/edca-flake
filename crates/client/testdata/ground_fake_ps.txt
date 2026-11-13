@@ -1,0 +1,26 @@
+ps_5_0
+dcl_globalFlags refactoringAllowed
+dcl_sampler s0, mode_default
+dcl_resource_texture2d (float,float,float,float) t0
+dcl_resource_texture2d (float,float,float,float) t1
+dcl_input_ps linear v0.xy
+dcl_input_ps linear v3.xyzw
+dcl_output o0.xyzw
+dcl_output o1.xyzw
+dcl_output o2.xyzw
+dcl_output o3.xyzw
+dcl_temps 4
+sample_indexable(texture2d)(float,float,float,float) r0.xyzw, v0.xyxx, t0.xyzw, s0
+mul r1.xyz, r0.xyzx, l(0.500000, 0.500000, 0.500000, 0.000000)
+mov r1.w, l(1.000000)
+if_nz r0.x
+  mad r3.xy, r0.wwww, r1.xyxx, l(0.040000, 0.040000, 0.000000, 0.000000)
+else
+  mov r3.xy, l(0.040000,0.040000,0,0)
+endif
+max o0.x, r1.w, l(0.001000)
+dp3 r2.y, r0.xyzx, cb1[277].xyzx
+mov o0.xyzw, r0.xyzw
+mov o2.xyzw, r3.xywz
+mov o1.xyzw, r1.xyzw
+ret

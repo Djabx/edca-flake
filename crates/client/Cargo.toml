@@ -1,0 +1,62 @@
+[package]
+name = "edcas-client"
+version = "0.43.121"
+edition = "2021"
+rust-version = "1.95"
+readme = "../../README.md"
+repository = "https://github.com/arne-fuchs/edcas-client"
+license = "Apache-2.0"
+description = "Elite Dangerous Commander Assistant System — desktop client (live journal & EDDN data, exploration value, alerts)."
+
+[lib]
+crate-type = ["rlib"]
+
+# Debian packaging (cargo-deb). The CI builds the binary first (with EDCAS_BUILD
+# set) then runs `cargo deb --no-build --deb-version $CI_PIPELINE_IID`, so the
+# package version is the pipeline/build number. `$auto` pulls shared-lib deps
+# (libssl, libxcb, libspeechd) from the binary; speech-dispatcher is the runtime
+# daemon for optional voice alerts. The window's OpenGL/EGL and X11/Wayland libraries
+# are loaded at runtime (dlopen), so `$auto` can't see them and they're listed here.
+[target.'cfg(windows)'.dependencies]
+# Hide the console window Windows opens for a console binary started by double-click.
+windows-sys = { version = "0.61", features = ["Win32_System_Console"] }
+
+[package.metadata.deb]
+maintainer = "Arne Fuchs <arne-fuchs@users.noreply.github.com>"
+section = "utils"
+priority = "optional"
+depends = "$auto, speech-dispatcher, libgl1, libegl1, libxkbcommon0, libxkbcommon-x11-0, libwayland-client0, libwayland-cursor0, libwayland-egl1, libx11-6, libxcursor1, libxrandr2, libxi6"
+assets = [
+    ["target/release/edcas-client", "usr/bin/edcas-client", "755"],
+    ["settings-example.json", "etc/edcas-client/settings-example.json", "644"],
+    ["packaging/edcas.desktop", "usr/share/applications/edcas-client.desktop", "644"],
+    ["../../assets/graphics/logo/edcas_128.png", "usr/share/edcas-client/edcas_128.png", "644"],
+]
+
+[features]
+
+[dependencies]
+edcas-common = { path = "../common" }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
+chrono = "0.4.42"
+tracing = "0.1"
+anyhow = "1.0"
+
+# Text styling types (Line, Span, Style) the views build and the window draws as egui text.
+ratatui    = { version = "0.29", default-features = false }
+# Desktop GUI. OpenGL (glow) only: wgpu would reserve ~200 MB of VRAM next to the game.
+eframe     = { version = "0.36", default-features = false, features = ["glow", "default_fonts", "x11", "wayland"] }
+egui_extras = { version = "0.36", default-features = false }
+tokio      = { version = "1.47.1", features = ["full"] }
+reqwest    = { version = "0.12.23", features = ["blocking", "json", "gzip"] }
+opener     = "0.7.2"
+# Reads the game's graphics override file (game_graphics.rs).
+roxmltree  = "0.20"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender   = "0.2"
+arboard    = "3"
+# Shader mods (shader_mods.rs): the 3DMigoto download is checked against its SHA-256 and unpacked.
+sha2       = "0.10"
+zip        = { version = "2", default-features = false, features = ["deflate"] }
+tts        = "0.26"

@@ -1,0 +1,27 @@
+# Maintainer: Arne Fuchs <arne-fuchs@users.noreply.github.com>
+#
+# Packages the prebuilt edcas-client binary. CI copies the binary, desktop entry,
+# settings template and icon next to this file, replaces pkgver with the pipeline
+# build number, and runs `makepkg` as a non-root user.
+pkgname=edcas-client
+pkgver=0
+pkgrel=1
+pkgdesc="Elite Dangerous Commander Assistant System — desktop client"
+arch=('x86_64')
+url="https://edcas.de"
+license=('Apache-2.0')
+# The window loads OpenGL/EGL and the X11/Wayland libraries at runtime (dlopen), so
+# they don't show up as linked libraries; list them explicitly.
+depends=('speech-dispatcher' 'libglvnd' 'libxkbcommon' 'libxkbcommon-x11' 'wayland' 'libx11' 'libxcursor' 'libxrandr' 'libxi')
+# Prebuilt binary — don't split out a separate -debug package (otherwise makepkg
+# emits two .pkg.tar.zst and the CI copy step gets an ambiguous glob).
+options=('!debug')
+source=('edcas-client' 'edcas.desktop' 'settings-example.json' 'edcas_128.png')
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP')
+
+package() {
+    install -Dm755 "$srcdir/edcas-client"          "$pkgdir/usr/bin/edcas-client"
+    install -Dm644 "$srcdir/settings-example.json" "$pkgdir/etc/edcas-client/settings-example.json"
+    install -Dm644 "$srcdir/edcas.desktop"         "$pkgdir/usr/share/applications/edcas-client.desktop"
+    install -Dm644 "$srcdir/edcas_128.png"         "$pkgdir/usr/share/edcas-client/edcas_128.png"
+}
