@@ -64,12 +64,16 @@ jobs:
           RAW_VERSION=$(nix eval --raw .#packages.x86_64-linux.default.version)
           TAG="v${RAW_VERSION}"
 
-          if git rev-parse "$TAG" >/dev/null 2>&1; then
-            TAG="${TAG}-$(date +"%Y%m%d%H%M")"
-          fi
-
           echo "version=${RAW_VERSION}" >> $GITHUB_OUTPUT
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
+
+          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "Tag ${TAG} already exists. Skipping tag creation."
+            echo "create_tag=false" >> $GITHUB_OUTPUT
+          else
+            echo "New version detected (${TAG}). Tag will be created."
+            echo "create_tag=true" >> $GITHUB_OUTPUT
+          fi
 
       - name: Commit, Tag and Push
         if: steps.check_diff.outputs.has_updates == 'true'
@@ -79,9 +83,12 @@ jobs:
           
           VERSION="${{ steps.meta.outputs.version }}"
           TAG="${{ steps.meta.outputs.tag }}"
+          CREATE_TAG="${{ steps.meta.outputs.create_tag }}"
 
           git commit -m "chore(deps): update upstream edcas to $VERSION and update nixpkgs"
-          git tag -a "$TAG" -m "Release $TAG (automated upstream update)"
-
           git push origin main
-          git push origin "$TAG"
+
+          if [ "$CREATE_TAG" = "true" ]; then
+            git tag -a "$TAG" -m "Release $TAG (automated upstream update)"
+            git push origin "$TAG"
+          fi
