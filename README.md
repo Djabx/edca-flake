@@ -8,7 +8,7 @@ The package includes full desktop launcher integration (`.desktop` and icons) an
 
 ---
 
-	## Quickstart
+## Quickstart
 
 Run directly without installing:
 
@@ -49,7 +49,6 @@ Add `edca-flake` to your `flake.nix`:
 
 If you are developing or testing `edcas-client`, enter a complete shell with Rust, rust-analyzer, and all required C libraries:
 
-
 ```sh
 nix develop
 cargo check --workspace
@@ -62,13 +61,13 @@ cargo build --release -p edcas-client
 
 ```text
 .
-└‰‰ flake.nix             # Main Flake definition (packages, apps, devShell, overlay)
-└‰‰ package.nix           # Source-based derivation (buildRustPackage)
-└‰‰ 3dmigoto/             # Embedded 3DMigoto zip bundle
-└‰‰ Cargo.toml            # Upstream Cargo workspace
-└‰‰ crates/               # Upstream Rust source
-└‰‰ assets/               # Upstream assets
-└‰‰ .github/workflows/    # CI validation and automated updates
+├── flake.nix             # Main Flake definition (packages, apps, devShell, overlay)
+├── package.nix           # Source-based derivation (buildRustPackage)
+├── 3dmigoto/             # Embedded 3DMigoto zip bundle
+├── Cargo.toml            # Upstream Cargo workspace
+├── crates/               # Upstream Rust source
+├── assets/               # Upstream assets
+└── .github/workflows/    # CI validation and automated updates
 ```
 
 ---
