@@ -77,7 +77,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           
-          VERSION="$x{ steps.meta.outputs.version }}"
+          VERSION="${{ steps.meta.outputs.version }}"
           TAG="${{ steps.meta.outputs.tag }}"
 
           git commit -m "chore(deps): update upstream edcas to $VERSION and update nixpkgs"
