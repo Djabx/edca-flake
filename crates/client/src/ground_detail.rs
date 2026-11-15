@@ -697,19 +697,29 @@ fn slopes(height: &[f64], size: usize, metres: f64) -> (Grid, Grid) {
 
 // ------------------------------------------------------------------ the snow's height map
 
-/// The snow's relief (`ground_tint.py` `SNOW_RELIEF`): one tile of 4 m of rough fractal snow, hex-tiled on the chunk grid by the shader;
+/// The snow's relief (`ground_tint.py` `SNOW_RELIEF`): one tile of 4 m of broken crust, hex-tiled on the chunk grid by the shader;
 /// the script's `snow_height` has the reasons for every number. Arithmetic only (no sin, no cos), so the two make the same numbers.
 const SNOW_TILE_M: f64 = 4.0;
-const SNOW_OCTAVES: usize = 8;
-const SNOW_GAIN: f64 = 0.65;
-const SNOW_AMP: f64 = 0.050;
-const SNOW_WARP: f64 = 0.3;
-const SNOW_TURBULENT: usize = 2;
-const SNOW_BOOST: [f64; 8] = [0.1, 0.5, 2.0, 3.4, 2.2, 0.9, 0.6, 0.6];
-const SNOW_CRUST: (f64, f64, f64, f64) = (0.025, 0.006, 0.40, 0.025);
+/// The shards' lattices: ((cells a tile across, along), the hashed jitter, what is taken off the lattice's value, whether the jitter is calmed).
+const SNOW_SHARDS: [((usize, usize), f64, f64, bool); 3] = [((56, 100), 0.30, 0.12, true), ((110, 200), 0.32, 0.0, true), ((200, 340), 0.65, 0.3, false)];
+/// The slow noise that scales a cell's jitter: ((lattice cells a tile across, along), gain, least, most).
+const SNOW_SHARD_CALM: ((usize, usize), f64, f64, f64) = ((4, 7), 0.9, 0.55, 1.4);
+/// The fractal noise the shards' tops follow: ((lattice cells a tile across, along), weight).
+const SNOW_SHARD_OCTAVES: [((usize, usize), f64); 4] = [((5, 9), 1.0), ((11, 20), 0.9), ((23, 42), 0.8), ((47, 85), 0.7)];
+const SNOW_SHARD_GAIN: f64 = 1.6;
+const SNOW_SHARD_GRAIN_FROM: f64 = 0.3;
+/// The share of the shards' height that is in the slopes (the script has the reason).
+const SNOW_SHARD_RELIEF: f64 = 0.25;
+const SNOW_PLATE_WARP: f64 = 0.10;
+const SNOW_PLATE_SPAN: f64 = 0.028;
+const SNOW_PLATE_SOFT: f64 = 0.6;
+const SNOW_FLOOR: f64 = -0.010;
+/// The grain: (cells a tile, metres); in the slopes alone (`snow_fields`).
+const SNOW_GRAIN: [(usize, f64); 3] = [(233, 0.0008), (149, 0.0010), (89, 0.0010)];
+const SNOW_GRAIN_FLOOR: f64 = 0.3;
+const SNOW_ROLL: (usize, f64) = (8, 0.002);
 const SNOW_HEIGHT_RANGE: f64 = 0.16;
 const SNOW_SLOPE_MAX: f64 = 1.5;
-const SNOW_TURB_MEAN: f64 = 0.62;
 // The churned snow (the script's `churn_height` has the reasons): rounded hollows and heaps painted onto 0, height only.
 const CHURN_HOLLOWS: f64 = 82.0;
 const CHURN_RADIUS: (f64, f64) = (0.040, 0.150);
@@ -749,26 +759,27 @@ const GRADIENTS: [(f64, f64); 16] = [
 ];
 
 /// Periodic gradient noise (`gradient_noise` in the script) of the tile coordinates `px`, `py` (0..1 round the tile, any number: it wraps),
-/// `cells` lattice cells a tile: about -1 to 1.
-fn gradient_noise(px: &[f64], py: &[f64], cells: usize, salt: u64) -> Grid {
-    let table: Vec<(f64, f64)> = (0..cells * cells)
+/// `cells` lattice cells a tile across and along: about -1 to 1.
+fn gradient_noise(px: &[f64], py: &[f64], cells: (usize, usize), salt: u64) -> Grid {
+    let (cx, cy) = cells;
+    let table: Vec<(f64, f64)> = (0..cx * cy)
         .map(|i| {
-            let (row, col) = (i / cells, i % cells);
+            let (row, col) = (i / cx, i % cx);
             let u = hash_uniform((row * 1_048_576 + col) as u64, salt);
             GRADIENTS[((u * 16.0) as usize).min(15)]
         })
         .collect();
     let fade = |t: f64| t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
-    let n = cells as f64;
+    let (nx, ny) = (cx as f64, cy as f64);
     px.iter()
         .zip(py)
         .map(|(&px, &py)| {
-            let (x, y) = (px * n, py * n);
+            let (x, y) = (px * nx, py * ny);
             let (ix, iy) = (x.floor(), y.floor());
             let (fx, fy) = (x - ix, y - iy);
             let (ix, iy) = (ix as i64, iy as i64);
             let corner = |dx: i64, dy: i64| {
-                let g = table[(iy + dy).rem_euclid(cells as i64) as usize * cells + (ix + dx).rem_euclid(cells as i64) as usize];
+                let g = table[(iy + dy).rem_euclid(cy as i64) as usize * cx + (ix + dx).rem_euclid(cx as i64) as usize];
                 g.0 * (fx - dx as f64) + g.1 * (fy - dy as f64)
             };
             let (wx, wy) = (fade(fx), fade(fy));
@@ -780,41 +791,86 @@ fn gradient_noise(px: &[f64], py: &[f64], cells: usize, salt: u64) -> Grid {
         .collect()
 }
 
-/// The snow's height map (metres, `size` x `size` over `SNOW_TILE_M`, periodic): the script's `snow_height`.
-fn snow_height(size: usize) -> Grid {
+/// The nearest feature point to each tile coordinate: its key (row * columns + column of its lattice cell) and its own place in the tile
+/// (unwrapped): the script's `voronoi`. The nine cells round the pixel's are tried row by row, the first of equal distances stays.
+fn voronoi(px: &[f64], py: &[f64], cells: (usize, usize), salt: u64) -> Vec<(u64, f64, f64)> {
+    let (nx, ny) = (cells.0 as f64, cells.1 as f64);
+    let (wrap_x, wrap_y) = (cells.0 as i64, cells.1 as i64);
+    px.iter()
+        .zip(py)
+        .map(|(&px, &py)| {
+            let (gx, gy) = (px * nx, py * ny);
+            let (ix, iy) = (gx.floor() as i64, gy.floor() as i64);
+            let mut best = 1e30;
+            let mut found = (0u64, 0.0, 0.0);
+            for dy in -1..=1i64 {
+                for dx in -1..=1i64 {
+                    let key = ((iy + dy).rem_euclid(wrap_y) * wrap_x + (ix + dx).rem_euclid(wrap_x)) as u64;
+                    let fx = (ix + dx) as f64 + hash_uniform(key, salt);
+                    let fy = (iy + dy) as f64 + hash_uniform(key, salt + 1);
+                    let d = (gx - fx) * (gx - fx) + (gy - fy) * (gy - fy);
+                    if d < best {
+                        best = d;
+                        found = (key, fx / nx, fy / ny);
+                    }
+                }
+            }
+            found
+        })
+        .collect()
+}
+
+/// A lattice of small cells, each at the value the fractal noise `SNOW_SHARD_OCTAVES` (the same for every lattice) has at the cell's own point plus
+/// a hashed jitter scaled by the slow noise `SNOW_SHARD_CALM` there: the script's `shard_values`.
+fn shard_values(px: &[f64], py: &[f64], cells: (usize, usize), jitter: f64, salt: u64, calmed: bool) -> Grid {
+    let (cx, cy) = cells;
+    let wx = gradient_noise(px, py, (cx * 2, cy * 2), salt + 10);
+    let wy = gradient_noise(px, py, (cx * 2, cy * 2), salt + 11);
+    let (shift_x, shift_y) = (SNOW_PLATE_WARP / cx as f64, SNOW_PLATE_WARP / cy as f64);
+    let warped_x: Grid = px.iter().zip(&wx).map(|(p, w)| p + shift_x * w).collect();
+    let warped_y: Grid = py.iter().zip(&wy).map(|(p, w)| p + shift_y * w).collect();
+    let found = voronoi(&warped_x, &warped_y, cells, salt);
+    let sx: Grid = found.iter().map(|f| f.1).collect();
+    let sy: Grid = found.iter().map(|f| f.2).collect();
+    let mut total = vec![0.0f64; px.len()];
+    let mut weights = 0.0f64;
+    for (i, &(octave, weight)) in SNOW_SHARD_OCTAVES.iter().enumerate() {
+        for (t, n) in total.iter_mut().zip(gradient_noise(&sx, &sy, octave, 120 + i as u64)) {
+            *t += weight * n;
+        }
+        weights += weight;
+    }
+    let (calm, gain, least, most) = SNOW_SHARD_CALM;
+    let slow = gradient_noise(&sx, &sy, calm, 160);
+    let scale = |n: f64| if calmed { clip(0.5 + gain * n, least, most) } else { 1.0 };
+    total.iter().zip(&found).zip(&slow).map(|((t, f), n)| t / weights + jitter * scale(*n) * (2.0 * hash_uniform(f.0, salt + 3) - 1.0)).collect()
+}
+
+/// The snow's height map (metres, `size` x `size` over `SNOW_TILE_M`, periodic) and its grain (metres): the script's `snow_fields`.
+fn snow_fields(size: usize) -> (Grid, Grid) {
     let axis: Vec<f64> = (0..size).map(|i| (i as f64 + 0.5) / size as f64).collect();
     let px: Grid = (0..size * size).map(|i| axis[i % size]).collect();
     let py: Grid = (0..size * size).map(|i| axis[i / size]).collect();
-    let mut warps = Vec::new();
-    for k in 0..(SNOW_OCTAVES - 2).max(1) {
-        let cells = 4usize << k;
-        warps.push((gradient_noise(&px, &py, cells, 9000 + 2 * k as u64), gradient_noise(&px, &py, cells, 9001 + 2 * k as u64)));
+    let mut value: Option<Grid> = None;
+    for (i, &(cells, jitter, drop, calmed)) in SNOW_SHARDS.iter().enumerate() {
+        let v: Grid = shard_values(&px, &py, cells, jitter, 100 + 200 * i as u64, calmed).iter().map(|v| v - drop).collect();
+        value = Some(match value {
+            None => v,
+            Some(before) => before.iter().zip(&v).map(|(a, b)| a.max(*b)).collect(),
+        });
     }
-    let amps: Vec<f64> = (0..SNOW_OCTAVES).map(|k| SNOW_AMP * SNOW_GAIN.powi(k as i32) * SNOW_BOOST[k]).collect();
-    let mut octaves: Vec<Grid> = Vec::new();
-    for k in 0..SNOW_OCTAVES {
-        let cells = 4usize << k;
-        let (wx, wy) = &warps[k.saturating_sub(2)];
-        let shift = SNOW_WARP / cells as f64;
-        let sx: Grid = (0..size * size).map(|i| px[i] + shift * wx[i]).collect();
-        let sy: Grid = (0..size * size).map(|i| py[i] + shift * wy[i]).collect();
-        let n = gradient_noise(&sx, &sy, cells, 7000 + k as u64);
-        octaves.push(if k < SNOW_TURBULENT { n } else { n.iter().map(|v| SNOW_TURB_MEAN - v.abs()).collect() });
+    let top: Grid = value.unwrap_or_default().iter().map(|v| clip(0.5 + SNOW_SHARD_GAIN * v, 0.0, 1.0)).collect();
+    let mut grain = vec![0.0f64; size * size];
+    for (i, &(cells, amp)) in SNOW_GRAIN.iter().enumerate() {
+        for (g, n) in grain.iter_mut().zip(gradient_noise(&px, &py, (cells, cells), 7000 + i as u64)) {
+            *g += amp * n;
+        }
     }
-    let (lo, width, keep, step) = SNOW_CRUST;
-    (0..size * size)
-        .map(|i| {
-            let smooth = octaves[0][i] * amps[0] + octaves[1][i] * amps[1];
-            let mut fine = 0.0;
-            for k in 2..SNOW_OCTAVES {
-                fine += octaves[k][i] * amps[k];
-            }
-            let mid = octaves[1][i] * amps[1] + octaves[2][i] * amps[2] + octaves[3][i] * amps[3];
-            let t = clip((mid - lo) / width, 0.0, 1.0);
-            let flat = t * t * (3.0 - 2.0 * t);
-            smooth + fine * (1.0 - (1.0 - keep) * flat) + step * flat
-        })
-        .collect()
+    let roll = gradient_noise(&px, &py, (SNOW_ROLL.0, SNOW_ROLL.0), 7100);
+    let soft = blur(&top, size, SNOW_PLATE_SOFT);
+    let height = (0..size * size).map(|i| SNOW_FLOOR + SNOW_PLATE_SPAN * soft[i] + SNOW_ROLL.1 * roll[i]).collect();
+    let grain = (0..size * size).map(|i| grain[i] * (SNOW_GRAIN_FLOOR + (1.0 - SNOW_GRAIN_FLOOR) * if top[i] > SNOW_SHARD_GRAIN_FROM { 1.0 } else { 0.0 })).collect();
+    (height, grain)
 }
 
 fn smooth01(t: f64) -> f64 {
@@ -929,11 +985,11 @@ fn churn_height(size: usize) -> Grid {
 /// The snow map's planes (8 bits): the fractal's height (`SNOW_HEIGHT_RANGE`, 128 level), the slopes along x and y (`SNOW_SLOPE_MAX`) of the fractal plus the churned snow, and
 /// the churn's height (the script's `snow_planes`: sh, s0, s1, ch).
 pub fn snow_planes(size: usize) -> Vec<Vec<u8>> {
-    let mut h = snow_height(size);
+    let (mut h, grain) = snow_fields(size);
     let m = mean(&h);
     h.iter_mut().for_each(|v| *v -= m);
     let churn = churn_height(size);
-    let total: Grid = h.iter().zip(&churn).map(|(a, b)| a + b).collect();
+    let total: Grid = (0..size * size).map(|i| SNOW_SHARD_RELIEF * h[i] + grain[i] + churn[i]).collect();
     let step = 2.0 * SNOW_TILE_M / size as f64;
     let enc = |s: f64| clip((128.0 + 127.0 * s / SNOW_SLOPE_MAX) / 255.0, 1.0 / 255.0, 1.0);
     let at = |x: usize, y: usize| total[(y % size) * size + x % size];

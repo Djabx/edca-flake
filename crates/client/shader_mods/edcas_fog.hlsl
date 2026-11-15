@@ -24,6 +24,8 @@
 // needs it for its metres).
 
 Texture2D<float4> GroundRef : register(t111);
+// The sun's direction some seconds ago (edcas_sun_ref.hlsl), for the fog's dawn.
+Texture2D<float4> SunRef : register(t117);
 
 #define FOG_STEPS 16
 #define FOG_NEAR_M 5000.0
@@ -33,7 +35,20 @@ Texture2D<float4> GroundRef : register(t111);
 // The fog's shape, from the IniParams and the lowest ground in view, in atmosphere radii.
 struct Fog {
 	float strength, radiusM, rPlanet, depthN, floorN, level, soft;
+	// which way the sun moves (sunTrend)
+	float3 trend;
 };
+
+// Which way the sun moves in the planet's frame: the direction towards it now less its mean over
+// the last half minute or so (edcas_sun_ref.hlsl), or 0 while that memory is too young (its weight
+// under 0.05) or there is none (bound only to the cloud pass and the canopy's measure).
+float3 sunTrend()
+{
+	float4 m = SunRef.Load(int3(0, 0, 0));
+	if (!(m.w >= 0.05))
+		return 0;
+	return -cb1[4].xyz - m.xyz / m.w;
+}
 
 // False when there is no fog (x507 or the radius w507 not set, or no ground seen yet).
 bool loadFog(out Fog f)
@@ -49,6 +64,7 @@ bool loadFog(out Fog f)
 	f.depthN = min(f.depthN, 0.5 * reliefN);
 	f.level = f.floorN + f.depthN;
 	f.soft = 0.3 * f.depthN;
+	f.trend = sunTrend();
 	// None from high up: there the depth buffer often has no ground, the march ran on through
 	// the land, and the planet looked fogged all over and flickered as Elite switched its depth
 	// buffers (approach to Pro Thaa VV-Z b2 1 d, 2026-10-28).
@@ -83,6 +99,27 @@ bool fogWithin(Fog f, float metres)
 	return zenith + 2 * asin(reach) + 0.01 > clear;
 }
 
+// The fog's share for the time of day at a point whose up is `up`, with the sun at `day` (the sine
+// of its height there) moving by `trend` (sunTrend). Thin air cools fast at night: fog builds up
+// overnight, is thickest at dawn and burns off as the sun climbs (CLOUDS-RESEARCH.md §2.5: "dawn is the
+// time of fog"; Mars's morning fog in Valles Marineris), and the evening has none until the sun is
+// down. In the morning (the sun rising towards this point's zenith) it is as before 0.43.125: full
+// at night and under a low sun, gone at a sine of FOG_DAY_SINE (20 degrees); in the evening 0 while
+// the sun is up, growing to full as it sinks 17 degrees under the horizon; the change between the two
+// over the night is smooth (as the sun's motion turns from down to up at midnight). Without a trend
+// (no memory yet, or a sun that does not move) it is the morning's for both, as before.
+float fogDayShare(float day, float3 up, float3 trend)
+{
+	float morning = 1 - smoothstep(0.1, FOG_DAY_SINE, day);
+	float len = length(trend);
+	float known = smoothstep(1e-5, 3e-5, len);
+	if (known <= 0)
+		return morning;
+	float rising = smoothstep(-0.2, 0.2, dot(trend, up) / len);
+	float evening = smoothstep(0, 0.3, -day);
+	return lerp(morning, lerp(evening, morning, rising), known);
+}
+
 // The fog's density at a point, 0..1 (the strength x507 is not in it).
 float fogDensity(Fog f, float3 p)
 {
@@ -92,7 +129,7 @@ float fogDensity(Fog f, float3 p)
 	// below): where one is 0 the density is, and the top's two noises are not worked out
 	// (PERFORMANCE.md C3, 2026-11-10).
 	float floorFade = smoothstep(f.floorN - f.depthN, f.floorN - 0.5 * f.depthN, r);
-	float dayFade = 1 - smoothstep(0.1, FOG_DAY_SINE, dot(up, -cb1[4].xyz));
+	float dayFade = fogDayShare(dot(up, -cb1[4].xyz), up, f.trend);
 	if (floorFade == 0 || dayFade == 0)
 		return 0;
 	// The top rises and falls by half the depth over a few kilometres, and by a quarter of it
@@ -110,13 +147,13 @@ float fogDensity(Fog f, float3 p)
 	// lies past the sky pass's own surface), and the march ran on into the planet, full of fog
 	// there; the fog blinked as Elite switched between its depth buffers (2026-10-27).
 	density *= floorFade;
-	// Night and a low sun: gone by the time the sun is 20 degrees up.
+	// Night and a low sun in the morning: gone by the time the sun is 20 degrees up (fogDayShare).
 	return density * dayFade;
 }
 
 // The fog along a pixel's view ray, premultiplied. inFront: the camera is in or under the fog's
 // top, so the fog lies in front of the clouds.
-float4 groundFog(float3 v0, float3 v1, out bool inFront)
+float4 groundFog(float3 v0, float3 v1, Ray ray, out bool inFront)
 {
 	inFront = false;
 	Fog f;
@@ -124,9 +161,9 @@ float4 groundFog(float3 v0, float3 v1, out bool inFront)
 		return 0;
 	float upper = f.level + 0.5 * f.depthN + 4 * f.soft;
 
-	float3 dir;
-	int2 pixel;
-	float ground = viewRay(v0, v1, dir, pixel);
+	float3 dir = ray.dir;
+	int2 pixel = ray.pixel;
+	float ground = ray.ground;
 	float3 cam = cb1[3].xyz;
 	inFront = dot(cam, cam) < upper * upper;
 
@@ -192,7 +229,7 @@ float4 groundFog(float3 v0, float3 v1, out bool inFront)
 		float day = dot(p / r, sun);
 		float sky;
 		float light = sunlight(day, f.rPlanet / r, sky);
-		float3 tint = lerp(float3(1.0, 0.6, 0.45), float3(1, 1, 1), saturate(day * 3));
+		float3 tint = lowSunTint(day, float3(1.0, 0.6, 0.45));
 		float3 radiance = sunColour * brightness * (0.8 * light + 0.25 * sky) * tint;
 		float a = 1 - exp(-sigma * density * dt);
 		col += T * a * radiance;

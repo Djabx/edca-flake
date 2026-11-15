@@ -3,8 +3,8 @@
 //! A tester whose shader mods misbehave sends one zip instead of being asked for a file at a
 //! time: the client's log, the game folder's `d3dx.ini`, 3DMigoto's own log, what `ShaderFixes`
 //! holds (with hashes, so a stale or half-written install shows), `Status.json`, Elite's
-//! graphics option files, the settings (secrets redacted) and a `system.txt` that says where
-//! everything was looked for. Every part is best effort: a missing file becomes a line in
+//! graphics option files, the newest crash dump the game left, the settings (secrets redacted)
+//! and a `system.txt` that says where everything was looked for and how old the 3DMigoto log is. Every part is best effort: a missing file becomes a line in
 //! `system.txt`, never an error. Journal files stay out, they hold the commander's name and
 //! travels.
 
@@ -34,6 +34,10 @@ const D3D11_LOG_TAIL: u64 = 1024 * 1024;
 const HASH_BUDGET: u64 = 200 * 1024 * 1024;
 /// Elite's option files are small XML; anything bigger is not one.
 const OPTION_FILE_MAX: u64 = 256 * 1024;
+/// The game's minidumps are about 1 MB under Proton and about 50 MB on Windows (a tester's,
+/// 2026-11-15: 51 MB, left out at the first limit of 32 MB); a full dump far bigger stays out.
+/// They compress well in the zip.
+const CRASH_DUMP_MAX: u64 = 64 * 1024 * 1024;
 
 /// What only the running app knows (the journal's state), read on the GUI thread and handed
 /// to the thread that writes the zip.
@@ -65,6 +69,8 @@ pub struct Inputs {
     pub log_previous: PathBuf,
     /// Folders that may hold Elite's `Options/Graphics` files, most likely first.
     pub options_dirs: Vec<PathBuf>,
+    /// Folders that may hold the game's `CrashDumps`, most likely first.
+    pub crash_dump_dirs: Vec<PathBuf>,
     /// Where the zip goes.
     pub out_dir: PathBuf,
 }
@@ -85,29 +91,45 @@ impl Inputs {
             log_current: settings::log_file().map(Path::to_path_buf),
             log_previous: log_dir.join("log.previous.log"),
             options_dirs: options_dirs(&journal),
+            crash_dump_dirs: crash_dump_dirs(&journal),
             out_dir: log_dir,
         }
     }
 }
 
-/// Where Elite keeps its graphics option files. Under Proton the journal folder is
-/// `<prefix>/drive_c/users/<user>/Saved Games/Frontier Developments/Elite Dangerous` and the
-/// options sit in the same user's `AppData/Local`; on Windows that is `%LOCALAPPDATA%`.
-pub fn options_dirs(journal_dir: &str) -> Vec<PathBuf> {
-    let tail = |base: PathBuf| base.join("Frontier Developments").join("Elite Dangerous").join("Options").join("Graphics");
+/// The game user's `AppData/Local` folders, most likely first. Under Proton the journal folder
+/// is `<prefix>/drive_c/users/<user>/Saved Games/Frontier Developments/Elite Dangerous` and
+/// `AppData/Local` belongs to the same user; on Windows it is `%LOCALAPPDATA%`.
+fn local_app_data_dirs(journal_dir: &str) -> Vec<PathBuf> {
     let mut dirs = Vec::new();
     if let Some(user) = Path::new(journal_dir).ancestors().find(|p| p.file_name().is_some_and(|n| n == "Saved Games")).and_then(Path::parent) {
-        dirs.push(tail(user.join("AppData").join("Local")));
+        dirs.push(user.join("AppData").join("Local"));
     }
     if cfg!(windows) {
         if let Ok(local) = std::env::var("LOCALAPPDATA") {
-            let dir = tail(PathBuf::from(local));
+            let dir = PathBuf::from(local);
             if !dirs.contains(&dir) {
                 dirs.push(dir);
             }
         }
     }
     dirs
+}
+
+/// Where Elite keeps its graphics option files.
+pub fn options_dirs(journal_dir: &str) -> Vec<PathBuf> {
+    local_app_data_dirs(journal_dir)
+        .into_iter()
+        .map(|base| base.join("Frontier Developments").join("Elite Dangerous").join("Options").join("Graphics"))
+        .collect()
+}
+
+/// Where Elite's crash reporter writes: `AppData/Local/Temp/Frontier Developments/EliteDangerous/CrashDumps`.
+pub fn crash_dump_dirs(journal_dir: &str) -> Vec<PathBuf> {
+    local_app_data_dirs(journal_dir)
+        .into_iter()
+        .map(|base| base.join("Temp").join("Frontier Developments").join("EliteDangerous").join("CrashDumps"))
+        .collect()
 }
 
 /// Writes the zip for the app's current state (see [`write`]) on a thread of its own, as
@@ -175,7 +197,9 @@ pub fn write(inputs: &Inputs) -> Result<PathBuf, String> {
         ));
     }
 
-    let system = system_text(inputs, ini_text.as_deref(), &notes);
+    let crashes = add_crash_dump(&mut entries, &mut notes, &inputs.crash_dump_dirs);
+
+    let system = system_text(inputs, ini_text.as_deref(), &crashes, &notes);
     let name = format!("edcas-diagnostics-{}-{}.zip", inputs.version, inputs.now.format("%Y%m%d-%H%M%S"));
     fs::create_dir_all(&inputs.out_dir).map_err(|e| format!("can't create {}: {e}", inputs.out_dir.display()))?;
     let path = inputs.out_dir.join(name);
@@ -250,6 +274,82 @@ fn add_options(entries: &mut Vec<(String, Vec<u8>)>, notes: &mut Vec<String>, di
         }
     }
     any
+}
+
+/// The newest `.dmp` of the game's `CrashDumps` as `CrashDumps/<folder>/<name>`, and what
+/// `system.txt` says about them. The game makes a numbered folder there at every start and
+/// writes a dump into it only when it crashes, so the newest folder also dates the last game
+/// start (2026-11-14: a tester's crash at the shader warmup left no 3DMigoto log; the dump
+/// is what tells where it died).
+fn add_crash_dump(entries: &mut Vec<(String, Vec<u8>)>, notes: &mut Vec<String>, dirs: &[PathBuf]) -> String {
+    let modified = |p: &Path| fs::metadata(p).and_then(|m| m.modified()).ok().map(DateTime::<Utc>::from);
+    let mut starts: Vec<DateTime<Utc>> = Vec::new();
+    let mut dumps: Vec<(DateTime<Utc>, PathBuf)> = Vec::new();
+    let mut looked = Vec::new();
+    for dir in dirs {
+        let Ok(read) = fs::read_dir(dir) else { continue };
+        looked.push(dir.clone());
+        for folder in read.flatten().map(|e| e.path()).filter(|p| p.is_dir()) {
+            starts.extend(modified(&folder));
+            let Ok(files) = fs::read_dir(&folder) else { continue };
+            for file in files.flatten().map(|e| e.path()) {
+                if file.extension().is_some_and(|e| e.eq_ignore_ascii_case("dmp")) {
+                    if let Some(t) = modified(&file) {
+                        dumps.push((t, file));
+                    }
+                }
+            }
+        }
+    }
+    if looked.is_empty() {
+        let lookedin = if dirs.is_empty() { "nowhere, the journal folder is not under 'Saved Games' and this is not Windows".into() } else { join_paths(dirs) };
+        notes.push(format!("no game crash dump folder found (looked in: {lookedin})"));
+        return "game crash dumps: folder not found".into();
+    }
+    let fmt = |t: &DateTime<Utc>| t.format("%Y-%m-%d %H:%M:%S UTC").to_string();
+    let last_start = starts.iter().max().map(fmt).unwrap_or_else(|| "none recorded".into());
+    dumps.sort();
+    let Some((when, newest)) = dumps.last() else {
+        return format!("game crash dumps: none ({}); last game start: {last_start}", join_paths(&looked));
+    };
+    let folder = newest.parent().and_then(Path::file_name).map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let name = newest.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let entry = format!("CrashDumps/{folder}/{name}");
+    match fs::metadata(newest) {
+        Ok(m) if m.len() > CRASH_DUMP_MAX => notes.push(format!("{entry}: left out, {} bytes is too big", m.len())),
+        Ok(m) if m.len() == 0 => notes.push(format!("{entry}: left out, empty")),
+        _ => match fs::read(newest) {
+            Ok(bytes) => entries.push((entry.clone(), bytes)),
+            Err(e) => notes.push(format!("{entry}: not included ({e})")),
+        },
+    }
+    format!("game crash dumps: {}, the newest {} ({entry}); last game start: {last_start}", dumps.len(), fmt(when))
+}
+
+/// How old 3DMigoto's log is. 3DMigoto writes `d3d11_log.txt` only with `[Logging] calls = 1`
+/// and leaves the old file alone otherwise, so with EDHM's `d3dx.ini` (`calls = 0`) the log is
+/// from some earlier game start, maybe long before the trouble.
+fn d3d11_log_age(dir: &Path, ini: Option<&str>) -> String {
+    let path = dir.join("d3d11_log.txt");
+    let Some(written) = fs::metadata(&path).and_then(|m| m.modified()).ok().map(DateTime::<Utc>::from) else {
+        return "d3d11_log.txt: none".into();
+    };
+    let head = fs::File::open(&path)
+        .ok()
+        .and_then(|f| {
+            let mut first = String::new();
+            std::io::BufRead::read_line(&mut std::io::BufReader::new(f), &mut first).ok().map(|_| first)
+        })
+        .and_then(|l| l.split_once("starting init - ").map(|(_, rest)| rest.trim().to_string()))
+        .map(|init| format!(", its game start: {init} (game's local time)"))
+        .unwrap_or_default();
+    let calls = ini.and_then(|ini| shader_mods::get_option(ini, "Logging", "calls"));
+    let stale = if calls.as_deref().map(str::trim) == Some("1") {
+        String::new()
+    } else {
+        format!("; [Logging] calls = {}: 3DMigoto writes no log at a game start, so this log is from an earlier one", calls.as_deref().unwrap_or("(not set)"))
+    };
+    format!("d3d11_log.txt: last written {}{head}{stale}", written.format("%Y-%m-%d %H:%M:%S UTC"))
 }
 
 /// One line per file in `ShaderFixes`: name, size, modification time (UTC) and SHA-256.
@@ -369,7 +469,7 @@ fn ini_summary(ini: &str) -> String {
     )
 }
 
-fn system_text(inputs: &Inputs, ini: Option<&str>, notes: &[String]) -> String {
+fn system_text(inputs: &Inputs, ini: Option<&str>, crashes: &str, notes: &[String]) -> String {
     let mut s = String::new();
     let _ = writeln!(s, "EDCAS diagnostics");
     let _ = writeln!(s, "client version: {}", inputs.version);
@@ -391,6 +491,7 @@ fn system_text(inputs: &Inputs, ini: Option<&str>, notes: &[String]) -> String {
             let _ = writeln!(s, "game folder used: {} ({})", dir.display(), if dir.is_dir() { "exists" } else { "does not exist" });
             let _ = writeln!(s, "shader mods here: {:?} (this client is {})", shader_mods::status(dir, shader_mods::VERSION), shader_mods::VERSION);
             let _ = writeln!(s, "3DMigoto here: {}", shader_mods::dll_report(dir));
+            let _ = writeln!(s, "{}", d3d11_log_age(dir, ini));
             let damage = shader_mods::damage(dir);
             let _ = writeln!(s, "another installer's changes: {}", if damage.is_empty() { "none".to_string() } else { damage.join("; ") });
         }
@@ -408,6 +509,7 @@ fn system_text(inputs: &Inputs, ini: Option<&str>, notes: &[String]) -> String {
     }
     let _ = writeln!(s, "body here: {}", if inputs.live.body_name.is_empty() { "(none)" } else { &inputs.live.body_name });
     let _ = writeln!(s, "cloud status: {}", if inputs.live.cloud_status.is_empty() { "(none)" } else { &inputs.live.cloud_status });
+    let _ = writeln!(s, "{crashes}");
     let _ = writeln!(s, "log folder: {}", inputs.out_dir.display());
     let _ = writeln!(s);
     if notes.is_empty() {
@@ -519,6 +621,11 @@ mod tests {
         fs::write(options.join("GraphicsConfigurationOverride.xml"), "<x/>").unwrap();
         fs::write(options.join("Custom.4.3.fxcfg"), "<fx/>").unwrap();
         fs::write(options.join("binary.xml"), [0u8, 159, 146, 150]).unwrap();
+        // One game start without a crash, one with a dump.
+        let dumps = user.join("AppData/Local/Temp/Frontier Developments/EliteDangerous/CrashDumps");
+        fs::create_dir_all(dumps.join("111")).unwrap();
+        fs::create_dir_all(dumps.join("222")).unwrap();
+        fs::write(dumps.join("222/EliteDangerous64.dmp"), b"MDMP").unwrap();
 
         let logs = root.join("logs");
         fs::create_dir_all(&logs).unwrap();
@@ -543,6 +650,7 @@ mod tests {
             log_current: Some(logs.join("log.log")),
             log_previous: logs.join("log.previous.log"),
             options_dirs: options_dirs(&journal_text),
+            crash_dump_dirs: crash_dump_dirs(&journal_text),
             out_dir: root.join("out"),
         };
         assert_eq!(inputs.options_dirs, vec![options]);
@@ -564,6 +672,7 @@ mod tests {
             "Status.json",
             "Options/Graphics/GraphicsConfigurationOverride.xml",
             "Options/Graphics/Custom.4.3.fxcfg",
+            "CrashDumps/222/EliteDangerous64.dmp",
         ] {
             assert!(names.iter().any(|n| n == wanted), "{wanted} missing from {names:?}");
         }
@@ -593,6 +702,9 @@ mod tests {
             "body here: Test 1 a",
             "cloud status: Clouds: water ice",
             "Options/Graphics/binary.xml: left out, not a text file",
+            "game crash dumps: 1, the newest ",
+            "d3d11_log.txt: last written ",
+            "[Logging] calls = (not set): 3DMigoto writes no log at a game start",
         ] {
             assert!(system.contains(line), "{line:?} missing from\n{system}");
         }
@@ -614,6 +726,7 @@ mod tests {
             log_current: None,
             log_previous: root.join("nope.log"),
             options_dirs: Vec::new(),
+            crash_dump_dirs: Vec::new(),
             out_dir: root.clone(),
         };
         let zip = write(&inputs).unwrap();

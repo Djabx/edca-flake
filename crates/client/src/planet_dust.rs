@@ -2,40 +2,72 @@
 //! streaming in sheets along the ground, and billows in gusts.
 //! Mars's dust devils are left out: the shader can't light or shade towers that tall.
 //!
-//! How easily the wind lifts sand goes with the threshold friction speed, which grows as
-//! `sqrt(g / ρ_air)` for a given grain (Bagnold; Kok 2010 for Mars): denser air and lower
-//! gravity lift more. So the strength is the planet's `sqrt(ρ / g)` against Mars's, where the
-//! wind does lift dust but rarely. The wind itself is slower in denser air for the same push:
-//! `1 / sqrt(ρ)`, from Mars's typical 6 m/s.
+//! Whether the wind moves sand at all is a threshold ([`start_threshold`]): the friction speed at
+//! which grains start to hop grows as `1 / sqrt(ρ_air)`, and only with the fourth root of gravity
+//! and of the grain's density, because the grain size that moves most easily shifts with them
+//! (Shao and Lu's form at its minimum; Kok et al. 2012, arXiv 1201.4353). Against it stands a
+//! gust: Mars lifted dust at Jezero only in winds of 15 m/s and more at 1.5 m (Newman et al. 2022),
+//! a friction speed of 1.2 m/s ([`GUST_FRICTION`]). Their ratio S decides: Mars has 0.72 and gets
+//! the strength tuned for it; under 0.6 the dust fades and by 0.3 there is none (CO2 at Mars's
+//! gravity: from about 420 Pa down to 105 Pa), from about 1.5 on it is at full. The threshold is
+//! good to a factor 2 (recent wind tunnels put Mars's at 0.6 to 1.0 m/s, the classical value is 1.4
+//! to 2), and the fade's range is a judgement on six Solar System bodies: the thing to look at in
+//! game. Derived in `scripts/ed-shader/reports/Planetary dust and wind rendering.md`, proposal A1;
+//! until client 0.43.147 every body from 100 Pa on got at least 0.15 of its grain supply.
 //!
-//! The threshold also grows with the grain's own density, `sqrt(ρ_grain g / ρ_air)`: ice grains
-//! (0.93 g/cm³) lift about 1.7 times as easily as rock (2.65), so icy worlds with air blow white
-//! (Pluto's dunes of methane-ice grains, Triton's wind-blown plume streaks). How much loose grain
-//! there is goes by the ground ([`GroundType`]): sand and frost are covered in it, rocky ice less,
-//! fresh lava crust has little, its dark ash only in patches.
+//! Ice grains (0.93 g/cm³) start at 0.77 of rock's (2.65) threshold while they are colder than 170 K;
+//! from 200 K on water ice is ten times as sticky and they start at 1.37 of it ([`cohesion`]): cold
+//! icy worlds blow a little more easily than rocky ones, warm ones less. Worlds of 1 to 2 Pa (Pluto's
+//! dunes, Triton's streaks) are not this: their grains are lifted by subliming ice and geysers, and
+//! the wind only carries them; the gate at 100 Pa leaves them out. How much loose grain there is
+//! goes by the ground ([`GroundType`]): sand and frost are covered in it, rocky ice less, fresh
+//! lava crust has little, its dark ash only in patches.
 //!
-//! Written as `x515` (strength), `y515` (wind, m/s), `w515` (radius, m), `x516` to `z516` (colour), `x519` (the far drift's reach, m) of
+//! The sheet of hopping grains is as deep as the gravity is low ([`sheet_depth`]). Where the gust only
+//! just reaches the threshold the dust comes in passing fronts with clear ground between ([`activity`])
+//! and dies at night, when the wind near the ground falls to a third ([`night_share`]). The fine dust
+//! that was lifted stays up for days to months, mixed through kilometres of air: a haze through the
+//! whole column ([`DUST_HAZE`]), which follows neither the hour nor the fronts.
+//!
+//! Written as `x515` (strength), `y515` (wind, m/s), `w515` (radius, m), `x516` to `z516` (colour), `x519` (the far drift's reach, m), `y519` (the sheet's depth, m), `z519` (the fronts' share), `w519` (the night's dust over the day's), `x531` and `y531` (the dust haze and the air's scale height) of
 //! `ShaderFixes/edcas_params.txt`; `z515` is the shader's clock, set by `edcas.ini`.
 
 use crate::ground_tint::{ground_type, makeup, GroundType, Makeup};
 use crate::journal_reader::BodyScan;
+use crate::planet_clouds::mean_molar_mass;
 
 /// Below this the scan's "atmosphere" is too thin for the wind to move anything (the journals
 /// list no atmosphere under it, 2026-10-29).
 const MIN_PRESSURE_PA: f32 = 100.0;
-/// Mars's air near the ground (kg/m³) and gravity (m/s²), the reference.
-const MARS_DENSITY: f64 = 0.020;
-const MARS_GRAVITY: f64 = 3.71;
 /// Grain densities (kg/m³): Mars's sand (quartz-like, the reference) and water ice.
 const ROCK_GRAIN: f64 = 2650.0;
 const ICE_GRAIN: f64 = 930.0;
 /// The strength on a Mars-like planet: dust moves, but is seldom thick.
 const MARS_STRENGTH: f64 = 0.35;
-/// The wind (m/s) when the sand moves on Mars (the threshold is about 13 m/s at 2 m; Kok 2010),
-/// and the range the shader is given. Where the grains lift more easily (`lift`) they move at
-/// less. The floor is for the eye: at 3 m/s the streaks looked still, at 10 they moved
-/// (7 c in Pro Thaa RR-W d1-67, 2026-10-29).
-const MARS_WIND: f64 = 20.0;
+/// The gust's friction speed over the start threshold on the Mars of the tests (610 Pa of CO2 at
+/// 210 K, 3.71 m/s², rock grains): there the strength is [`MARS_STRENGTH`].
+const MARS_GUST_RATIO: f64 = 0.72;
+/// The cohesion in the start threshold, N/m (a fitted parameter, 1.65e-4 to 5e-4 in Kok et al. 2012),
+/// of rock and of cold ice.
+const COHESION: f64 = 3e-4;
+/// Water ice warmer than about 200 K sticks at least ten times as hard as silicates (Gundlach and
+/// Blum 2015); under 170 to 175 K it is no stickier than rock (Musiolik and Wurm 2019). Only the ratio
+/// is used: the cohesion above is fitted, not a surface energy. The scan does not say which ice a
+/// body has; this takes it for water ice. No source was found for SO2, CO2 or NH3 frost.
+const WARM_ICE_COHESION: f64 = 10.0;
+const ICE_WARMS_K: (f64, f64) = (170.0, 200.0);
+/// The friction speed over the wind at 1.5 m: the log law over a roughness of 1 cm,
+/// `0.4 / ln(1.5 / 0.01)`.
+const FRICTION_PER_WIND: f64 = 0.080;
+/// The friction speed of a gust that lifts dust, m/s: 15 m/s at 1.5 m (Jezero). One value for every
+/// body: the winds that are known vary far less than the threshold does.
+const GUST_FRICTION: f64 = FRICTION_PER_WIND * 15.0;
+/// The gust ratio under which there is no dust, and from which it is not thinned.
+const GUST_FADE: (f64, f64) = (0.3, 0.6);
+/// The range of the wind (m/s) the shader is given: the wind at 1.5 m at which the sand starts to
+/// move, 20.7 on Mars (the classical threshold; the dust moves in gusts of about that). The floor is
+/// for the eye: at 3 m/s the streaks looked still, at 10 they moved (7 c in Pro Thaa RR-W d1-67,
+/// 2026-10-29).
 const WIND_RANGE: (f64, f64) = (10.0, 25.0);
 /// How far the dust drifting over the land reaches by default, metres (the shader's FAR_REACH_M).
 const DEFAULT_REACH_M: f32 = 15_000.0;
@@ -73,19 +105,29 @@ pub struct Dust {
     pub colour: [f32; 3],
     /// `x519`: how far the dust drifting over the land reaches, metres (the player's setting).
     pub reach_m: f32,
+    /// `y519`: the saltation sheet's scale height, metres ([`sheet_depth`]).
+    pub sheet_m: f32,
+    /// `z519`: the share of the ground a dust front lies over, 0.05 to 1 ([`activity`]).
+    pub activity: f32,
+    /// `w519`: the night's dust over the day's, 0.001 to 1 ([`night_share`]).
+    pub night: f32,
+    /// `x531`: the dust haze's vertical optical depth ([`DUST_HAZE`]); 0 = none.
+    pub haze: f32,
+    /// `y531`: the air's scale height, metres: how the haze thins with the height.
+    pub scale_m: f32,
     /// How much loose grain the ground has, 0–1 ([`grain_supply`]; 0.5 for an unknown ground),
     /// in the strength. Not written itself.
     pub loose: f32,
 }
 
 impl Dust {
-    pub const NONE: Dust = Dust { strength: 0.0, wind: 0.0, radius_m: 0.0, colour: [0.0; 3], reach_m: DEFAULT_REACH_M, loose: 0.5 };
+    pub const NONE: Dust = Dust { strength: 0.0, wind: 0.0, radius_m: 0.0, colour: [0.0; 3], reach_m: DEFAULT_REACH_M, sheet_m: 0.8, activity: 1.0, night: 1.0, haze: 0.0, scale_m: 0.0, loose: 0.5 };
 
-    /// The values file's lines. Without dust that is `x515 = 0` alone: the rest stays as it was,
-    /// so 3DMigoto's fade only takes the strength down.
+    /// The values file's lines. Without dust that is `x515 = 0` and the haze's `x531 = 0` alone: the
+    /// rest stays as it was, so 3DMigoto's fade only takes the strengths down.
     pub fn assignments(&self) -> Vec<(&'static str, String)> {
         if self.strength <= 0.0 {
-            return vec![("x515", "0.000".to_string())];
+            return vec![("x515", "0.000".to_string()), ("x531", "0.0000".to_string())];
         }
         vec![
             ("x515", format!("{:.3}", self.strength)),
@@ -95,37 +137,18 @@ impl Dust {
             ("y516", format!("{:.3}", self.colour[1])),
             ("z516", format!("{:.3}", self.colour[2])),
             ("x519", format!("{:.0}", self.reach_m)),
+            ("y519", format!("{:.2}", self.sheet_m)),
+            ("z519", format!("{:.3}", self.activity)),
+            ("w519", format!("{:.3}", self.night)),
+            ("x531", format!("{:.4}", self.haze)),
+            ("y531", format!("{:.0}", self.scale_m)),
         ]
-    }
-}
-
-/// Molar mass (kg/mol) of the game's gases; others count as 30 g/mol.
-fn molar_mass(gas: &str) -> f64 {
-    match gas {
-        "CarbonDioxide" => 0.044,
-        "SulphurDioxide" => 0.064,
-        "Nitrogen" => 0.028,
-        "Oxygen" => 0.032,
-        "Argon" => 0.040,
-        "Neon" => 0.020,
-        "Helium" => 0.004,
-        "Hydrogen" => 0.002,
-        "Methane" => 0.016,
-        "Ammonia" => 0.017,
-        "Water" => 0.018,
-        _ => 0.030,
     }
 }
 
 /// The air's density at the ground, kg/m³ (ideal gas).
 fn air_density(body: &BodyScan, pressure_pa: f32, gases: &[(&str, f32)]) -> f64 {
-    let total: f64 = gases.iter().map(|(_, p)| f64::from(*p)).sum();
-    let mass = if total > 0.0 {
-        gases.iter().map(|(g, p)| molar_mass(g) * f64::from(*p)).sum::<f64>() / total
-    } else {
-        0.030
-    };
-    f64::from(pressure_pa) * mass / (8.314 * f64::from(body.surface_temperature.max(1.0)))
+    f64::from(pressure_pa) * mean_molar_mass(gases) / (8.314 * f64::from(body.surface_temperature.max(1.0)))
 }
 
 /// The body's makeup, rock when unknown.
@@ -143,12 +166,80 @@ fn colour_of(body: &BodyScan) -> [f32; 3] {
     [0, 1, 2].map(|i| (m.rock * ROCK_DUST[i] + m.metal * METAL_DUST[i] + m.ice * ICE_DUST[i]) / parts)
 }
 
-/// The grains' density (kg/m³), by the body's ice share: the scan's metal is the whole
-/// planet's, mostly in its core, so the grains at the surface are rock or ice.
-fn grain_density(body: &BodyScan) -> f64 {
+/// The share of ice in the grains at the surface, 0 to 1: the scan's metal is the whole planet's,
+/// mostly in its core, so the grains are rock or ice.
+fn ice_share(body: &BodyScan) -> f64 {
     let m = makeup_or_rock(body);
-    let ice = f64::from(m.ice / (m.ice + m.rock + m.metal).max(1e-6));
+    f64::from(m.ice / (m.ice + m.rock + m.metal).max(1e-6))
+}
+
+/// The grains' density (kg/m³) at an ice share.
+fn grain_density(ice: f64) -> f64 {
     ice * ICE_GRAIN + (1.0 - ice) * ROCK_GRAIN
+}
+
+/// The grains' cohesion (N/m) at an ice share and a surface temperature (K).
+fn cohesion(ice: f64, kelvin: f64) -> f64 {
+    COHESION * (1.0 + (WARM_ICE_COHESION - 1.0) * ice * smoothstep(ICE_WARMS_K.0, ICE_WARMS_K.1, kelvin))
+}
+
+/// The saltation sheet's scale height, metres: the flux of hopping sand falls by e every 5 to 10 cm on
+/// Earth (Martin and Kok 2017) and the hops are as high as the gravity is low. 0.1 m at 1 g, 0.26 on
+/// Mars, 0.63 on 7 c, 1 at a tenth of a g, at most 2. The Earth value is measured; every other is the
+/// 1 / g extrapolation (DUST-PLAN.md phase 3). The shader had 0.8 m for every body.
+fn sheet_depth(gravity: f64) -> f64 {
+    (0.1 * 9.81 / gravity).clamp(0.05, 2.0)
+}
+
+/// How thick the dust is for a gust ratio, before the grain supply and the player's setting: Mars's
+/// strength at Mars's ratio, in proportion to it, to full; faded out under [`GUST_FADE`].
+fn thickness(gust: f64) -> f64 {
+    (MARS_STRENGTH * gust / MARS_GUST_RATIO).clamp(0.0, 1.0) * smoothstep(GUST_FADE.0, GUST_FADE.1, gust)
+}
+
+/// The dust haze's vertical optical depth where the dust is at full strength on a ground of loose
+/// sand (`x531`, the shader's `dustHaze`); in proportion to the dust's thickness elsewhere, so 0.035
+/// on Mars and none where no gust reaches the threshold. Mars's own column is 0.4 to 1.25 (Gale), ten
+/// times this and more: along the horizon a column is some 14 times the vertical one, and at Mars's
+/// the land a few kilometres off would be gone. A starting value, picked on replays at 0.02, 0.05 and
+/// 0.1 (`ed-captures/dust-haze`, 2026-11-12), to tune in game.
+const DUST_HAZE: f64 = 0.1;
+
+/// The gust ratio from which the sand moves all the time: no fronts. Under 3 by DUST-PLAN.md's first
+/// figure; at 2.5 so that 7 c (2.68), where the dust was tuned in game as a steady one, stays so (the
+/// owner's choice, 2026-11-12).
+const STEADY_GUST_RATIO: f64 = 2.5;
+
+/// The share of the ground a dust front lies over (`z519`, the shader's `frontAt`), and so about the
+/// share of the time there is dust at a place: 0.05 where the gust only just reaches the threshold,
+/// 0.19 on Mars, 1 from [`STEADY_GUST_RATIO`] on. A starting value to tune in game: measured shares are
+/// lower still (Earth: 26 %, 6 % and 0.33 % of three hours as the wind fell; InSight's winds are over
+/// 15 m/s 0.4 to 1.4 % of the time).
+fn activity(gust: f64) -> f64 {
+    ((gust - GUST_FADE.0) / (STEADY_GUST_RATIO - GUST_FADE.0)).clamp(0.05, 1.0)
+}
+
+/// The wind near the ground at night over the day's: 0.19 to 0.37 on Mars (InSight, Jezero).
+const NIGHT_WIND: f64 = 0.3;
+
+/// The night's dust over the day's (`w519`): the thickness at the night's wind over the day's. 0.001
+/// on Mars (none: the slot's 0 means "as by day"), 0.39 on 7 c.
+fn night_share(gust: f64) -> f64 {
+    (thickness(NIGHT_WIND * gust) / thickness(gust).max(1e-9)).clamp(0.001, 1.0)
+}
+
+/// 0 under `from`, 1 over `to`, smooth between.
+fn smoothstep(from: f64, to: f64, x: f64) -> f64 {
+    let t = ((x - from) / (to - from)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+/// The friction speed (m/s) at which the wind starts to move the grains that move most easily:
+/// `0.157 (γ ρ_grain g)^(1/4) / sqrt(ρ_air)`. The reduction of Shao and Lu's threshold at its minimum
+/// over the grain size (the report's own, not a published formula); it gives Earth 0.2 and Mars
+/// 1.5 m/s as Kok et al. 2012 (Table 2.3) do, Titan 0.05 and Venus 0.035 against their 0.04 and 0.02.
+fn start_threshold(air_density: f64, gravity: f64, grain_density: f64, cohesion: f64) -> f64 {
+    0.157 * (cohesion * grain_density * gravity).powf(0.25) / air_density.sqrt()
 }
 
 /// The wind-blown dust of a scanned body at `strength` (the player's setting, 0–1 or more).
@@ -171,10 +262,28 @@ pub fn for_body(body: &BodyScan, strength: f32) -> Dust {
     };
     let density = air_density(body, exo.surface_pressure, &gases);
     let gravity = f64::from(body.surface_gravity);
-    let lift = (density / (gravity * grain_density(body))).sqrt() / (MARS_DENSITY / (MARS_GRAVITY * ROCK_GRAIN)).sqrt();
-    let wind = (MARS_WIND / lift).clamp(WIND_RANGE.0, WIND_RANGE.1);
-    let thick = (MARS_STRENGTH * lift).clamp(0.15, 1.0) * f64::from(still.loose);
-    Dust { strength: (thick * f64::from(strength)) as f32, wind: wind as f32, ..still }
+    let ice = ice_share(body);
+    let threshold = start_threshold(density, gravity, grain_density(ice), cohesion(ice, f64::from(body.surface_temperature)));
+    let gust = GUST_FRICTION / threshold;
+    let wind = (threshold / FRICTION_PER_WIND).clamp(WIND_RANGE.0, WIND_RANGE.1);
+    let thick = thickness(gust) * f64::from(still.loose);
+    let strength = (thick * f64::from(strength)) as f32;
+    // What would be written as 0.000 is none: `x515 = 0` alone, the rest stays as it was.
+    if strength < 0.0005 {
+        return still;
+    }
+    // The air's scale height, R T / (M g): the fine dust is mixed through the air as the air itself thins.
+    let scale_m = 8.314 * f64::from(body.surface_temperature.max(1.0)) / (mean_molar_mass(&gases) * gravity);
+    Dust {
+        strength,
+        wind: wind as f32,
+        sheet_m: sheet_depth(gravity) as f32,
+        activity: activity(gust) as f32,
+        night: night_share(gust) as f32,
+        haze: (DUST_HAZE * f64::from(strength)) as f32,
+        scale_m: scale_m as f32,
+        ..still
+    }
 }
 
 #[cfg(test)]
@@ -206,7 +315,7 @@ mod tests {
         assert_eq!((d.strength, d.radius_m), (0.0, 1_325_241.0));
         b.exo = None;
         assert_eq!(for_body(&b, 1.0).strength, 0.0);
-        let none = vec![("x515", "0.000".to_string())];
+        let none = vec![("x515", "0.000".to_string()), ("x531", "0.0000".to_string())];
         assert_eq!(d.assignments(), none);
         assert_eq!(Dust::NONE.assignments(), none);
     }
@@ -246,12 +355,114 @@ mod tests {
 
     #[test]
     fn ice_grains_lift_more_easily_than_rock() {
-        // The same air and gravity: an icy body's grains (0.85 ice) weigh about 40 % of rock's;
-        // apart from how much loose grain each ground has (frost against sand).
-        let rock = for_body(&body("Rocky body", "Nitrogen", 300.0, 150.0, 2.0), 1.0);
-        let ice = for_body(&body("Icy body", "Nitrogen", 300.0, 150.0, 2.0), 1.0);
+        // The same air and gravity: an icy body's grains (0.85 ice) weigh about 45 % of rock's, and
+        // the threshold goes with the fourth root of that; apart from how much loose grain each
+        // ground has (frost against sand). At 1500 Pa: over the fade, under full strength.
+        let rock = for_body(&body("Rocky body", "Nitrogen", 1500.0, 150.0, 2.0), 1.0);
+        let ice = for_body(&body("Icy body", "Nitrogen", 1500.0, 150.0, 2.0), 1.0);
         let ratio = (ice.strength / ice.loose) / (rock.strength / rock.loose);
-        assert!((1.4..1.6).contains(&ratio), "{ratio}: {rock:?} {ice:?}");
+        assert!((1.15..1.30).contains(&ratio), "{ratio}: {rock:?} {ice:?}");
+    }
+
+    /// The air's density of CO2 at `pressure` Pa and 210 K, kg/m³.
+    fn co2_210(pressure: f64) -> f64 {
+        pressure * 0.04401 / (8.314 * 210.0)
+    }
+
+    #[test]
+    fn the_start_threshold_of_the_reports_table() {
+        // DUST-PLAN.md phase 1: Mars 1.66 m/s (S 0.72), 7 c 0.45 (2.7), CO2 at Mars's gravity and
+        // 210 K: 420 Pa 2.0 (0.60), 250 Pa 2.6 (0.46), 100 Pa 4.1 (0.29).
+        let near = |a: f64, b: f64| (a - b).abs() < 0.01 * b.abs().max(1.0);
+        let mars = start_threshold(co2_210(610.0), 3.71, ROCK_GRAIN, COHESION);
+        assert!(near(mars, 1.66) && near(GUST_FRICTION / mars, MARS_GUST_RATIO), "{mars}");
+        let seven_c = start_threshold(4687.5 * 0.04401 / (8.314 * 182.1), 1.5457, ROCK_GRAIN, COHESION);
+        assert!(near(seven_c, 0.448) && near(GUST_FRICTION / seven_c, 2.68), "{seven_c}");
+        for (pressure, threshold, gust) in [(420.0, 2.00, 0.600), (250.0, 2.59, 0.463), (100.0, 4.10, 0.293)] {
+            let t = start_threshold(co2_210(pressure), 3.71, ROCK_GRAIN, COHESION);
+            assert!(near(t, threshold) && near(GUST_FRICTION / t, gust), "{pressure} Pa: {t}");
+        }
+    }
+
+    #[test]
+    fn warm_ice_is_stickier_than_rock_and_cold_ice_is_not() {
+        // DUST-PLAN.md phase 2: pure ice against rock in the same air and gravity.
+        let rock = start_threshold(0.02, 2.0, grain_density(0.0), cohesion(0.0, 220.0));
+        let cold = start_threshold(0.02, 2.0, grain_density(1.0), cohesion(1.0, 150.0));
+        let warm = start_threshold(0.02, 2.0, grain_density(1.0), cohesion(1.0, 220.0));
+        assert!((cold / rock - 0.77).abs() < 0.005, "{}", cold / rock);
+        assert!((warm / rock - 1.37).abs() < 0.005, "{}", warm / rock);
+        // Rock is the same at any temperature, and ice changes only between 170 and 200 K.
+        assert_eq!(cohesion(0.0, 150.0), cohesion(0.0, 300.0));
+        assert_eq!(cohesion(1.0, 100.0), cohesion(1.0, 170.0));
+        assert_eq!(cohesion(1.0, 200.0), cohesion(1.0, 300.0));
+        // So an icy body's dust thins as it warms, in the same air's density.
+        let at = |kelvin: f32, pressure: f32| for_body(&body("Icy body", "Nitrogen", pressure, kelvin, 2.0), 1.0).strength;
+        assert!(at(150.0, 1500.0) > at(220.0, 2200.0), "{} {}", at(150.0, 1500.0), at(220.0, 2200.0));
+    }
+
+    #[test]
+    fn the_sheet_is_as_deep_as_the_gravity_is_low() {
+        // DUST-PLAN.md phase 3: 1 g 0.10 m, Mars 0.26, 7 c 0.63, a tenth of a g 1.0, 0.03 g the cap.
+        for (gravity, metres) in [(9.81, 0.10), (3.71, 0.26), (1.5457, 0.63), (0.981, 1.0), (0.2943, 2.0), (40.0, 0.05)] {
+            assert!((sheet_depth(gravity) - metres).abs() < 0.006, "{gravity}: {}", sheet_depth(gravity));
+        }
+        let d = for_body(&body("Rocky body", "CarbonDioxide", 610.0, 210.0, 3.71), 1.0);
+        assert!(d.assignments().contains(&("y519", "0.26".to_string())), "{:?}", d.assignments());
+    }
+
+    #[test]
+    fn thin_worlds_get_fronts_and_calm_nights_dense_ones_neither() {
+        // DUST-PLAN.md phases 4 and 5. Mars: a front over a fifth of the ground, no dust at night.
+        let mars = for_body(&body("Rocky body", "CarbonDioxide", 610.0, 210.0, 3.71), 1.0);
+        assert!((mars.activity - 0.19).abs() < 0.005 && mars.night == 0.001, "{mars:?}");
+        // 7 c, tuned in game as a steady dust: no fronts, and 0.39 of it left at night.
+        let seven_c = for_body(&body("Rocky body", "CarbonDioxide", 4687.5, 182.1, 1.5457), 1.0);
+        assert!(seven_c.activity == 1.0 && (seven_c.night - 0.39).abs() < 0.005, "{seven_c:?}");
+        // Neither slot is ever written as 0, which the shader reads as "not set".
+        for pressure in [150.0, 250.0, 610.0, 2000.0, 50_000.0] {
+            let d = for_body(&body("Rocky body", "CarbonDioxide", pressure, 210.0, 3.71), 1.0);
+            assert!((0.05..=1.0).contains(&d.activity) && (0.001..=1.0).contains(&d.night), "{pressure}: {d:?}");
+            let lines = d.assignments();
+            let get = |name: &str| lines.iter().find(|(n, _)| *n == name).map(|(_, v)| v.parse::<f32>().unwrap());
+            assert!(get("z519").unwrap() > 0.0 && get("w519").unwrap() > 0.0, "{lines:?}");
+        }
+        // Both only grow with the gust.
+        assert!(activity(0.3) == 0.05 && activity(1.4) < activity(2.0) && activity(2.5) == 1.0 && activity(9.0) == 1.0);
+        assert!(night_share(0.72) == 0.001 && night_share(2.0) < night_share(3.0) && night_share(40.0) == 1.0);
+    }
+
+    #[test]
+    fn the_haze_goes_with_the_dust_and_the_airs_scale_height() {
+        // Mars: a tenth of its dust's strength, the air thinning by e every 10.7 km.
+        let mars = for_body(&body("Rocky body", "CarbonDioxide", 610.0, 210.0, 3.71), 1.0);
+        assert!((mars.haze - 0.1 * mars.strength).abs() < 1e-6 && (mars.haze - 0.035).abs() < 0.001, "{mars:?}");
+        assert!((mars.scale_m - 10_693.0).abs() < 20.0, "{mars:?}");
+        // 7 c: at full strength, 22 km.
+        let seven_c = for_body(&body("Rocky body", "CarbonDioxide", 4687.5, 182.1, 1.5457), 1.0);
+        assert!((seven_c.haze - 0.1).abs() < 1e-6 && (seven_c.scale_m - 22_255.0).abs() < 40.0, "{seven_c:?}");
+        // With the player's setting, and gone with the dust.
+        assert!((for_body(&body("Rocky body", "CarbonDioxide", 610.0, 210.0, 3.71), 0.5).haze - 0.5 * mars.haze).abs() < 1e-6);
+        assert_eq!(for_body(&body("Rocky body", "CarbonDioxide", 100.0, 210.0, 3.71), 1.0).haze, 0.0);
+    }
+
+    #[test]
+    fn thin_air_under_the_gusts_reach_has_no_dust() {
+        // 100 Pa of CO2 at Mars's gravity: the gust is 0.29 of the threshold, under the fade's end.
+        let none = for_body(&body("Rocky body", "CarbonDioxide", 100.0, 210.0, 3.71), 1.0);
+        assert_eq!(none.strength, 0.0, "{none:?}");
+        assert_eq!(none.assignments(), vec![("x515", "0.000".to_string()), ("x531", "0.0000".to_string())]);
+        // 250 Pa: inside the fade.
+        let thin = for_body(&body("Rocky body", "CarbonDioxide", 250.0, 210.0, 3.71), 1.0);
+        assert!((0.05..0.2).contains(&thin.strength), "{thin:?}");
+        // And the strength only grows with the pressure, to full.
+        let mut last = 0.0;
+        for pressure in [100.0, 150.0, 250.0, 420.0, 610.0, 2000.0, 10_000.0] {
+            let d = for_body(&body("Rocky body", "CarbonDioxide", pressure, 210.0, 3.71), 1.0);
+            assert!(d.strength >= last, "{pressure}: {d:?}");
+            last = d.strength;
+        }
+        assert_eq!(last, 1.0);
     }
 
     #[test]
@@ -276,6 +487,6 @@ mod tests {
     fn the_lines_are_x15_to_x19_without_the_clock() {
         let d = for_body(&body("Rocky body", "CarbonDioxide", 610.0, 210.0, 3.71), 1.0);
         let names: Vec<_> = d.assignments().into_iter().map(|(n, _)| n).collect();
-        assert_eq!(names, ["x515", "y515", "w515", "x516", "y516", "z516", "x519"]);
+        assert_eq!(names, ["x515", "y515", "w515", "x516", "y516", "z516", "x519", "y519", "z519", "w519", "x531", "y531"]);
     }
 }

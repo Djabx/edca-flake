@@ -17,7 +17,7 @@
 //! has a look per kind of ground, [`GroundType`], worked out from the body's scan
 //! ([`ground_type`]); `x511` and `z511` are its strength.
 //!
-//! The same file carries the star's light colour (`x526` to `w526`, `x527` the witch-space rainbow, see [`crate::star_light`]) and the planet's clouds (`x503` to `w504`, `z505`, `x508`, `x509` (the canopy frost), `w509` (the lamps' glow in fog) and the
+//! The same file carries the star's light colour (`x526` to `w526`, `x527` the witch-space rainbow, see [`crate::star_light`]) and the planet's clouds (`x503` to `w504`, `z505`, `x501` to `w501`, `x502`, `y502`, the haze's `x522` to `w522` and `x528` to `z528`, `x508`, `x509` (the canopy frost), `w509` (the lamps' glow in fog) and the
 //! ground fog's `x507`, `y507` and `w507`, see [`crate::planet_clouds`]).
 //! The file is replaced as a whole, so both are written here, together, and any other
 //! line already in it (the glow scale `x505` the player tunes by hand) is kept.
@@ -182,7 +182,7 @@ impl Tint {
 /// is no tint) stay as they were.
 pub fn params_text(existing: &str, look: &Look) -> String {
     let ours = look.assignments();
-    let mut text = String::from("; written by EDCAS: planet ground tint (x500 y500 z500 w500), ground detail (x511, z511, $ground_type) and its ice look's switches (x520, w520), clouds (x503 to w504, z505, x507, w507, y507, x508, x509, w509), dust (x515 to z516, x519), the star's light (x526 y526 z526 w526, x527 the witch-space rainbow)\n");
+    let mut text = String::from("; written by EDCAS: planet ground tint (x500 y500 z500 w500), ground detail (x511, z511, $ground_type) and its ice look's switches (x520, w520), clouds (x503 to w504, z505, x501 to w501, x502, y502, x507, w507, y507, x508, x509, w509, x521 to w521, the waves x529 y529, the deck's cells and rows z529 w529, the fall streaks x530, the smooth veil and its halo y530 z530, a droplet layer's edges w530, the haze x522 to w522 and x528 to z528), dust (x515 to z516, x519 to w519, the haze x531 y531), the star's light (x526 y526 z526 w526, x527 the witch-space rainbow)\n");
     for (name, value) in &ours {
         text.push_str(&format!("{name} = {value}\n"));
     }
@@ -353,6 +353,7 @@ fn clouds_at(g: &GameGraphicsSettings, body: Option<&BodyScan>) -> Forecast {
         let c = &mut forecast.clouds;
         c.volumetric = g.planet_clouds_volumetric;
         c.thickness *= look_scale(g.planet_cloud_thickness);
+        c.thickness_m *= look_scale(g.planet_cloud_thickness);
         // The shader reads x508 = 0 as its own default, so 0 % asks for the least it takes instead.
         c.softness = (c.softness * look_scale(g.planet_cloud_softness)).max(MIN_SOFTNESS);
         c.fog_depth_m = f32::from(g.planet_fog_depth.clamp(*FOG_DEPTH_RANGE.start(), *FOG_DEPTH_RANGE.end()));
@@ -620,7 +621,7 @@ impl Updater {
             let why = match why {
                 planet_clouds::NoClouds::Airless => "no atmosphere, or the scan has no atmosphere data",
                 planet_clouds::NoClouds::NothingFreezes => "there is air but none of its gases freeze into clouds",
-                planet_clouds::NoClouds::TooWarm => "every gas that could is too warm to freeze at any height",
+                planet_clouds::NoClouds::TooWarm => "every gas that could is too warm to freeze at any height, or more than 90 K above its frost point",
             };
             info!("Clouds for '{body_name}': none, {why}");
         }
@@ -737,6 +738,7 @@ mod tests {
         BodyScan {
             body_name: "6 e".to_string(),
             surface_temperature: 156.03,
+            surface_gravity: 0.643_268,
             radius: 564_697.0,
             exo: Some(ExoScan {
                 atmosphere_type: "CarbonDioxideRich".to_string(),
@@ -829,7 +831,7 @@ mod tests {
 
     #[test]
     fn the_file_keeps_the_lines_that_are_not_written_now() {
-        let cloudy = planet_clouds::forecast(&[("Nitrogen", 100.0)], 3000.0, 70.0, 1.0).clouds;
+        let cloudy = planet_clouds::forecast(&planet_clouds::Air::new(&[("Nitrogen", 100.0)], 3000.0, 70.0), 1.0).clouds;
         let existing = "; old\nx500 = 0.7\ny500 = 1\nx503 = 0.5\ny503 = 9\nx505 = 0.35\nx507 = 0.3\n\nX1 = 1\n";
 
         // With clouds and a tint all eighteen are written (and the dust's x515) and x505 stays; stale x, x503, y503 don't double up.
@@ -837,7 +839,7 @@ mod tests {
         let star = StarLight { colour: [1.9, 0.8, 0.2], strength: 1.0, rainbow: false };
         let text = params_text(existing, &Look { tint: tinted, clouds: cloudy, dust: Dust::NONE, detail: Detail::NONE, star });
         let names: Vec<_> = text.lines().filter_map(|l| l.split_once(" = ")).map(|(n, _)| n).collect();
-        assert_eq!(names, ["x500", "y500", "z500", "w500", "x503", "y503", "z503", "w503", "x504", "y504", "w504", "z505", "x507", "w507", "y507", "x508", "x509", "w509", "x515", "x511", "z511", "x520", "w520", "x526", "y526", "z526", "w526", "x527", "x505", "X1"], "{text}");
+        assert_eq!(names, ["x500", "y500", "z500", "w500", "x503", "y503", "z503", "w503", "x504", "y504", "w504", "z505", "x501", "y501", "z501", "w501", "x502", "y502", "x507", "w507", "y507", "x508", "x509", "w509", "x521", "y521", "z521", "w521", "x529", "y529", "z529", "w529", "x530", "y530", "z530", "w530", "x522", "x515", "x531", "x511", "z511", "x520", "w520", "x526", "y526", "z526", "w526", "x527", "x505", "X1"], "{text}");
         assert!(text.contains("x505 = 0.35\n") && text.contains("y503 = 8.000\n"), "{text}");
 
         // Without clouds only x503 and x507 are ours: the old look of the clouds (y503) is kept, the fog goes.
@@ -974,12 +976,14 @@ mod tests {
         journal.status.body_name = "Mars B 1".to_string();
         let f = GroundTint::wanted_clouds(&settings, &journal);
         assert!(f.clouds.coverage > 0.0);
-        assert!((f.clouds.opacity - 0.689 * 0.7 * 0.18).abs() < 0.002, "{:?}", f.clouds);
+        // CO2 64 K above its frost point: the main gas's high clouds, at most the regime's optical depth 0.30
+        // (no gravity in this scan: the partial pressure's opacity, held under it).
+        assert!((f.clouds.slab_opacity - (1.0 - (-0.3f32).exp())).abs() < 0.002, "{:?}", f.clouds);
         assert!(f.clouds.volumetric, "volumetric is the default");
         settings.game_graphics.planet_clouds_volumetric = false;
         assert!(!GroundTint::wanted_clouds(&settings, &journal).clouds.volumetric);
         settings.game_graphics.planet_clouds_volumetric = true;
-        assert_eq!(GroundTint::cloud_status(&settings, &journal), "Clouds: carbon dioxide ice, high, sparse · no ground fog here");
+        assert_eq!(GroundTint::cloud_status(&settings, &journal), "Clouds: carbon dioxide ice, noctilucent-type high clouds, faint · no ground fog here");
         settings.game_graphics.planet_clouds = false;
         assert_eq!(GroundTint::wanted_clouds(&settings, &journal).clouds, Clouds::NONE);
     }
@@ -1102,7 +1106,7 @@ mod tests {
         *feed.place().lock().unwrap() = Place { body_name: "6 e".to_string(), bodies: vec![six_e, BodyScan { body_name: "Rock".to_string(), ..Default::default() }], ..Default::default() };
         tick(&feed, &mut updater);
         let text = read();
-        assert_eq!((value(&text, "x507"), value(&text, "w507")), (0.1, 564_697.0), "{text}");
+        assert_eq!((value(&text, "x507"), value(&text, "w507")), (0.094, 564_697.0), "{text}");
         assert!(text.contains("x503 = 0.") && value(&text, "x503") > 0.0, "{text}");
 
         // The setting off: no density, the radius stays.
@@ -1113,7 +1117,7 @@ mod tests {
         settings.game_graphics.planet_fog = true;
         feed.set_settings(&settings);
         tick(&feed, &mut updater);
-        assert_eq!(value(&read(), "x507"), 0.1);
+        assert_eq!(value(&read(), "x507"), 0.094);
 
         // An airless body: x503 and x507 go to 0, so the fog doesn't stay on it; the radius is left.
         feed.place().lock().unwrap().body_name = "Rock".to_string();
@@ -1132,11 +1136,11 @@ mod tests {
             clouds_at(g, Some(&six_e())).clouds.assignments().into_iter().find(|(n, _)| *n == name).unwrap().1
         };
         let all = |g: &GameGraphicsSettings, names: [&str; 4]| names.map(|n| get(g, n));
-        assert_eq!(all(&g, ["x507", "z505", "y507", "x508"]), ["0.100", "0.100", "800", "0.500"]);
+        assert_eq!(all(&g, ["x507", "z505", "y507", "x508"]), ["0.094", "0.100", "800", "0.500"]);
         assert_eq!(get(&g, "x509"), "1.000");
 
         g.planet_fog_density = 200;
-        assert_eq!(get(&g, "x507"), "0.200");
+        assert_eq!(get(&g, "x507"), "0.188");
         g.planet_fog_density = 0;
         assert_eq!(get(&g, "x507"), "0.000");
         g.planet_fog_density = 100;
@@ -1183,9 +1187,9 @@ mod tests {
         g.planet_canopy_frost = true;
         assert_eq!(get(&g, "x509"), "1.000");
 
-        // Without a body nothing of it is written: x503 and x507 alone.
+        // Without a body nothing of it is written: x503, x507, x521 and x522 alone.
         let none = clouds_at(&g, None).clouds.assignments();
-        assert_eq!(none.iter().map(|(n, _)| *n).collect::<Vec<_>>(), ["x503", "x507"]);
+        assert_eq!(none.iter().map(|(n, _)| *n).collect::<Vec<_>>(), ["x503", "x507", "x521", "x522"]);
     }
 
     #[test]
@@ -1201,11 +1205,11 @@ mod tests {
         *feed.place().lock().unwrap() = Place { body_name: "6 e".to_string(), bodies: vec![six_e()], ..Default::default() };
         tick(&feed, &mut updater);
         let text = read();
-        assert_eq!((value(&text, "x507"), value(&text, "z505"), value(&text, "y507"), value(&text, "x508")), (0.1, 0.1, 800.0, 0.5), "{text}");
+        assert_eq!((value(&text, "x507"), value(&text, "z505"), value(&text, "y507"), value(&text, "x508")), (0.094, 0.1, 800.0, 0.5), "{text}");
         assert_eq!(value(&text, "x509"), 1.0, "{text}");
 
         for (change, name, wanted) in [
-            (&|g: &mut GameGraphicsSettings| g.planet_fog_density = 200, "x507", 0.2),
+            (&|g: &mut GameGraphicsSettings| g.planet_fog_density = 200, "x507", 0.188),
             (&|g: &mut GameGraphicsSettings| g.planet_fog_depth = 1500, "y507", 1500.0),
             (&|g: &mut GameGraphicsSettings| g.planet_cloud_thickness = 200, "z505", 0.2),
             (&|g: &mut GameGraphicsSettings| g.planet_cloud_softness = 0, "x508", 0.01),
@@ -1225,7 +1229,7 @@ mod tests {
         }
         // The earlier changes stay in the later writes.
         let text = read();
-        assert_eq!((value(&text, "x507"), value(&text, "y507"), value(&text, "z505"), value(&text, "x508")), (0.2, 1500.0, 0.2, 0.01), "{text}");
+        assert_eq!((value(&text, "x507"), value(&text, "y507"), value(&text, "z505"), value(&text, "x508")), (0.188, 1500.0, 0.2, 0.01), "{text}");
         assert_eq!(value(&text, "x509"), 2.0, "{text}");
 
         drop(updater);

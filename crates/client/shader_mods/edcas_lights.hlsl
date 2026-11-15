@@ -29,7 +29,7 @@
 // less glow from 40 m (a model with the lamp records of FrameAnalysis-2026-10-28, 2026-11-10).
 #define LIGHT_FOOTPRINT 1.25
 
-float3 lightsInMedium(float3 v0, float3 v1)
+float3 lightsInMedium(float3 v0, float3 v1, Ray planetRay)
 {
 	// The angle one texel of this buffer covers, before any branch (a derivative).
 	float3 rayAcross = ddx(normalize(v1)), rayDown = ddy(normalize(v1));
@@ -45,9 +45,10 @@ float3 lightsInMedium(float3 v0, float3 v1)
 	uint part = (uint)(tune.z + 0.5);
 	if (spots + spots2 + small == 0)
 		return 0;
-	float3 dir;
-	int2 pixel;
-	float ground = viewRay(v0, v1, dir, pixel);
+	// (`ray` below is the same ray in the camera's frame, metres)
+	float3 dir = planetRay.dir;
+	int2 pixel = planetRay.pixel;
+	float ground = planetRay.ground;
 	// cb1[19..21] turn a camera-relative world vector (metres) into the planet's frame.
 	float unitsPerMetre = length(cb1[19].xyz);
 	if (!(unitsPerMetre > 0))

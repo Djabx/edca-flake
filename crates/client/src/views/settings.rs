@@ -1044,6 +1044,12 @@ impl SettingsView {
                         Some((at, found)) if at.elapsed() < std::time::Duration::from_secs(5) => found.clone(),
                         _ => {
                             let found = shader_mods::damage(&dir);
+                            // The warning goes to the log once each time it changes, so a
+                            // diagnostics zip shows what Settings showed.
+                            let before = cached.as_ref().map(|(_, f)| f.as_slice());
+                            if !found.is_empty() && before != Some(found.as_slice()) {
+                                warn!("Shader mods: Settings shows the 'another installer' warning: {}", found.join("; "));
+                            }
                             *cached = Some((std::time::Instant::now(), found.clone()));
                             found
                         }
@@ -1058,7 +1064,7 @@ impl SettingsView {
                 rows.push(GridRow { cells });
                 rows.push(info(text, false));
                 if !damage.is_empty() {
-                    rows.push(info("⚠ Another installer (EDHM's) changed the game folder. Press Repair (close the game first on Windows); EDCAS also repairs it by itself when the game closes.".to_string(), true));
+                    rows.push(info("⚠ Another 3DMigoto install changed the game folder: EDHM's, or what EDHM left behind (uninstalling EDHM keeps its d3d11.dll). Press Repair (close the game first on Windows); EDCAS also repairs it by itself when the game closes.".to_string(), true));
                     rows.extend(damage.iter().map(|d| info(format!("   • {d}"), true)));
                 }
             }

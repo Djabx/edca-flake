@@ -171,7 +171,7 @@ const OLD_TEXTURES: [&str; 4] = ["edcas_ground_detail.dds", "edcas_ground_relief
 
 /// Every shader `edcas.ini` runs or they include, as `SKY_SHADERS` in `install.py` (a test
 /// checks they are the same list).
-pub const SKY_SHADERS: [(&str, &str); 18] = [
+pub const SKY_SHADERS: [(&str, &str); 20] = [
     ("edcas_noise.hlsl", include_str!("../shader_mods/edcas_noise.hlsl")),
     ("edcas_clouds.hlsl", include_str!("../shader_mods/edcas_clouds.hlsl")),
     ("edcas_clouds_final.hlsl", include_str!("../shader_mods/edcas_clouds_final.hlsl")),
@@ -180,6 +180,8 @@ pub const SKY_SHADERS: [(&str, &str); 18] = [
     ("edcas_dust.hlsl", include_str!("../shader_mods/edcas_dust.hlsl")),
     ("edcas_ground_grid.hlsl", include_str!("../shader_mods/edcas_ground_grid.hlsl")),
     ("edcas_ground_ref.hlsl", include_str!("../shader_mods/edcas_ground_ref.hlsl")),
+    ("edcas_sun_ref.hlsl", include_str!("../shader_mods/edcas_sun_ref.hlsl")),
+    ("edcas_memory.hlsl", include_str!("../shader_mods/edcas_memory.hlsl")),
     ("edcas_canopy_contact.hlsl", include_str!("../shader_mods/edcas_canopy_contact.hlsl")),
     ("edcas_canopy_frost.hlsl", include_str!("../shader_mods/edcas_canopy_frost.hlsl")),
     ("edcas_canopy_ice.hlsl", include_str!("../shader_mods/edcas_canopy_ice.hlsl")),
@@ -306,10 +308,38 @@ pub fn star_light(asm: &str, source: &str) -> Result<String, String> {
     // cb2[1].xy for its texel loads): its rainbow runs in bands out from the screen's centre, with the
     // witch-space clouds that stream past the ship (several colours at once, 2026-11-09: one hue over
     // the whole picture looked flat); the other copies, without it, cycle.
-    let swirl = (source == "cb2[40]" && lines.iter().any(|l| l == "dcl_input_ps linear v0.xy")).then_some("v0");
-    let mut block = tint_block(&reg, &clock, swirl);
+    let screen = source == "cb2[40]" && lines.iter().any(|l| l == "dcl_input_ps linear v0.xy");
+    let mut block = tint_block(&reg, &clock, screen.then_some("v0"));
     block.push(format!("mul {reg}.xyz, {reg}.xyzx, {source}.xyzx"));
-    Ok(places.insert(lines, temps_line, n, block))
+    // And the sun pass takes the sun off the ground it has set on (sunset_block).
+    if screen {
+        block.extend(sunset_block(&reg, &clock));
+    }
+    Ok(places.insert(lines, temps_line, n, block, screen.then_some(SUNSET_DECL)))
+}
+
+/// The terrain mask's slot in the sun pass (`edcas.ini` binds `ResourceEdcasTerrainDist` there, as
+/// the dust reads it) and its declaration.
+const SUNSET_DECL: &str = "dcl_resource_texture2d (float,float,float,float) t118";
+
+/// The lines that take from the sun's colour in `reg.xyz` the share of the sun that has set for the
+/// ground under the pixel: the terrain mask's second channel ([`mask`]: 0 the sun is up, 1 it is
+/// down; 0 where no ground was drawn, and where the mask is not bound). Elite dims the sun by what
+/// the camera sees of it; from a few hundred metres up, where the sun's edge still shows, that lit
+/// ground the sun had set on, on every slope facing it (`ed_frame112478`, 2026-11-12). `v0` is the
+/// pixel's place on the screen (0 to 1), `cb2[1].xy` the resolution, as the pass's own first lines
+/// read its G-buffer; `clock` is scratch. Port of `star_light.sunset_block`.
+fn sunset_block(reg: &str, clock: &str) -> Vec<String> {
+    vec![
+        "// EDCAS sunset: the ground the sun has set on gets none of it (the terrain mask's y)".to_string(),
+        format!("mul {clock}.xy, v0.xyxx, cb2[1].xyxx"),
+        format!("round_ni {clock}.xy, {clock}.xyxx"),
+        format!("ftou {clock}.xy, {clock}.xyxx"),
+        format!("mov {clock}.zw, l(0,0,0,0)"),
+        format!("ld_indexable(texture2d)(float,float,float,float) {clock}.x, {clock}.xyww, t118.yxzw"),
+        format!("add_sat {clock}.x, -{clock}.x, l(1.000000)"),
+        format!("mul {reg}.xyz, {reg}.xyzx, {clock}.xxxx"),
+    ]
 }
 
 /// Where the star light's tint goes into a shader: the block after the last declaration,
@@ -327,13 +357,16 @@ impl TintPlaces {
         Ok(TintPlaces { last_decl, last_resource })
     }
 
-    /// `lines` with the tint `block` and t120 in place and two more temporaries (`r{n}`, `r{n+1}`)
-    /// declared on `temps_line`.
-    fn insert(&self, mut lines: Vec<String>, temps_line: usize, n: u32, block: Vec<String>) -> String {
+    /// `lines` with the tint `block` and t120 in place (and `more`, a second texture's declaration,
+    /// after it) and two more temporaries (`r{n}`, `r{n+1}`) declared on `temps_line`.
+    fn insert(&self, mut lines: Vec<String>, temps_line: usize, n: u32, block: Vec<String>, more: Option<&str>) -> String {
         lines[temps_line] = format!("dcl_temps {}", n + 2);
         // The later place first, so the earlier one's index stays right.
         lines.splice(self.last_decl + 1..self.last_decl + 1, block);
         lines.insert(self.last_resource + 1, T120_DECL.to_string());
+        if let Some(more) = more {
+            lines.insert(self.last_resource + 2, more.to_string());
+        }
         lines.join("\n")
     }
 }
@@ -417,7 +450,7 @@ pub fn star_light_list(asm: &str, slot: &str) -> Result<String, String> {
         let indent: String = lines[*i].chars().take_while(|c| *c == ' ').collect();
         lines.insert(i + 1, format!("{indent}mul {dest}.xyz, {dest}.xyzx, {reg}.xyzx"));
     }
-    Ok(places.insert(lines, temps_line, n, tint_block(&reg, &clock, None)))
+    Ok(places.insert(lines, temps_line, n, tint_block(&reg, &clock, None), None))
 }
 
 /// The lines of a game shader's assembly (`\r\n` read as `\n`) that EDCAS has not patched yet:
@@ -514,12 +547,14 @@ const ICE_ROUGHNESS: f32 = 0.5;
 /// The sparkle (`ground_tint.py`, `SPARKLE_*`, whose comment says how it works).
 const SPARKLE_CELL: f64 = 0.02;
 const SPARKLE_TILT: f64 = 0.7;
-const SPARKLE_CONE: f64 = 0.09;
-const SPARKLE_ROUGHNESS: f64 = 0.25;
+const SPARKLE_CONE: f64 = 0.054;
+const SPARKLE_ROUGHNESS: f64 = 0.45;
 const SPARKLE_F0: f64 = 0.02;
 const SPARKLE_LEVEL_MAX: f64 = 20.0;
 const SPARKLE_DOT_FOOTPRINTS: f64 = 3.0;
 const SPARKLE_DOT_MIN: f64 = 0.3;
+const SPARKLE_FADE_START: f64 = 0.03;
+const SPARKLE_FADE_END: f64 = 0.25;
 const HASH_LEVEL: u32 = 0x1656_67b1;
 const HASH_MULTIPLIERS: [u32; 4] = [0x9e37_79b1, 0x85eb_ca6b, 0xc2b2_ae35, 0x27d4_eb2f];
 const HASH_SALTS: [u32; 3] = [0x0000_0000, 0x68e3_1da4, 0xb529_7a4d];
@@ -616,11 +651,9 @@ fn sparkle_lines(a: &str, b: &str, d: &str, e: &str, f: &str, g: &str, h: &str, 
     };
 
     let mut lines = vec![
-        "// EDCAS sparkle: z520 (0 = 1, under 0 = off) widens or narrows the cone of facets that glint".to_string(),
+        "// EDCAS sparkle: z520 (0 = off, the default; above 0 = on: 1 the cone of facets that glint as built, more widens it)".to_string(),
         format!("ld_indexable(texture1d)(float,float,float,float) {h}.xyzw, l(520, 0, 0, 0), t120.xyzw"),
-        format!("eq {h}.w, {h}.z, l(0.000000)"),
-        format!("movc {h}.z, {h}.w, l(1.000000), {h}.z"),
-        format!("lt {h}.w, {h}.z, l(0.000000)"),
+        format!("ge {h}.w, l(0.000000), {h}.z"),
         format!("deriv_rtx_fine {d}.xyz, v3.xyzx"),
         format!("deriv_rty_fine {e}.xyz, v3.xyzx"),
         format!("dp3 {d}.w, {d}.xyzx, {d}.xyzx"),
@@ -628,6 +661,17 @@ fn sparkle_lines(a: &str, b: &str, d: &str, e: &str, f: &str, g: &str, h: &str, 
         format!("max {d}.w, {d}.w, {e}.w"),
         format!("sqrt {h}.x, {d}.w"),
         format!("movc {d}.w, {h}.w, l(0.000000), {a}.x"),
+        format!("mul {f}.xyz, {d}.yzxy, {e}.zxyz"),
+        format!("mad {f}.xyz, -{d}.zxyz, {e}.yzxy, {f}.xyzx"),
+        format!("dp3 {f}.x, {f}.xyzx, {f}.xyzx"),
+        format!("sqrt {f}.x, {f}.x"),
+        format!("log {f}.x, {f}.x"),
+        format!(
+            "mad_sat {f}.x, {f}.x, l({:.6}), l({:.6})",
+            -0.5 / (SPARKLE_FADE_END / SPARKLE_FADE_START).log2(),
+            SPARKLE_FADE_END.log2() / (SPARKLE_FADE_END / SPARKLE_FADE_START).log2()
+        ),
+        format!("mul {d}.w, {d}.w, {f}.x"),
         format!("mov {d}.y, l(0.000000)"),
         format!("lt {e}.x, l(0.000000), {d}.w"),
         format!("if_nz {e}.x"),
@@ -750,10 +794,23 @@ pub fn gloss(asm: &str) -> Result<String, String> {
 }
 
 /// The ground shader with the terrain mask: it also writes its distance from the camera
-/// (metres, the length of the camera-relative position `v3`) to `o4`, which 3DMigoto binds next
-/// to Elite's four G-buffer outputs. The dust takes a pixel for ground only where that distance
-/// is the depth buffer's, which also holds the ships and the SRV. `asm` is [`detail`]'s result.
-/// Port of `ground_tint.mask`, whose docstring says more.
+/// (metres, the length of the camera-relative position `v3`, at most [`MASK_FAR_M`]) to `o4.x`,
+/// which 3DMigoto binds next to Elite's four G-buffer outputs. The dust takes a pixel for ground
+/// only where that distance is the depth buffer's, which also holds the ships and the SRV. And to
+/// `o4.y` how far the sun has set for this point of the ground (0 up, 1 down, over
+/// [`SUNSET_SINE`] either side of the horizon), for the sun pass ([`sunset_block`]): the dot of the
+/// point's place from the planet's centre (`v3 + cb2[12]`, negated) with the light's direction
+/// `cb1[4]`. No sunset on ground farther than [`MASK_FAR_M`]: the sun pass reads the mask without the
+/// depth, and from orbit Elite draws a planet's far terrain over this shader's with one that writes no
+/// mask, so a stale sunset dimmed a band of the lit disc, or all of it for a frame (2026-11-15,
+/// ed_frame136151). `asm` is [`detail`]'s result. Port of `ground_tint.mask`, whose docstring says more.
+/// The farthest ground the mask holds as ground, metres: its target is half floats (R16G16_FLOAT), where
+/// a distance over 65504 m would be infinite; the dust's far drift ends at 15 km.
+const MASK_FAR_M: f32 = 60000.0;
+/// The sine of the sun's height from which down it counts as set for a point of the ground, and from
+/// which up as risen: 0.29 degrees either way, about the sun's disc from the Earth.
+const SUNSET_SINE: f32 = 0.005;
+
 pub fn mask(asm: &str) -> Result<String, String> {
     const UNKNOWN: &str = "the terrain mask goes on a tinted ground shader with outputs o0 to o3 and the position v3; the game may have changed it";
     let mut lines = asm_lines(asm);
@@ -774,11 +831,27 @@ pub fn mask(asm: &str) -> Result<String, String> {
     let write = [
         "// EDCAS terrain mask: this ground's distance from the camera (m), for the dust".to_string(),
         format!("dp3 {r}.x, v3.xyzx, v3.xyzx"),
-        format!("sqrt o4.x, {r}.x"),
+        format!("sqrt {r}.x, {r}.x"),
+        format!("min o4.x, {r}.x, l({MASK_FAR_M:.6})"),
+        "// and how far the sun has set here (0 up, 1 down), for the sun pass".to_string(),
+        format!("add {r}.xyz, v3.xyzx, cb2[12].xyzx"),
+        format!("dp3 {r}.w, {r}.xyzx, {r}.xyzx"),
+        format!("rsq {r}.w, {r}.w"),
+        format!("mul {r}.xyz, {r}.xyzx, {r}.wwww"),
+        format!("dp3 {r}.x, {r}.xyzx, cb1[4].xyzx"),
+        format!("mad_sat {r}.x, {r}.x, l({:.6}), l(0.500000)", -0.5 / SUNSET_SINE),
+        format!("mad {r}.y, {r}.x, l(-2.000000), l(3.000000)"),
+        format!("mul {r}.x, {r}.x, {r}.x"),
+        format!("mul {r}.x, {r}.x, {r}.y"),
+        "// none on ground farther than MASK_FAR_M (see the docstring)".to_string(),
+        format!("dp3 {r}.z, v3.xyzx, v3.xyzx"),
+        format!("lt {r}.z, {r}.z, l({:.6})", MASK_FAR_M * MASK_FAR_M),
+        format!("and {r}.z, {r}.z, l(0x3f800000)"),
+        format!("mul o4.y, {r}.x, {r}.z"),
     ];
     lines.splice(alpha_line + 1..alpha_line + 1, write);
     lines[temps_line] = format!("dcl_temps {}", n + 1);
-    lines.insert(outputs[outputs.len() - 1] + 1, "dcl_output o4.x".to_string());
+    lines.insert(outputs[outputs.len() - 1] + 1, "dcl_output o4.xy".to_string());
     Ok(lines.join("\n"))
 }
 
@@ -1188,6 +1261,9 @@ pub fn install(dir: &Path, bundle: &Bundle, version: &str, want: Wanted, mut pro
     let files = read_zip(&bundle.zip)?;
     let dll = files.iter().find(|(p, _)| p == "d3d11.dll").map(|(_, d)| d).ok_or("the download has no d3d11.dll")?;
 
+    if edloader_in_place(dir) {
+        return Err(EDLOADER_REFUSAL.into());
+    }
     progress("Installing d3d11.dll");
     install_dll(dir, dll)?;
 
@@ -1386,7 +1462,8 @@ pub(crate) fn dll_report(dir: &Path) -> String {
     let dll = match fs::read(dir.join("d3d11.dll")) {
         Err(_) => "no d3d11.dll".to_string(),
         Ok(b) if is_edcas_dll(&b) => format!("d3d11.dll is EDCAS's build ({} bytes)", b.len()),
-        Ok(b) => format!("d3d11.dll is another 3DMigoto's ({} bytes): edcas_params.txt is not read, the values stay at the ini's defaults", b.len()),
+        Ok(b) if is_edloader_dll(&b) => format!("d3d11.dll is edloader's ({} bytes): EDCAS leaves it alone and can't run its shader mods through it yet", b.len()),
+        Ok(b) => format!("d3d11.dll is another 3DMigoto's ({} bytes; EDHM's, or one left behind when EDHM was uninstalled): it doesn't read edcas_params.txt", b.len()),
     };
     let log = fs::read_to_string(dir.join("d3d11_log.txt")).unwrap_or_default();
     let version = log
@@ -1398,9 +1475,27 @@ pub(crate) fn dll_report(dir: &Path) -> String {
 }
 
 /// Whether the game folder's `d3d11.dll` is another 3DMigoto's (EDHM's installer puts its
-/// own back, see [`dll_report`]).
+/// own back, see [`dll_report`]). edloader's is not: it is no 3DMigoto, and putting EDCAS's
+/// over it would break every mod its list loads.
 fn foreign_dll(dir: &Path) -> bool {
-    fs::read(dir.join("d3d11.dll")).is_ok_and(|b| !is_edcas_dll(&b))
+    fs::read(dir.join("d3d11.dll")).is_ok_and(|b| !is_edcas_dll(&b) && !is_edloader_dll(&b))
+}
+
+/// Whether the game folder's `d3d11.dll` is edloader's.
+pub(crate) fn edloader_in_place(dir: &Path) -> bool {
+    fs::read(dir.join("d3d11.dll")).is_ok_and(|b| is_edloader_dll(&b))
+}
+
+/// Why [`install`] stops when edloader's `d3d11.dll` is in the game folder.
+const EDLOADER_REFUSAL: &str = "edloader's d3d11.dll is in the game folder. EDCAS doesn't replace it (that would stop every mod edloader loads) and can't install its shader mods through edloader yet";
+
+/// Whether a `d3d11.dll` is edloader's (github.com/arturbac/edloader), a loader that calls
+/// several d3d11 mods in turn: its list file's name, a wide string in the dll, or its log line
+/// for itself.
+fn is_edloader_dll(bytes: &[u8]) -> bool {
+    let wide: Vec<u8> = "edloader.txt".encode_utf16().flat_map(u16::to_le_bytes).collect();
+    let narrow: &[u8] = b"is edloader itself";
+    bytes.windows(wide.len()).any(|w| w == wide.as_slice()) || bytes.windows(narrow.len()).any(|w| w == narrow)
 }
 
 /// What another installer (EDHM's, a 3DMigoto release's) has undone in a game folder where
@@ -1414,7 +1509,7 @@ pub fn damage(dir: &Path) -> Vec<&'static str> {
     }
     let mut found = Vec::new();
     if foreign_dll(dir) {
-        found.push("another 3DMigoto's d3d11.dll is in place, so EDCAS's per-planet values don't reach the game");
+        found.push("a d3d11.dll from another 3DMigoto is in place (EDHM's, or one left behind when EDHM was uninstalled), so EDCAS's per-planet values don't reach the game");
     }
     if let Some(ini) = read_ini(&dir.join("d3dx.ini")) {
         if !ini.split('\n').any(is_include) {
@@ -1443,7 +1538,7 @@ pub fn repair(dir: &Path) -> Result<Option<String>, String> {
     }
     setup_ini(dir)?;
     Ok(Some(format!(
-        "another installer (EDHM's) had changed the game folder: {}. Repaired: EDCAS's d3d11.dll and its d3dx.ini lines are back, the other dll is kept as d3d11.dll.official",
+        "another 3DMigoto install (EDHM's, or what EDHM left behind) had changed the game folder: {}. Repaired: EDCAS's d3d11.dll and its d3dx.ini lines are back, the other dll is kept as d3d11.dll.official",
         found.join("; ")
     )))
 }
@@ -1536,8 +1631,10 @@ fn locked_or(path: &Path, e: &std::io::Error) -> String {
 ///   `edcas_version.txt` and the tinted ground shaders. `edcas_params.txt` stays: it is the player's file too (the hand-tuned
 ///   glow scale `x505` lives in it), nothing reads it without the include, and a reinstall
 ///   finds it again;
-/// - `d3d11.dll.official` goes back to `d3d11.dll`; without one, EDCAS's own `d3d11.dll` is
-///   deleted (there was no 3DMigoto before). A `d3d11.dll` that isn't EDCAS's is not touched.
+/// - `d3d11.dll.official` goes back to `d3d11.dll` while another mod still uses 3DMigoto
+///   ([`other_mod_in_use`]); otherwise it stays switched off under that name (uninstalling
+///   EDHM leaves its dll behind) and EDCAS's own `d3d11.dll` is deleted, as it is when there
+///   was no 3DMigoto before. A `d3d11.dll` that isn't EDCAS's is not touched.
 pub fn remove(dir: &Path) -> Result<String, String> {
     if !dir.is_dir() {
         return Err(format!("{} doesn't exist: set the Game Folder above", dir.display()));
@@ -1584,8 +1681,16 @@ pub fn remove(dir: &Path) -> Result<String, String> {
     let (current, official) = (dir.join("d3d11.dll"), dir.join("d3d11.dll.official"));
     let _ = fs::remove_file(dir.join(EDCAS_DLL_COPY));
     let ours = fs::read(&current).map_or(true, |b| is_edcas_dll(&b));
+    let kept = official.is_file();
     let dll = if !ours {
         "d3d11.dll isn't EDCAS's and stays"
+    } else if kept && !other_mod_in_use(dir) {
+        // Uninstalling EDHM leaves its 3DMigoto behind; put back, it would only bring the
+        // "another installer" warning back at the next install (a Windows player, 2026-11-14).
+        if current.is_file() {
+            fs::remove_file(&current).map_err(|e| locked_or(&current, &e))?;
+        }
+        "EDCAS's d3d11.dll is deleted; the other 3DMigoto's d3d11.dll (EDHM's, or one EDHM left behind) is not put back since nothing in the folder uses it, it stays switched off as d3d11.dll.official"
     } else if let Ok(original) = fs::read(&official) {
         write_locked(&current, &original)?;
         let _ = fs::remove_file(&official);
@@ -1598,6 +1703,49 @@ pub fn remove(dir: &Path) -> Result<String, String> {
     };
     info!("Shader mods removed from {} ({removed} files; {dll})", dir.display());
     Ok(format!("Removed {removed} EDCAS file(s); {dll}"))
+}
+
+/// The files a 3DMigoto release puts in `ShaderFixes`: they run nothing unless `d3dx.ini`
+/// includes them.
+const RELEASE_FIXES: &[&str] = &[
+    "3dvision2sbs.hlsl",
+    "3dvision2sbs.ini",
+    "3dvision2sbs_sli_downscale_pass1.hlsl",
+    "3dvision2sbs_sli_downscale_pass2.hlsl",
+    "mouse.hlsl",
+    "mouse.ini",
+    "upscale.hlsl",
+    "upscale.ini",
+];
+
+/// Whether something besides EDCAS still uses 3DMigoto in `dir`, checked once EDCAS's files
+/// are out: an active `include`/`include_recursive` in `d3dx.ini`'s `[Include]` whose file or
+/// folder exists, or a file in `ShaderFixes` that is neither the release's nor EDCAS's (another
+/// mod's shader replacements, EDHM's among them).
+fn other_mod_in_use(dir: &Path) -> bool {
+    let included = read_ini(&dir.join("d3dx.ini")).is_some_and(|ini| {
+        let mut in_include = false;
+        ini.split('\n').any(|l| {
+            if l.trim_start().starts_with('[') {
+                in_include = is_header(l.trim(), "Include");
+                return false;
+            }
+            in_include
+                && !is_include(l)
+                && (is_assignment(l, "include", false) || is_assignment(l, "include_recursive", false))
+                && l.split_once('=').is_some_and(|(_, v)| {
+                    let v = v.trim();
+                    !v.is_empty() && dir.join(v.replace('\\', "/")).exists()
+                })
+        })
+    });
+    included
+        || fs::read_dir(dir.join(FIXES)).is_ok_and(|read| {
+            read.flatten().any(|e| {
+                let name = e.file_name().to_string_lossy().to_ascii_lowercase();
+                !name.starts_with("edcas") && !RELEASE_FIXES.contains(&name.as_str()) && name != "desktop.ini" && name != "thumbs.db"
+            })
+        })
 }
 
 // ------------------------------------------------------------------ background job
@@ -1800,11 +1948,13 @@ ret\n";
         assert_eq!(lines[blend - 1], "add r30.x, r29.y, -r1.w");
         // The sparkle (r32 to r37): the facet's normal and the glint roughness go into the normal (r0 here) and r30.x.
         let end = lines[blend..].iter().position(|l| *l == "endif").map(|i| blend + i).expect("the sparkle's endif");
-        assert_eq!(lines[blend + 1], "// EDCAS sparkle: z520 (0 = 1, under 0 = off) widens or narrows the cone of facets that glint");
+        assert_eq!(lines[blend + 1], "// EDCAS sparkle: z520 (0 = off, the default; above 0 = on: 1 the cone of facets that glint as built, more widens it)");
+        // Off unless z520 is above 0: the flag r36.w zeroes the glints' weight, and the cells are skipped.
+        assert_eq!(lines[blend + 3], "ge r36.w, l(0.000000), r36.z");
         assert_eq!(lines[blend + 2], "ld_indexable(texture1d)(float,float,float,float) r36.xyzw, l(520, 0, 0, 0), t120.xyzw");
         assert!(out.contains("deriv_rtx_fine r32.xyz, v3.xyzx\nderiv_rty_fine r33.xyz, v3.xyzx\n"));
-        // No fade: the footprint (r36.x) is the level's, from which the cells' size follows, two levels' worth.
-        assert!(out.contains("max r32.w, r32.w, r33.w\nsqrt r36.x, r32.w\nmovc r32.w, r36.w, l(0.000000), r29.x\nmov r32.y, l(0.000000)\nlt r33.x, l(0.000000), r32.w\nif_nz r33.x\n"));
+        // The glints fade with the pixel's size on the ground (r34, SPARKLE_FADE_START); the footprint (r36.x) is the level's, from which the cells' size follows, two levels' worth.
+        assert!(out.contains("max r32.w, r32.w, r33.w\nsqrt r36.x, r32.w\nmovc r32.w, r36.w, l(0.000000), r29.x\nmul r34.xyz, r32.yzxy, r33.zxyz\nmad r34.xyz, -r32.zxyz, r33.yzxy, r34.xyzx\ndp3 r34.x, r34.xyzx, r34.xyzx\nsqrt r34.x, r34.x\nlog r34.x, r34.x\nmad_sat r34.x, r34.x, l(-0.163458), l(-0.653831)\nmul r32.w, r32.w, r34.x\nmov r32.y, l(0.000000)\nlt r33.x, l(0.000000), r32.w\nif_nz r33.x\n"));
         assert!(out.contains("  mul r33.x, r36.x, l(50.000000)\n  max r33.x, r33.x, l(1.000000)\n  log r33.x, r33.x\n  min r33.x, r33.x, l(20.000000)\n  round_ni r32.x, r33.x\n  add r36.y, r33.x, -r32.x\n  exp r32.z, -r32.x\n  mul r32.z, r32.z, l(50.000000)\n  mul r33.xy, v1.xyxx, cb2[0].xxxx\n  mul r33.xy, r33.xyxx, r32.zzzz\n"));
         assert!(out.contains("  ftoi r33.zw, cb2[1].xxxy\n  imul null, r33.xyzw, r33.xyzw, l(0x9e3779b1, 0x85ebca6b, 0xc2b2ae35, 0x27d4eb2f)\n"));
         // The level goes into the hash; the second pass is the level above.
@@ -1817,7 +1967,7 @@ ret\n";
         assert!(out.contains("  mul r33.x, r33.x, r37.w\n  mov r33.y, r36.y\n  mul r33.x, r33.x, r33.y\n  add r32.y, r32.y, r33.x\n"));
         assert!(out.contains("  add r37.xyz, r37.xyzx, -cb1[4].xyzx\n"));
         assert!(out.contains("  add r34.xyz, r37.xyzx, -r35.xyzx\n  mad r34.xyz, r34.xyzx, r33.xxxx, r35.xyzx\n"));
-        assert!(out.contains("  mul r0.xyz, r34.xyzx, r33.yyyy\n  add r33.y, -r30.x, l(0.250000)\n  mad r30.x, r33.x, r33.y, r30.x\nendif\n"));
+        assert!(out.contains("  mul r0.xyz, r34.xyzx, r33.yyyy\n  add r33.y, -r30.x, l(0.450000)\n  mad r30.x, r33.x, r33.y, r30.x\nendif\n"));
         // The broad gloss' weight (b.z = r30.z, times 1 - mask) goes back into a.x after the sparkle, whose glints used a.x before it.
         assert_eq!(lines[end + 1], "mov r29.x, r30.z");
         assert_eq!(lines[end + 2], "max o0.x, r30.x, l(0.001000)");
@@ -1868,8 +2018,11 @@ ret\n";
     fn the_mask_writes_the_grounds_distance_to_o4_after_the_colour() {
         let out = mask(&detail(&tint(GROUND).unwrap()).unwrap()).unwrap();
         let at = |needle: &str| out.find(needle).unwrap_or_else(|| panic!("{needle} missing"));
-        assert!(at("dcl_output o3.xyzw\ndcl_output o4.x\n") < at("dcl_temps 30\n"));
-        assert!(at("mov o1.xyzw, r1.xyzw\n// EDCAS terrain mask") < at("dp3 r29.x, v3.xyzx, v3.xyzx\nsqrt o4.x, r29.x\nret"));
+        assert!(at("dcl_output o3.xyzw\ndcl_output o4.xy\n") < at("dcl_temps 30\n"));
+        assert!(at("mov o1.xyzw, r1.xyzw\n// EDCAS terrain mask") < at("dp3 r29.x, v3.xyzx, v3.xyzx\nsqrt r29.x, r29.x\nmin o4.x, r29.x, l(60000.000000)\n"));
+        // And how far the sun has set for the point: its place from the centre (negated) against the light's direction,
+        // 1 from a sine of -0.005 down, 0 from +0.005 up, smooth between.
+        assert!(at("min o4.x") < at("add r29.xyz, v3.xyzx, cb2[12].xyzx\ndp3 r29.w, r29.xyzx, r29.xyzx\nrsq r29.w, r29.w\nmul r29.xyz, r29.xyzx, r29.wwww\ndp3 r29.x, r29.xyzx, cb1[4].xyzx\nmad_sat r29.x, r29.x, l(-100.000000), l(0.500000)\nmad r29.y, r29.x, l(-2.000000), l(3.000000)\nmul r29.x, r29.x, r29.x\nmul r29.x, r29.x, r29.y\n// none on ground farther than MASK_FAR_M (see the docstring)\ndp3 r29.z, v3.xyzx, v3.xyzx\nlt r29.z, r29.z, l(3600000000.000000)\nand r29.z, r29.z, l(0x3f800000)\nmul o4.y, r29.x, r29.z\nret"));
     }
 
     #[test]
@@ -1902,11 +2055,11 @@ ret\n";
         assert!(out.contains("// EDCAS crust mask: r18.x\nmov r18.x, l(0.000000)\n"));
         assert!(!out.contains("t116.xxxx"));
         // Hex-tiling (ground_tint.py `hex_setup`): y514 in m.w, each rotating group's three sines and cosines
-        // (the 8, 2 and 0.5 m layers and two stones' layers), three reads of every stone texture, the y511 = 9 view
-        // of the cells.
+        // (the 8, 2 and 0.5 m layers and two stones' layers, the snow map's, the parallax's and the crust shadows'), three reads of every stone texture, the
+        // y511 = 9 view of the cells.
         assert!(out.contains("mov r18.w, r15.y\n"));
         assert!(out.contains("lt r27.x, r18.w, l(0.000000)\nmovc r23.xyz, r27.xxxx,"));
-        assert_eq!(out.matches("sincos r24.x, r23.x, r13.x\n").count(), 7);
+        assert_eq!(out.matches("sincos r24.x, r23.x, r13.x\n").count(), 8);
         assert_eq!(out.matches("t115.xyzw, s0").count(), 6);
         assert_eq!(out.matches("t112.xyxx, s0").count(), 6);
         assert!(out.contains("eq r15.w, r8.y, l(9.000000)\nmovc r1.xyz, r15.wwww, r18.zzzz, r1.xyzx\n"));
@@ -1916,12 +2069,23 @@ ret\n";
         // t110 read but the 32 m layer's, the 8 and 2 m and 0.5 m ones' (three each, hex-tiled) and the three planes'.
         assert_eq!(out.matches("imul null, r23.xyzw, r23.xyzw, l(0x8da6b343,").count(), 6);
         assert_eq!(out.matches("t110.xyzw, s0").count(), 1 + 3 + 3);
-        // Far away the cut fades into the plain cover: 1 / (700 - 150) per metre from 150 m, w511 (r8.w here) scaling the distance.
-        assert!(out.contains("mad_sat r7.z, r7.z, l(0.001818182), l(-0.272727)\n"), "{out}");
+        // The far look (ground_tint.py `CRUST_FAR_K`, client 0.43.180): no blend into the plain cover by the distance any more (it was 1 / (700 - 150) per
+        // metre from 150 m). Each octave of the score is left out as a pixel stops resolving it (its fade by the ground footprint, here for the 650 m
+        // one: 1 up to 162.5 m of ground a pixel, 0 from 325), and past the lace the mask is the far cut: the smoothstep of a ramp of the score over
+        // the share's normal quantile, its slope 0.25 over the deviation of the octaves left out, at most 5, a pixel wide at least.
+        assert!(!out.contains("l(0.001818182), l(-0.272727)"), "{out}");
+        assert!(out.contains("mov r7.w, l(0.765700)\nmad_sat r7.z, r26.z, l(-0.006153846), l(2.000000)\nmul r7.z, r7.z, r7.z\nmad r7.w, r7.z, l(-0.049240), r7.w\n"), "{out}");
+        assert!(out.contains("mad_sat r19.x, r18.y, l(-1.600000000), l(2.000000)\nmul r19.x, r19.x, l(2.800000)\nmad r18.x, r15.y, r19.x, r18.x\n"), "{out}");
+        assert!(out.contains("max r7.w, r7.w, l(0.000001)\nrsq r7.w, r7.w\nmul r7.w, r7.w, l(0.250000)\nmin r7.w, r7.w, l(5.000000)\n"), "{out}");
+        assert!(out.contains("mad r15.z, r15.z, l(-0.002131013), l(0.427713124)\nmul r15.y, r15.z, r15.y\nmad r15.y, r15.y, l(0.875043), r18.x\nadd r15.y, r15.y, l(-0.500000)\nderiv_rtx_fine r15.z, r15.y\nderiv_rty_fine r15.w, r15.y\n"), "{out}");
+        assert!(out.contains("mad_sat r15.y, r15.y, r7.w, l(0.500000)\nmad r15.z, r15.y, l(-2.000000), l(3.000000)\nmul r15.y, r15.y, r15.y\nmul r15.y, r15.y, r15.z\nadd r15.y, r15.y, -r7.x\nmad r7.x, r15.y, r7.y, r7.x\n"), "{out}");
         // The snow is a density and a lace (ground_tint.py `crust_snow`, no threshold of the score): saturate((w + d - T) K) in b.x
-        // (r7), the lace giving way to d by the view distance, and none where the cover (j.x = r15.x) is under 0.
-        assert!(out.contains("rcp r7.y, r7.y\nmin r7.y, r7.y, l(6.000000)\nadd r7.x, r7.x, l(-0.983333)\nmad_sat r7.x, r7.x, r7.y, l(0.500000)\n"), "{out}");
+        // (r7), the lace giving way to the far cut by the ground footprint, and none where the cover (j.x = r15.x) is under 0.
+        assert!(out.contains("rcp r7.y, r7.y\nmin r7.y, r7.y, l(20.000000)\nadd r7.x, r7.x, l(-0.925000)\nmad_sat r7.x, r7.x, r7.y, l(0.500000)\n"), "{out}");
         assert!(out.contains("lt r7.w, r15.x, l(0.000000)\nmovc r18.x, r7.w, l(0.000000), r7.x\n"), "{out}");
+        // The dusting (ground_tint.py `CRUST_DUST`): the ramp of w + d over 0.2 under the lace's threshold 0.9, squared, times 0.35 by the switch z532 (one
+        // component of row 532 read into b.y); the mask is the stronger of the fragments and it.
+        assert!(out.contains("mad_sat r7.x, r7.x, r7.y, l(0.500000)\nadd r7.w, r6.z, r6.y\nmad_sat r7.w, r7.w, l(5.000000), l(-3.500000)\nmul r7.w, r7.w, r7.w\nld_indexable(texture1d)(float,float,float,float) r7.y, l(532, 0, 0, 0), t120.xzxx\neq r7.z, r7.y, l(0.000000)\nmovc r7.y, r7.z, l(1.000000), r7.y\nmax r7.y, r7.y, l(0.000000)\nmul r7.y, r7.y, l(0.350000)\nmul r7.w, r7.w, r7.y\nmax r7.x, r7.x, r7.w\n"), "{out}");
         // The snow's own relief (ground_tint.py `snow_relief`): the scales' fades in b (r7), the height's screen derivatives
         // (b.x = r7.x) join the relief's i (r14), the ice's scaled by v.y (r26.y) first; off the ice (m.y = r18.y = 0) exactly nothing.
         assert!(out.contains("mul r6.y, r18.x, r18.y\nmin r6.y, r6.y, l(1.000000)\n"), "{out}");
@@ -1932,23 +2096,38 @@ ret\n";
         assert!(out.contains("mad r7.x, r6.z, l(0.700000), l(0.300000)\nmad r7.y, r7.w, l(-0.700000), l(1.000000)\nmul r7.x, r7.x, r7.y\nmul r16.y, r16.y, r7.x\nmul r14.zw, r14.xyzw, r7.xxxx\n"), "{out}");
         // The snow's height map, hex-tiled (ground_tint.py `snow_texture`): three vertices' reads of the slopes (t116) and the height (t117), slice 0 (q.z = r17.z
         // is 0 while they are taken and the ground type again after).
-        // 3 taps of the slopes and of the height (the 3 hex vertices; the height's x the fractal, y the churn), 2 more of the churn a vertex for its own slopes (forward differences
-        // along the vertex's axes, used where the fractal is out of the shading) and the parallax march's 72 + 8 steps of 3 taps each of the BC5 height (explicit mip: sample_l).
-        assert_eq!((out.matches("t116.xyxx, s0").count(), out.matches("t117.xxxy, s0").count(), out.matches("t117.xxyx, s0").count(), out.matches("t117.xyzw, s0").count()), (3, 6, 3, 240));
+        // 3 taps of the slopes and of the height (the 3 hex vertices; the height's x the fractal, y the churn; until client 0.43.172 2 more of the churn a vertex for its
+        // own slopes, differences of an 8 bit height that stood as dimples on the snow), the parallax march's 36 + 8 steps of 3 taps each of the BC5 height (explicit mip: sample_l; 72 + 8 until client 0.43.161)
+        // and, on the other side of the parallax's switch, the crust shadows' 1 + 8 (the point's own height and the taps toward the sun, ground_tint.py `SHADOW_STEPS`).
+        assert_eq!((out.matches("t116.xyxx, s0").count(), out.matches("t117.xxxy, s0").count(), out.matches("t117.xxyx, s0").count(), out.matches("t117.xyzw, s0").count()), (3, 3, 0, 132 + 27));
+        // The crust's cast shadows (ground_tint.py `pom`, SHADOW_*): with the parallax off (z514) the switch x532 gates them (under 0 = off), the heights at 0.4 of the
+        // map's; nothing is shifted (z.xy = r28.xy = 0), the strongest tap is the shadow, and a far tap reads a coarser mip.
+        assert!(out.contains("else\nld_indexable(texture1d)(float,float,float,float) r15.xyzw, l(532, 0, 0, 0), t120.xyzw\nge r13.y, r15.x, l(0.000000)\nand r10.w, r13.x, r13.y\nmov r12.z, l(0.400000)\nif_nz r10.w\n"), "{out}");
+        assert!(out.contains("mov r16.y, r25.x\nmov r28.xy, l(0.000000, 0.000000, 0.000000, 0.000000)\n"), "{out}");
+        assert_eq!(out.matches("max r15.z, r15.z, r25.x\n").count(), 8);
+        assert_eq!(out.matches("max r27.y, r27.y, r10.z\n").count(), 8);
         assert!(out.contains("sample_d_indexable(texture2darray)(float,float,float,float) r12.zw, r17.xyzx, t117.xxxy, s0, r11.xyxx, r11.zwzz\n"), "{out}");
-        assert!(out.contains("div r12.x, r25.x, r7.z\nmad r7.xy, r13.xyxx, r12.xxxx, r7.xyxx\n"), "{out}");
-        // Under the density 0.7 (POM_FRACTAL_D) the slopes go to the churn's, i.zw - (1 - wF) (i.zw - b.xy), exact from d = 1; the hollows lose the fractal's height the same way (`snow_relief`).
-        assert!(out.contains("mad_sat r12.w, r12.w, l(-3.333333), l(3.333333)\nmul r7.xy, r7.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000)\nadd r13.xy, r14.zwzz, -r7.xyxx\nmad r14.zw, -r13.xxxy, r12.wwww, r14.xxzw\n"), "{out}");
+        // The fine layer (ground_tint.py `SNOW_FINE`): the slopes a second time at 12 times each vertex's coordinate and derivatives, three reads; its gain 0.3 by the
+        // switch y532, added to the map's screen derivatives.
+        assert_eq!(out.matches("mul r13.xy, r13.zwzz, l(12.000000, 12.000000, 0.000000, 0.000000)\nfrc r13.xy, r13.xyxx\nmov r13.z, r17.z\nmul r12.xyzw, r11.xyzw, l(12.000000, 12.000000, 12.000000, 12.000000)\nsample_d_indexable(texture2darray)(float,float,float,float) r27.zw, r13.xyzx, t116.xxxy, s0, r12.xyxx, r12.zwzz\n").count(), 3, "{out}");
+        assert!(out.contains("l(532, 0, 0, 0), t120.xyzw\neq r13.x, r13.y, l(0.000000)\nmovc r13.y, r13.x, l(1.000000), r13.y\nmax r13.y, r13.y, l(0.000000)\nmul r13.y, r13.y, l(0.300000)\nmul r27.zw, r27.zzzw, r13.yyyy\n"), "{out}");
+        assert!(out.contains("add r14.zw, r14.zzzw, r27.zzzw\n"), "{out}");
+        // The slopes are the map's at every density (no differences of the churn's height, no blend by the density: client 0.43.173); under the density 0.7
+        // (POM_FRACTAL_D) the hollows still lose the fractal's height (`snow_relief`).
+        assert!(!out.contains("div r12.x, r25.x, r7.z\n") && !out.contains("mad r14.zw, -r13.xxxy, r12.wwww, r14.xxzw\n"), "{out}");
         assert!(out.contains("mad_sat r7.x, r6.y, l(-3.333333), l(3.333333)\nmad r16.y, -r16.y, r7.x, r16.y\n"), "{out}");
         // The pebbles' relief strength (k.z = r16.z) cut by the snow density on the ice types only (ground_tint.py `PEBBLE_MIXED`; the mask in f.z = r11.z).
         assert!(out.contains("and r15.w, r15.w, r11.z\nmad r16.z, -r16.z, r15.w, r16.z\n"), "{out}");
         // The mixed zones' ice colour (ground_tint.py `ICE_MIXED`): the polished colour (e = r10) times 1 + the density's ramp (k.w = r16.w, from `snow_relief`) times (tint - 1).
         assert!(out.contains("mov r16.w, r6.y\n"), "{out}");
         assert!(out.contains("\nmul r10.xyz, r10.xyzx, r7.xyzx\nadd r9.xyz, r9.xyzx, -r10.xyzx\n"), "{out}");
-        assert_eq!(out.matches("sample_l_indexable(texture2darray)(float,float,float,float) r13.").count(), 240);
-        // The parallax (ground_tint.py `pom`): the switch z514 (0 = on, under 0 = off) and the ice types gate it; the shift is z.xy = r28.xy, which every layer's coordinate takes (after
-        // the derivatives of the unshifted one), the largest field octave sits in z.w = r28.w.
-        assert!(out.contains("ld_indexable(texture1d)(float,float,float,float) r15.xyzw, l(514, 0, 0, 0), t120.xyzw\neq r13.x, r15.z, l(0.000000)\nmovc r12.z, r13.x, l(1.000000), r15.z\n"), "{out}");
+        assert_eq!(out.matches("sample_l_indexable(texture2darray)(float,float,float,float) r13.").count(), 132 + 27);
+        // The parallax (ground_tint.py `pom`): the switch z514 (0 = off, the default; above 0 = on, a factor on the depth) and the ice types gate it; the shift is z.xy = r28.xy, which every layer's coordinate takes (after
+        // the derivatives of the unshifted one).
+        assert!(out.contains("ld_indexable(texture1d)(float,float,float,float) r15.xyzw, l(514, 0, 0, 0), t120.xyzw\nmov r12.z, r15.z\n"), "{out}");
+        assert!(out.contains("lt r13.y, l(0.000000), r15.z\nand r10.w, r13.x, r13.y\n"), "{out}");
+        // The relief's depth: a quarter of the heights (ground_tint.py `POM_DEPTH`), z514 above 0 a factor on it.
+        assert!(out.contains("max r12.z, r12.z, l(0.000000)\nmul r12.z, r12.z, l(0.250000)\n"), "{out}");
         assert!(out.contains("movc r28.xy, r13.xxxx, r28.xyxx, l(0.000000, 0.000000, 0.000000, 0.000000)\n"), "{out}");
         assert!(out.contains("mad r6.zw, r28.xxxy, r7.xxxx, r6.xyzw\n"), "{out}");
         // The march's height (`pom_tap`): (wF F + m (C + the sheet, e.y)) times the weight (e.x), wF the fractal's weight by the density: the mask m the lace's height ramp of F plus the density (g.w), smoothstepped; the lace, the hollows and the relief read slice 0 alone.
@@ -2170,6 +2349,8 @@ ret\n";
 
     const EDCAS_DLL: &[u8] = b"MZ patched 3dmigoto  params_file=%S  ";
     const STOCK_DLL: &[u8] = b"MZ stock 3dmigoto";
+    /// edloader's d3d11.dll: its list file's name as a wide string.
+    const EDLOADER_DLL: &[u8] = b"MZ loader \\\0e\0d\0l\0o\0a\0d\0e\0r\0.\0t\0x\0t\0\0\0";
     const D3DX: &str = "; the release's d3dx.ini\r\n[Logging]\r\n[System]\r\n[Hunting]\r\nhunting = 1\r\n[Rendering]\r\n;export_shaders = 1\r\n[Include]\r\n; none\r\n[KeyAnalyse]\r\nanalyse_frame = 1\r\n";
 
     /// The zip CI builds: the release's files with EDCAS's d3d11.dll, at the root.
@@ -2181,7 +2362,7 @@ ret\n";
             ("d3dcompiler_47.dll", b"compiler v2".as_slice()),
             ("d3dx.ini", D3DX.as_bytes()),
             ("ShaderFixes/", b"".as_slice()),
-            ("ShaderFixes/default.hlsl", b"// release shader".as_slice()),
+            ("ShaderFixes/mouse.hlsl", b"// release shader".as_slice()),
             ("EDCAS-README.txt", b"readme".as_slice()),
             ("source/params-file.patch", b"patch".as_slice()),
         ] {
@@ -2206,6 +2387,23 @@ ret\n";
     }
 
     #[test]
+    fn edloaders_dll_is_never_replaced() {
+        let dir = game("edloader");
+        install(&dir, &bundle(EDCAS_DLL), "1.0.0", Wanted::ALL, |_| {}).unwrap();
+        // The player puts edloader in, as its manual says.
+        fs::write(dir.join("d3d11.dll"), EDLOADER_DLL).unwrap();
+        assert!(!damage(&dir).iter().any(|d| d.contains("d3d11.dll")), "{:?}", damage(&dir));
+        let _ = repair(&dir);
+        assert_eq!(fs::read(dir.join("d3d11.dll")).unwrap(), EDLOADER_DLL, "repair leaves edloader in place");
+        let err = install(&dir, &bundle(EDCAS_DLL), "1.0.1", Wanted::ALL, |_| {}).unwrap_err();
+        assert!(err.contains("edloader"), "{err}");
+        assert_eq!(fs::read(dir.join("d3d11.dll")).unwrap(), EDLOADER_DLL, "an update leaves edloader in place");
+        assert!(dll_report(&dir).contains("edloader's"), "{}", dll_report(&dir));
+        remove(&dir).unwrap();
+        assert_eq!(fs::read(dir.join("d3d11.dll")).unwrap(), EDLOADER_DLL, "remove leaves edloader in place");
+    }
+
+    #[test]
     fn another_installers_changes_are_found_and_repaired_when_the_mods_are_installed() {
         let dir = game("edhm");
         // Nothing installed: a foreign dll is none of EDCAS's business.
@@ -2223,6 +2421,7 @@ ret\n";
         // EDHM's installer runs: its own dll over ours, its own d3dx.ini without our lines.
         fs::write(dir.join("d3d11.dll"), b"MZ edhm 3dmigoto 1.3.16").unwrap();
         fs::write(dir.join("d3dx.ini"), "; EDHM's d3dx.ini\r\n[System]\r\n[Include]\r\ninclude = ShaderFixes\\EDHM.ini\r\n").unwrap();
+        fs::write(dir.join("ShaderFixes/EDHM.ini"), "; EDHM").unwrap();
         let found = damage(&dir);
         assert_eq!(found.len(), 3, "{found:?}");
         assert!(found[0].contains("d3d11.dll") && found[1].contains("includes") && found[2].contains("params_file"), "{found:?}");
@@ -2243,10 +2442,40 @@ ret\n";
         install(&dir, &bundle(EDCAS_DLL), "1.0.0", Wanted::ALL, |_| {}).unwrap();
         assert!(damage(&dir).is_empty());
 
-        // Remove takes the copy away with the rest.
+        // Remove takes the copy away with the rest; EDHM is still there, so its dll goes back.
         remove(&dir).unwrap();
         assert!(!dir.join(EDCAS_DLL_COPY).exists());
         assert_eq!(fs::read(dir.join("d3d11.dll")).unwrap(), STOCK_DLL);
+    }
+
+    #[test]
+    fn remove_leaves_a_dll_edhm_left_behind_switched_off() {
+        // A Windows player, 2026-11-14: EDHM uninstalled, its d3d11.dll still in the folder.
+        // Each Remove put it back, and the next Install's warning blamed EDHM again.
+        let dir = game("edhm-gone");
+        fs::write(dir.join("d3d11.dll"), STOCK_DLL).unwrap();
+        install(&dir, &bundle(EDCAS_DLL), "1.0.0", Wanted::ALL, |_| {}).unwrap();
+        assert_eq!(fs::read(dir.join("d3d11.dll.official")).unwrap(), STOCK_DLL);
+
+        let msg = remove(&dir).unwrap();
+        assert!(msg.contains("not put back"), "{msg}");
+        assert!(!dir.join("d3d11.dll").exists(), "nothing uses the other 3DMigoto: no dll is left active");
+        assert_eq!(fs::read(dir.join("d3d11.dll.official")).unwrap(), STOCK_DLL, "kept, switched off");
+
+        // Installing again keeps the same original and nothing warns.
+        install(&dir, &bundle(EDCAS_DLL), "1.0.0", Wanted::ALL, |_| {}).unwrap();
+        assert!(damage(&dir).is_empty());
+        assert_eq!(fs::read(dir.join("d3d11.dll.official")).unwrap(), STOCK_DLL);
+
+        // An include of a file that is gone uses nothing; one that exists does.
+        edit_ini(&dir.join("d3dx.ini"), |ini| ini.replace("[Include]\n", "[Include]\ninclude = EDHM-ini\\edhm.ini\n").replace("[Include]\r\n", "[Include]\r\ninclude = EDHM-ini\\edhm.ini\r\n")).unwrap();
+        assert!(!other_mod_in_use(&dir));
+        fs::create_dir_all(dir.join("EDHM-ini")).unwrap();
+        fs::write(dir.join("EDHM-ini/edhm.ini"), "; EDHM").unwrap();
+        assert!(other_mod_in_use(&dir));
+        remove(&dir).unwrap();
+        assert_eq!(fs::read(dir.join("d3d11.dll")).unwrap(), STOCK_DLL);
+        assert!(!dir.join("d3d11.dll.official").exists());
     }
 
     #[test]
@@ -2319,11 +2548,13 @@ dcl_constantbuffer CB2[47], immediateIndexed\n\
 dcl_resource_texture2d (float,float,float,float) t0\n\
 dcl_resource_texture2d (float,float,float,float) t1\n\
 dcl_resource_texture1d (float,float,float,float) t120\n\
+dcl_resource_texture2d (float,float,float,float) t118\n\
 dcl_input_ps linear v0.xy\n\
 dcl_output o0.xyz\n\
 dcl_temps 5\n\
 {}\n\
 mul r3.xyz, r3.xyzx, cb2[40].xyzx\n\
+{}\n\
 sample_indexable(texture2d)(float,float,float,float) r0.xyzw, v0.xyxx, t0.xyzw, s0\n\
 mul r1.xyz, r0.xyzx, r3.xyzx\n\
 if_nz r0.w\n\
@@ -2331,7 +2562,8 @@ if_nz r0.w\n\
 endif\n\
 mul o0.xyz, r2.xyzx, cb2[0].xxxx\n\
 ret\n",
-            tint_block("r3", "r4", Some("v0")).join("\n")
+            tint_block("r3", "r4", Some("v0")).join("\n"),
+            sunset_block("r3", "r4").join("\n")
         )
     }
 
@@ -2491,7 +2723,7 @@ ret\n";
         assert_eq!(fs::read(dir.join("d3d11.dll")).unwrap(), EDCAS_DLL);
         assert!(!dir.join("d3d11.dll.official").exists(), "there was no other d3d11.dll to keep");
         assert_eq!(read(&dir, "d3dcompiler_47.dll"), "compiler v2");
-        assert_eq!(read(&dir, "ShaderFixes/default.hlsl"), "// release shader");
+        assert_eq!(read(&dir, "ShaderFixes/mouse.hlsl"), "// release shader");
         assert_eq!(read(&dir, "EDCAS-README.txt"), "readme");
         assert_eq!(read(&dir, "source/params-file.patch"), "patch");
         assert_eq!(read(&dir, "ShaderFixes/edcas.ini"), EDCAS_INI);
@@ -2589,13 +2821,13 @@ ret\n";
         fs::write(dir.join("d3d11.dll"), STOCK_DLL).unwrap();
         fs::write(dir.join("d3dx.ini"), "[Hunting]\nhunting = 1\n[Include]\ninclude = EDHM\\edhm.ini\n[Custom]\nmine = 1\n").unwrap();
         fs::create_dir_all(dir.join("ShaderFixes")).unwrap();
-        fs::write(dir.join("ShaderFixes/default.hlsl"), "// mine").unwrap();
+        fs::write(dir.join("ShaderFixes/mouse.hlsl"), "// mine").unwrap();
         fs::write(dir.join("d3dcompiler_47.dll"), b"compiler v1").unwrap();
 
         install(&dir, &bundle(EDCAS_DLL), "1.0.0", Wanted::ALL, |_| {}).unwrap();
         assert_eq!(fs::read(dir.join("d3d11.dll")).unwrap(), EDCAS_DLL);
         assert_eq!(fs::read(dir.join("d3d11.dll.official")).unwrap(), STOCK_DLL);
-        assert_eq!(read(&dir, "ShaderFixes/default.hlsl"), "// mine", "an existing file isn't overwritten");
+        assert_eq!(read(&dir, "ShaderFixes/mouse.hlsl"), "// mine", "an existing file isn't overwritten");
         assert_eq!(read(&dir, "d3dcompiler_47.dll"), "compiler v2");
         let ini = read(&dir, "d3dx.ini");
         assert!(!ini.contains("the release's d3dx.ini"), "the existing d3dx.ini is edited, not replaced");
@@ -2669,7 +2901,7 @@ ret\n";
         assert_eq!(status(&dir, "1.0.0"), Status::NotInstalled);
         let mut left: Vec<String> = fs::read_dir(dir.join("ShaderFixes")).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
         left.sort();
-        assert_eq!(left, ["default.hlsl", "edcas_params.txt", "other-ps.txt"]);
+        assert_eq!(left, ["edcas_params.txt", "mouse.hlsl", "other-ps.txt"]);
         let ini = read(&dir, "d3dx.ini");
         assert!(!ini.contains("edcas.ini") && ini.contains("include = EDHM\\edhm.ini"), "{ini}");
         assert_eq!(fs::read(dir.join("d3d11.dll")).unwrap(), STOCK_DLL);
@@ -2750,6 +2982,9 @@ ret\n";
     #[test]
     fn the_patched_dll_is_told_from_the_release() {
         assert!(is_edcas_dll(EDCAS_DLL));
+        assert!(!is_edloader_dll(EDCAS_DLL));
+        assert!(is_edloader_dll(EDLOADER_DLL));
+        assert!(!is_edcas_dll(EDLOADER_DLL));
         assert!(!is_edcas_dll(STOCK_DLL));
         assert!(!is_edcas_dll(b""));
     }

@@ -18,7 +18,7 @@ dcl_output o0.xyzw
 dcl_output o1.xyzw
 dcl_output o2.xyzw
 dcl_output o3.xyzw
-dcl_output o4.x
+dcl_output o4.xy
 dcl_temps 39
 sample_indexable(texture2d)(float,float,float,float) r0.xyzw, v0.xyxx, t0.xyzw, s0
 mul r1.xyz, r0.xyzx, l(0.500000, 0.500000, 0.500000, 0.000000)
@@ -71,7 +71,6 @@ mul r16.z, r16.z, r6.w
 mov r16.x, l(0.000000)
 // EDCAS crust mask: r18.x
 mov r18.x, l(0.000000)
-mov r18.y, r6.w
 ld_indexable(texture1d)(float,float,float,float) r15.xyzw, l(514, 0, 0, 0), t120.xyzw
 ge r11.x, r15.x, l(1.500000)
 lt r11.y, r15.x, l(3.500000)
@@ -79,6 +78,15 @@ and r11.x, r11.x, r11.y
 if_nz r11.x
 add r12.xyz, v3.xyzx, -cb2[12].xyzx
 mov r18.x, l(0.500000)
+deriv_rtx_fine r19.xyz, v3.xyzx
+deriv_rty_fine r20.xyz, v3.xyzx
+dp3 r19.w, r19.xyzx, r19.xyzx
+dp3 r20.w, r20.xyzx, r20.xyzx
+max r19.w, r19.w, r20.w
+sqrt r19.w, r19.w
+lt r20.w, l(0.000000), r8.w
+movc r20.w, r20.w, r8.w, l(1.000000)
+div r18.y, r19.w, r20.w
 dp3 r19.x, r12.xyzx, l(-0.000242190, -0.000660840, 0.001368027, 0.000000)
 dp3 r19.y, r12.xyzx, l(-0.000872392, 0.001194643, 0.000422640, 0.000000)
 dp3 r19.z, r12.xyzx, l(-0.001243841, -0.000709213, -0.000562797, 0.000000)
@@ -124,7 +132,11 @@ mad r26.xyzw, r25.xyzw, r21.zzzz, r26.xyzw
 add r25.xy, r26.ywyy, -r26.xzxx
 mad r25.xy, r25.xyxx, r21.xxxx, r26.xzxx
 add r25.y, r25.y, -r25.x
-mad r28.w, r25.y, r21.y, r25.x
+mad r15.w, r25.y, r21.y, r25.x
+add r15.w, r15.w, l(-0.500000)
+mad_sat r19.x, r18.y, l(-0.006153846), l(2.000000)
+mul r19.x, r19.x, l(1.200000)
+mad r18.x, r15.w, r19.x, r18.x
 dp3 r19.x, r12.xyzx, l(0.002040761, -0.001928961, 0.005168798, 0.000000)
 dp3 r19.y, r12.xyzx, l(0.001718910, 0.005459080, 0.001358627, 0.000000)
 dp3 r19.z, r12.xyzx, l(-0.005242396, 0.001039051, 0.002457586, 0.000000)
@@ -219,11 +231,13 @@ add r25.xy, r26.ywyy, -r26.xzxx
 mad r25.xy, r25.xyxx, r21.xxxx, r26.xzxx
 add r25.y, r25.y, -r25.x
 mad r15.y, r25.y, r21.y, r25.x
-add r28.w, r28.w, l(-0.500000)
 add r15.y, r15.y, l(-0.500000)
-mad r18.x, r28.w, l(1.200000), r18.x
-mad r18.x, r15.z, l(1.800000), r18.x
-mad r18.x, r15.y, l(1.400000), r18.x
+mad_sat r19.x, r18.y, l(-0.023529412), l(2.000000)
+mul r19.x, r19.x, l(1.800000)
+mad r18.x, r15.z, r19.x, r18.x
+mad_sat r19.x, r18.y, l(-0.080000000), l(2.000000)
+mul r19.x, r19.x, l(1.400000)
+mad r18.x, r15.y, r19.x, r18.x
 mul r9.xyz, cb2[12].xyzx, l(-0.0009765625, -0.0009765625, -0.0009765625, 0.000000)
 round_ne r9.xyz, r9.xyzx
 mul r9.xyz, r9.xyzx, l(1024.000000, 1024.000000, 1024.000000, 0.000000)
@@ -336,26 +350,27 @@ mad r25.xy, r25.xyxx, r21.xxxx, r26.xzxx
 add r25.y, r25.y, -r25.x
 mad r15.y, r25.y, r21.y, r25.x
 add r15.xy, r15.xyxx, l(-0.500000, -0.500000, 0.000000, 0.000000)
-mul r15.x, r15.x, l(2.800000)
-mad r15.x, r15.y, l(2.800000), r15.x
-mad r18.x, r15.x, r18.y, r18.x
-else
-mov r28.w, l(0.000000)
+mad_sat r19.x, r18.y, l(-0.571428571), l(2.000000)
+mul r19.x, r19.x, l(2.800000)
+mad r18.x, r15.x, r19.x, r18.x
+mad_sat r19.x, r18.y, l(-1.600000000), l(2.000000)
+mul r19.x, r19.x, l(2.800000)
+mad r18.x, r15.y, r19.x, r18.x
 endif
 // EDCAS parallax occlusion mapping: z.xy the uv shift, z.z the shadow
 ld_indexable(texture1d)(float,float,float,float) r15.xyzw, l(514, 0, 0, 0), t120.xyzw
-eq r13.x, r15.z, l(0.000000)
-movc r12.z, r13.x, l(1.000000), r15.z
+mov r12.z, r15.z
 ge r13.x, r15.x, l(1.500000)
 lt r13.y, r15.x, l(3.500000)
 and r13.x, r13.x, r13.y
-ge r13.y, r15.z, l(0.000000)
+lt r13.y, l(0.000000), r15.z
 and r10.w, r13.x, r13.y
 max r12.z, r12.z, l(0.000000)
+mul r12.z, r12.z, l(0.250000)
 if_nz r10.w
 ld_indexable(texture1d)(float,float,float,float) r15.xyzw, l(517, 0, 0, 0), t120.xyzw
 eq r13.x, r15.x, l(0.000000)
-movc r15.x, r13.x, l(0.500000), r15.x
+movc r15.x, r13.x, l(0.700000), r15.x
 lt r13.x, r15.x, l(0.000000)
 movc r15.x, r13.x, l(-10.000000), r15.x
 max r11.x, r15.x, l(0.020000)
@@ -364,11 +379,11 @@ add r11.y, -r11.x, l(1.000000)
 log r11.x, r11.x
 log r11.y, r11.y
 add r11.x, r11.x, -r11.y
-mad r11.y, r11.x, l(-0.002437424), l(-0.018739033)
-mad r11.y, r11.y, r11.x, l(-0.487268350)
-mad r11.y, r11.y, r11.x, l(0.264974522)
+mad r11.y, r11.x, l(0.004422646), l(0.008511348)
+mad r11.y, r11.y, r11.x, l(-0.618192882)
+mad r11.y, r11.y, r11.x, l(0.243088298)
 add r11.x, r18.x, -r11.y
-mad_sat r12.w, r11.x, l(0.400000), l(0.500000)
+mad_sat r12.w, r11.x, l(0.250000), l(0.500000)
 deriv_rtx_fine r19.xyz, v3.xyzx
 deriv_rty_fine r20.xyz, v3.xyzx
 deriv_rtx_fine r21.xy, v1.xyxx
@@ -412,7 +427,7 @@ max r27.y, r27.y, l(0.000000)
 min r16.y, r27.y, l(16.000000)
 rsq r16.y, r16.y
 mul r16.y, r16.y, l(0.006000)
-min r16.y, r16.y, l(0.002113)
+min r16.y, r16.y, l(0.001071)
 rsq r27.y, r27.y
 mul r27.y, r27.y, l(4.000000)
 min r27.y, r27.y, l(1.000000)
@@ -571,10 +586,10 @@ mad r20.xyz, r23.xyzx, r11.xyzx, r20.xyzx
 add r20.xyz, r20.xyzx, r22.xyzx
 eq r21.x, l(0.000000), l(0.000000)
 mov r21.y, l(-1.000000)
-mad r21.z, r16.y, l(-71.000000), l(0.070000)
+mad r21.z, r16.y, l(-35.000000), l(0.017500)
 mov r27.y, r16.y
-mov r27.z, l(0.070000)
-mul r22.xy, r9.xyxx, l(0.070000)
+mov r27.z, l(0.017500)
+mul r22.xy, r9.xyxx, l(0.017500)
 mad r11.xyz, r23.xyzx, r22.xxxx, r19.xyzx
 mad r11.xyz, -r24.xyzx, r22.yyyy, r11.xyzx
 mad r12.xyz, r24.xyzx, r22.xxxx, r20.xyzx
@@ -608,10 +623,10 @@ mul r25.x, r25.x, r25.w
 add r25.y, r25.y, r10.y
 mad r25.x, r25.z, r25.y, r25.x
 mul r25.x, r25.x, r10.x
-add r25.x, r25.x, l(-0.070000)
+add r25.x, r25.x, l(-0.017500)
 ge r27.x, r25.x, l(0.000000)
 and r25.w, r27.x, r21.x
-movc r21.z, r25.w, l(0.070000), r21.z
+movc r21.z, r25.w, l(0.017500), r21.z
 xor r21.x, r21.x, r25.w
 mov r21.y, r25.x
 add r27.w, r27.z, -r27.y
@@ -2020,1638 +2035,6 @@ mov r21.y, r25.x
 endif
 if_nz r21.x
 // EDCAS parallax: the next steps, while no hit is found
-add r27.w, r27.z, -r27.y
-mul r22.xy, r9.xyxx, r27.wwww
-mad r11.xyz, r23.xyzx, r22.xxxx, r19.xyzx
-mad r11.xyz, -r24.xyzx, r22.yyyy, r11.xyzx
-mad r12.xyz, r24.xyzx, r22.xxxx, r20.xyzx
-mad r12.xyz, r23.xyzx, r22.yyyy, r12.xyzx
-frc r11.xyz, r11.xyzx
-frc r12.xyz, r12.xyzx
-mov r17.x, r11.x
-mov r17.y, r12.x
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mul r25.xy, r13.xyxx, r26.xxxx
-mov r17.x, r11.y
-mov r17.y, r12.y
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.yyyy, r25.xyxx
-mov r17.x, r11.z
-mov r17.y, r12.z
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.zzzz, r25.xyxx
-mad r25.xy, r25.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat r25.z, r25.x, l(32.786885), l(0.377049)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-add r25.z, r25.z, r12.w
-mad_sat r25.z, r25.z, l(6.000000), l(-5.400000)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-mad_sat r25.w, r12.w, l(3.333333), l(-2.333333)
-mul r25.x, r25.x, r25.w
-add r25.y, r25.y, r10.y
-mad r25.x, r25.z, r25.y, r25.x
-mul r25.x, r25.x, r10.x
-add r25.x, r25.x, -r27.w
-ge r27.x, r25.x, l(0.000000)
-add r25.y, r21.y, -r25.x
-div r25.y, r21.y, r25.y
-mad r25.z, -r25.y, r27.y, r27.z
-and r25.w, r27.x, r21.x
-movc r21.z, r25.w, r25.z, r21.z
-xor r21.x, r21.x, r25.w
-mov r27.z, r27.w
-mov r21.y, r25.x
-add r27.w, r27.z, -r27.y
-mul r22.xy, r9.xyxx, r27.wwww
-mad r11.xyz, r23.xyzx, r22.xxxx, r19.xyzx
-mad r11.xyz, -r24.xyzx, r22.yyyy, r11.xyzx
-mad r12.xyz, r24.xyzx, r22.xxxx, r20.xyzx
-mad r12.xyz, r23.xyzx, r22.yyyy, r12.xyzx
-frc r11.xyz, r11.xyzx
-frc r12.xyz, r12.xyzx
-mov r17.x, r11.x
-mov r17.y, r12.x
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mul r25.xy, r13.xyxx, r26.xxxx
-mov r17.x, r11.y
-mov r17.y, r12.y
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.yyyy, r25.xyxx
-mov r17.x, r11.z
-mov r17.y, r12.z
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.zzzz, r25.xyxx
-mad r25.xy, r25.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat r25.z, r25.x, l(32.786885), l(0.377049)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-add r25.z, r25.z, r12.w
-mad_sat r25.z, r25.z, l(6.000000), l(-5.400000)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-mad_sat r25.w, r12.w, l(3.333333), l(-2.333333)
-mul r25.x, r25.x, r25.w
-add r25.y, r25.y, r10.y
-mad r25.x, r25.z, r25.y, r25.x
-mul r25.x, r25.x, r10.x
-add r25.x, r25.x, -r27.w
-ge r27.x, r25.x, l(0.000000)
-add r25.y, r21.y, -r25.x
-div r25.y, r21.y, r25.y
-mad r25.z, -r25.y, r27.y, r27.z
-and r25.w, r27.x, r21.x
-movc r21.z, r25.w, r25.z, r21.z
-xor r21.x, r21.x, r25.w
-mov r27.z, r27.w
-mov r21.y, r25.x
-add r27.w, r27.z, -r27.y
-mul r22.xy, r9.xyxx, r27.wwww
-mad r11.xyz, r23.xyzx, r22.xxxx, r19.xyzx
-mad r11.xyz, -r24.xyzx, r22.yyyy, r11.xyzx
-mad r12.xyz, r24.xyzx, r22.xxxx, r20.xyzx
-mad r12.xyz, r23.xyzx, r22.yyyy, r12.xyzx
-frc r11.xyz, r11.xyzx
-frc r12.xyz, r12.xyzx
-mov r17.x, r11.x
-mov r17.y, r12.x
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mul r25.xy, r13.xyxx, r26.xxxx
-mov r17.x, r11.y
-mov r17.y, r12.y
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.yyyy, r25.xyxx
-mov r17.x, r11.z
-mov r17.y, r12.z
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.zzzz, r25.xyxx
-mad r25.xy, r25.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat r25.z, r25.x, l(32.786885), l(0.377049)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-add r25.z, r25.z, r12.w
-mad_sat r25.z, r25.z, l(6.000000), l(-5.400000)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-mad_sat r25.w, r12.w, l(3.333333), l(-2.333333)
-mul r25.x, r25.x, r25.w
-add r25.y, r25.y, r10.y
-mad r25.x, r25.z, r25.y, r25.x
-mul r25.x, r25.x, r10.x
-add r25.x, r25.x, -r27.w
-ge r27.x, r25.x, l(0.000000)
-add r25.y, r21.y, -r25.x
-div r25.y, r21.y, r25.y
-mad r25.z, -r25.y, r27.y, r27.z
-and r25.w, r27.x, r21.x
-movc r21.z, r25.w, r25.z, r21.z
-xor r21.x, r21.x, r25.w
-mov r27.z, r27.w
-mov r21.y, r25.x
-add r27.w, r27.z, -r27.y
-mul r22.xy, r9.xyxx, r27.wwww
-mad r11.xyz, r23.xyzx, r22.xxxx, r19.xyzx
-mad r11.xyz, -r24.xyzx, r22.yyyy, r11.xyzx
-mad r12.xyz, r24.xyzx, r22.xxxx, r20.xyzx
-mad r12.xyz, r23.xyzx, r22.yyyy, r12.xyzx
-frc r11.xyz, r11.xyzx
-frc r12.xyz, r12.xyzx
-mov r17.x, r11.x
-mov r17.y, r12.x
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mul r25.xy, r13.xyxx, r26.xxxx
-mov r17.x, r11.y
-mov r17.y, r12.y
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.yyyy, r25.xyxx
-mov r17.x, r11.z
-mov r17.y, r12.z
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.zzzz, r25.xyxx
-mad r25.xy, r25.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat r25.z, r25.x, l(32.786885), l(0.377049)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-add r25.z, r25.z, r12.w
-mad_sat r25.z, r25.z, l(6.000000), l(-5.400000)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-mad_sat r25.w, r12.w, l(3.333333), l(-2.333333)
-mul r25.x, r25.x, r25.w
-add r25.y, r25.y, r10.y
-mad r25.x, r25.z, r25.y, r25.x
-mul r25.x, r25.x, r10.x
-add r25.x, r25.x, -r27.w
-ge r27.x, r25.x, l(0.000000)
-add r25.y, r21.y, -r25.x
-div r25.y, r21.y, r25.y
-mad r25.z, -r25.y, r27.y, r27.z
-and r25.w, r27.x, r21.x
-movc r21.z, r25.w, r25.z, r21.z
-xor r21.x, r21.x, r25.w
-mov r27.z, r27.w
-mov r21.y, r25.x
-add r27.w, r27.z, -r27.y
-mul r22.xy, r9.xyxx, r27.wwww
-mad r11.xyz, r23.xyzx, r22.xxxx, r19.xyzx
-mad r11.xyz, -r24.xyzx, r22.yyyy, r11.xyzx
-mad r12.xyz, r24.xyzx, r22.xxxx, r20.xyzx
-mad r12.xyz, r23.xyzx, r22.yyyy, r12.xyzx
-frc r11.xyz, r11.xyzx
-frc r12.xyz, r12.xyzx
-mov r17.x, r11.x
-mov r17.y, r12.x
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mul r25.xy, r13.xyxx, r26.xxxx
-mov r17.x, r11.y
-mov r17.y, r12.y
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.yyyy, r25.xyxx
-mov r17.x, r11.z
-mov r17.y, r12.z
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.zzzz, r25.xyxx
-mad r25.xy, r25.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat r25.z, r25.x, l(32.786885), l(0.377049)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-add r25.z, r25.z, r12.w
-mad_sat r25.z, r25.z, l(6.000000), l(-5.400000)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-mad_sat r25.w, r12.w, l(3.333333), l(-2.333333)
-mul r25.x, r25.x, r25.w
-add r25.y, r25.y, r10.y
-mad r25.x, r25.z, r25.y, r25.x
-mul r25.x, r25.x, r10.x
-add r25.x, r25.x, -r27.w
-ge r27.x, r25.x, l(0.000000)
-add r25.y, r21.y, -r25.x
-div r25.y, r21.y, r25.y
-mad r25.z, -r25.y, r27.y, r27.z
-and r25.w, r27.x, r21.x
-movc r21.z, r25.w, r25.z, r21.z
-xor r21.x, r21.x, r25.w
-mov r27.z, r27.w
-mov r21.y, r25.x
-add r27.w, r27.z, -r27.y
-mul r22.xy, r9.xyxx, r27.wwww
-mad r11.xyz, r23.xyzx, r22.xxxx, r19.xyzx
-mad r11.xyz, -r24.xyzx, r22.yyyy, r11.xyzx
-mad r12.xyz, r24.xyzx, r22.xxxx, r20.xyzx
-mad r12.xyz, r23.xyzx, r22.yyyy, r12.xyzx
-frc r11.xyz, r11.xyzx
-frc r12.xyz, r12.xyzx
-mov r17.x, r11.x
-mov r17.y, r12.x
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mul r25.xy, r13.xyxx, r26.xxxx
-mov r17.x, r11.y
-mov r17.y, r12.y
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.yyyy, r25.xyxx
-mov r17.x, r11.z
-mov r17.y, r12.z
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.zzzz, r25.xyxx
-mad r25.xy, r25.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat r25.z, r25.x, l(32.786885), l(0.377049)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-add r25.z, r25.z, r12.w
-mad_sat r25.z, r25.z, l(6.000000), l(-5.400000)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-mad_sat r25.w, r12.w, l(3.333333), l(-2.333333)
-mul r25.x, r25.x, r25.w
-add r25.y, r25.y, r10.y
-mad r25.x, r25.z, r25.y, r25.x
-mul r25.x, r25.x, r10.x
-add r25.x, r25.x, -r27.w
-ge r27.x, r25.x, l(0.000000)
-add r25.y, r21.y, -r25.x
-div r25.y, r21.y, r25.y
-mad r25.z, -r25.y, r27.y, r27.z
-and r25.w, r27.x, r21.x
-movc r21.z, r25.w, r25.z, r21.z
-xor r21.x, r21.x, r25.w
-mov r27.z, r27.w
-mov r21.y, r25.x
-add r27.w, r27.z, -r27.y
-mul r22.xy, r9.xyxx, r27.wwww
-mad r11.xyz, r23.xyzx, r22.xxxx, r19.xyzx
-mad r11.xyz, -r24.xyzx, r22.yyyy, r11.xyzx
-mad r12.xyz, r24.xyzx, r22.xxxx, r20.xyzx
-mad r12.xyz, r23.xyzx, r22.yyyy, r12.xyzx
-frc r11.xyz, r11.xyzx
-frc r12.xyz, r12.xyzx
-mov r17.x, r11.x
-mov r17.y, r12.x
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mul r25.xy, r13.xyxx, r26.xxxx
-mov r17.x, r11.y
-mov r17.y, r12.y
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.yyyy, r25.xyxx
-mov r17.x, r11.z
-mov r17.y, r12.z
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.zzzz, r25.xyxx
-mad r25.xy, r25.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat r25.z, r25.x, l(32.786885), l(0.377049)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-add r25.z, r25.z, r12.w
-mad_sat r25.z, r25.z, l(6.000000), l(-5.400000)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-mad_sat r25.w, r12.w, l(3.333333), l(-2.333333)
-mul r25.x, r25.x, r25.w
-add r25.y, r25.y, r10.y
-mad r25.x, r25.z, r25.y, r25.x
-mul r25.x, r25.x, r10.x
-add r25.x, r25.x, -r27.w
-ge r27.x, r25.x, l(0.000000)
-add r25.y, r21.y, -r25.x
-div r25.y, r21.y, r25.y
-mad r25.z, -r25.y, r27.y, r27.z
-and r25.w, r27.x, r21.x
-movc r21.z, r25.w, r25.z, r21.z
-xor r21.x, r21.x, r25.w
-mov r27.z, r27.w
-mov r21.y, r25.x
-add r27.w, r27.z, -r27.y
-mul r22.xy, r9.xyxx, r27.wwww
-mad r11.xyz, r23.xyzx, r22.xxxx, r19.xyzx
-mad r11.xyz, -r24.xyzx, r22.yyyy, r11.xyzx
-mad r12.xyz, r24.xyzx, r22.xxxx, r20.xyzx
-mad r12.xyz, r23.xyzx, r22.yyyy, r12.xyzx
-frc r11.xyz, r11.xyzx
-frc r12.xyz, r12.xyzx
-mov r17.x, r11.x
-mov r17.y, r12.x
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mul r25.xy, r13.xyxx, r26.xxxx
-mov r17.x, r11.y
-mov r17.y, r12.y
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.yyyy, r25.xyxx
-mov r17.x, r11.z
-mov r17.y, r12.z
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.zzzz, r25.xyxx
-mad r25.xy, r25.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat r25.z, r25.x, l(32.786885), l(0.377049)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-add r25.z, r25.z, r12.w
-mad_sat r25.z, r25.z, l(6.000000), l(-5.400000)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-mad_sat r25.w, r12.w, l(3.333333), l(-2.333333)
-mul r25.x, r25.x, r25.w
-add r25.y, r25.y, r10.y
-mad r25.x, r25.z, r25.y, r25.x
-mul r25.x, r25.x, r10.x
-add r25.x, r25.x, -r27.w
-ge r27.x, r25.x, l(0.000000)
-add r25.y, r21.y, -r25.x
-div r25.y, r21.y, r25.y
-mad r25.z, -r25.y, r27.y, r27.z
-and r25.w, r27.x, r21.x
-movc r21.z, r25.w, r25.z, r21.z
-xor r21.x, r21.x, r25.w
-mov r27.z, r27.w
-mov r21.y, r25.x
-endif
-if_nz r21.x
-// EDCAS parallax: the next steps, while no hit is found
-add r27.w, r27.z, -r27.y
-mul r22.xy, r9.xyxx, r27.wwww
-mad r11.xyz, r23.xyzx, r22.xxxx, r19.xyzx
-mad r11.xyz, -r24.xyzx, r22.yyyy, r11.xyzx
-mad r12.xyz, r24.xyzx, r22.xxxx, r20.xyzx
-mad r12.xyz, r23.xyzx, r22.yyyy, r12.xyzx
-frc r11.xyz, r11.xyzx
-frc r12.xyz, r12.xyzx
-mov r17.x, r11.x
-mov r17.y, r12.x
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mul r25.xy, r13.xyxx, r26.xxxx
-mov r17.x, r11.y
-mov r17.y, r12.y
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.yyyy, r25.xyxx
-mov r17.x, r11.z
-mov r17.y, r12.z
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.zzzz, r25.xyxx
-mad r25.xy, r25.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat r25.z, r25.x, l(32.786885), l(0.377049)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-add r25.z, r25.z, r12.w
-mad_sat r25.z, r25.z, l(6.000000), l(-5.400000)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-mad_sat r25.w, r12.w, l(3.333333), l(-2.333333)
-mul r25.x, r25.x, r25.w
-add r25.y, r25.y, r10.y
-mad r25.x, r25.z, r25.y, r25.x
-mul r25.x, r25.x, r10.x
-add r25.x, r25.x, -r27.w
-ge r27.x, r25.x, l(0.000000)
-add r25.y, r21.y, -r25.x
-div r25.y, r21.y, r25.y
-mad r25.z, -r25.y, r27.y, r27.z
-and r25.w, r27.x, r21.x
-movc r21.z, r25.w, r25.z, r21.z
-xor r21.x, r21.x, r25.w
-mov r27.z, r27.w
-mov r21.y, r25.x
-add r27.w, r27.z, -r27.y
-mul r22.xy, r9.xyxx, r27.wwww
-mad r11.xyz, r23.xyzx, r22.xxxx, r19.xyzx
-mad r11.xyz, -r24.xyzx, r22.yyyy, r11.xyzx
-mad r12.xyz, r24.xyzx, r22.xxxx, r20.xyzx
-mad r12.xyz, r23.xyzx, r22.yyyy, r12.xyzx
-frc r11.xyz, r11.xyzx
-frc r12.xyz, r12.xyzx
-mov r17.x, r11.x
-mov r17.y, r12.x
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mul r25.xy, r13.xyxx, r26.xxxx
-mov r17.x, r11.y
-mov r17.y, r12.y
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.yyyy, r25.xyxx
-mov r17.x, r11.z
-mov r17.y, r12.z
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.zzzz, r25.xyxx
-mad r25.xy, r25.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat r25.z, r25.x, l(32.786885), l(0.377049)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-add r25.z, r25.z, r12.w
-mad_sat r25.z, r25.z, l(6.000000), l(-5.400000)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-mad_sat r25.w, r12.w, l(3.333333), l(-2.333333)
-mul r25.x, r25.x, r25.w
-add r25.y, r25.y, r10.y
-mad r25.x, r25.z, r25.y, r25.x
-mul r25.x, r25.x, r10.x
-add r25.x, r25.x, -r27.w
-ge r27.x, r25.x, l(0.000000)
-add r25.y, r21.y, -r25.x
-div r25.y, r21.y, r25.y
-mad r25.z, -r25.y, r27.y, r27.z
-and r25.w, r27.x, r21.x
-movc r21.z, r25.w, r25.z, r21.z
-xor r21.x, r21.x, r25.w
-mov r27.z, r27.w
-mov r21.y, r25.x
-add r27.w, r27.z, -r27.y
-mul r22.xy, r9.xyxx, r27.wwww
-mad r11.xyz, r23.xyzx, r22.xxxx, r19.xyzx
-mad r11.xyz, -r24.xyzx, r22.yyyy, r11.xyzx
-mad r12.xyz, r24.xyzx, r22.xxxx, r20.xyzx
-mad r12.xyz, r23.xyzx, r22.yyyy, r12.xyzx
-frc r11.xyz, r11.xyzx
-frc r12.xyz, r12.xyzx
-mov r17.x, r11.x
-mov r17.y, r12.x
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mul r25.xy, r13.xyxx, r26.xxxx
-mov r17.x, r11.y
-mov r17.y, r12.y
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.yyyy, r25.xyxx
-mov r17.x, r11.z
-mov r17.y, r12.z
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.zzzz, r25.xyxx
-mad r25.xy, r25.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat r25.z, r25.x, l(32.786885), l(0.377049)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-add r25.z, r25.z, r12.w
-mad_sat r25.z, r25.z, l(6.000000), l(-5.400000)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-mad_sat r25.w, r12.w, l(3.333333), l(-2.333333)
-mul r25.x, r25.x, r25.w
-add r25.y, r25.y, r10.y
-mad r25.x, r25.z, r25.y, r25.x
-mul r25.x, r25.x, r10.x
-add r25.x, r25.x, -r27.w
-ge r27.x, r25.x, l(0.000000)
-add r25.y, r21.y, -r25.x
-div r25.y, r21.y, r25.y
-mad r25.z, -r25.y, r27.y, r27.z
-and r25.w, r27.x, r21.x
-movc r21.z, r25.w, r25.z, r21.z
-xor r21.x, r21.x, r25.w
-mov r27.z, r27.w
-mov r21.y, r25.x
-add r27.w, r27.z, -r27.y
-mul r22.xy, r9.xyxx, r27.wwww
-mad r11.xyz, r23.xyzx, r22.xxxx, r19.xyzx
-mad r11.xyz, -r24.xyzx, r22.yyyy, r11.xyzx
-mad r12.xyz, r24.xyzx, r22.xxxx, r20.xyzx
-mad r12.xyz, r23.xyzx, r22.yyyy, r12.xyzx
-frc r11.xyz, r11.xyzx
-frc r12.xyz, r12.xyzx
-mov r17.x, r11.x
-mov r17.y, r12.x
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mul r25.xy, r13.xyxx, r26.xxxx
-mov r17.x, r11.y
-mov r17.y, r12.y
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.yyyy, r25.xyxx
-mov r17.x, r11.z
-mov r17.y, r12.z
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.zzzz, r25.xyxx
-mad r25.xy, r25.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat r25.z, r25.x, l(32.786885), l(0.377049)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-add r25.z, r25.z, r12.w
-mad_sat r25.z, r25.z, l(6.000000), l(-5.400000)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-mad_sat r25.w, r12.w, l(3.333333), l(-2.333333)
-mul r25.x, r25.x, r25.w
-add r25.y, r25.y, r10.y
-mad r25.x, r25.z, r25.y, r25.x
-mul r25.x, r25.x, r10.x
-add r25.x, r25.x, -r27.w
-ge r27.x, r25.x, l(0.000000)
-add r25.y, r21.y, -r25.x
-div r25.y, r21.y, r25.y
-mad r25.z, -r25.y, r27.y, r27.z
-and r25.w, r27.x, r21.x
-movc r21.z, r25.w, r25.z, r21.z
-xor r21.x, r21.x, r25.w
-mov r27.z, r27.w
-mov r21.y, r25.x
-add r27.w, r27.z, -r27.y
-mul r22.xy, r9.xyxx, r27.wwww
-mad r11.xyz, r23.xyzx, r22.xxxx, r19.xyzx
-mad r11.xyz, -r24.xyzx, r22.yyyy, r11.xyzx
-mad r12.xyz, r24.xyzx, r22.xxxx, r20.xyzx
-mad r12.xyz, r23.xyzx, r22.yyyy, r12.xyzx
-frc r11.xyz, r11.xyzx
-frc r12.xyz, r12.xyzx
-mov r17.x, r11.x
-mov r17.y, r12.x
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mul r25.xy, r13.xyxx, r26.xxxx
-mov r17.x, r11.y
-mov r17.y, r12.y
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.yyyy, r25.xyxx
-mov r17.x, r11.z
-mov r17.y, r12.z
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.zzzz, r25.xyxx
-mad r25.xy, r25.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat r25.z, r25.x, l(32.786885), l(0.377049)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-add r25.z, r25.z, r12.w
-mad_sat r25.z, r25.z, l(6.000000), l(-5.400000)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-mad_sat r25.w, r12.w, l(3.333333), l(-2.333333)
-mul r25.x, r25.x, r25.w
-add r25.y, r25.y, r10.y
-mad r25.x, r25.z, r25.y, r25.x
-mul r25.x, r25.x, r10.x
-add r25.x, r25.x, -r27.w
-ge r27.x, r25.x, l(0.000000)
-add r25.y, r21.y, -r25.x
-div r25.y, r21.y, r25.y
-mad r25.z, -r25.y, r27.y, r27.z
-and r25.w, r27.x, r21.x
-movc r21.z, r25.w, r25.z, r21.z
-xor r21.x, r21.x, r25.w
-mov r27.z, r27.w
-mov r21.y, r25.x
-add r27.w, r27.z, -r27.y
-mul r22.xy, r9.xyxx, r27.wwww
-mad r11.xyz, r23.xyzx, r22.xxxx, r19.xyzx
-mad r11.xyz, -r24.xyzx, r22.yyyy, r11.xyzx
-mad r12.xyz, r24.xyzx, r22.xxxx, r20.xyzx
-mad r12.xyz, r23.xyzx, r22.yyyy, r12.xyzx
-frc r11.xyz, r11.xyzx
-frc r12.xyz, r12.xyzx
-mov r17.x, r11.x
-mov r17.y, r12.x
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mul r25.xy, r13.xyxx, r26.xxxx
-mov r17.x, r11.y
-mov r17.y, r12.y
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.yyyy, r25.xyxx
-mov r17.x, r11.z
-mov r17.y, r12.z
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.zzzz, r25.xyxx
-mad r25.xy, r25.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat r25.z, r25.x, l(32.786885), l(0.377049)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-add r25.z, r25.z, r12.w
-mad_sat r25.z, r25.z, l(6.000000), l(-5.400000)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-mad_sat r25.w, r12.w, l(3.333333), l(-2.333333)
-mul r25.x, r25.x, r25.w
-add r25.y, r25.y, r10.y
-mad r25.x, r25.z, r25.y, r25.x
-mul r25.x, r25.x, r10.x
-add r25.x, r25.x, -r27.w
-ge r27.x, r25.x, l(0.000000)
-add r25.y, r21.y, -r25.x
-div r25.y, r21.y, r25.y
-mad r25.z, -r25.y, r27.y, r27.z
-and r25.w, r27.x, r21.x
-movc r21.z, r25.w, r25.z, r21.z
-xor r21.x, r21.x, r25.w
-mov r27.z, r27.w
-mov r21.y, r25.x
-add r27.w, r27.z, -r27.y
-mul r22.xy, r9.xyxx, r27.wwww
-mad r11.xyz, r23.xyzx, r22.xxxx, r19.xyzx
-mad r11.xyz, -r24.xyzx, r22.yyyy, r11.xyzx
-mad r12.xyz, r24.xyzx, r22.xxxx, r20.xyzx
-mad r12.xyz, r23.xyzx, r22.yyyy, r12.xyzx
-frc r11.xyz, r11.xyzx
-frc r12.xyz, r12.xyzx
-mov r17.x, r11.x
-mov r17.y, r12.x
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mul r25.xy, r13.xyxx, r26.xxxx
-mov r17.x, r11.y
-mov r17.y, r12.y
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.yyyy, r25.xyxx
-mov r17.x, r11.z
-mov r17.y, r12.z
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.zzzz, r25.xyxx
-mad r25.xy, r25.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat r25.z, r25.x, l(32.786885), l(0.377049)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-add r25.z, r25.z, r12.w
-mad_sat r25.z, r25.z, l(6.000000), l(-5.400000)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-mad_sat r25.w, r12.w, l(3.333333), l(-2.333333)
-mul r25.x, r25.x, r25.w
-add r25.y, r25.y, r10.y
-mad r25.x, r25.z, r25.y, r25.x
-mul r25.x, r25.x, r10.x
-add r25.x, r25.x, -r27.w
-ge r27.x, r25.x, l(0.000000)
-add r25.y, r21.y, -r25.x
-div r25.y, r21.y, r25.y
-mad r25.z, -r25.y, r27.y, r27.z
-and r25.w, r27.x, r21.x
-movc r21.z, r25.w, r25.z, r21.z
-xor r21.x, r21.x, r25.w
-mov r27.z, r27.w
-mov r21.y, r25.x
-add r27.w, r27.z, -r27.y
-mul r22.xy, r9.xyxx, r27.wwww
-mad r11.xyz, r23.xyzx, r22.xxxx, r19.xyzx
-mad r11.xyz, -r24.xyzx, r22.yyyy, r11.xyzx
-mad r12.xyz, r24.xyzx, r22.xxxx, r20.xyzx
-mad r12.xyz, r23.xyzx, r22.yyyy, r12.xyzx
-frc r11.xyz, r11.xyzx
-frc r12.xyz, r12.xyzx
-mov r17.x, r11.x
-mov r17.y, r12.x
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mul r25.xy, r13.xyxx, r26.xxxx
-mov r17.x, r11.y
-mov r17.y, r12.y
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.yyyy, r25.xyxx
-mov r17.x, r11.z
-mov r17.y, r12.z
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.zzzz, r25.xyxx
-mad r25.xy, r25.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat r25.z, r25.x, l(32.786885), l(0.377049)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-add r25.z, r25.z, r12.w
-mad_sat r25.z, r25.z, l(6.000000), l(-5.400000)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-mad_sat r25.w, r12.w, l(3.333333), l(-2.333333)
-mul r25.x, r25.x, r25.w
-add r25.y, r25.y, r10.y
-mad r25.x, r25.z, r25.y, r25.x
-mul r25.x, r25.x, r10.x
-add r25.x, r25.x, -r27.w
-ge r27.x, r25.x, l(0.000000)
-add r25.y, r21.y, -r25.x
-div r25.y, r21.y, r25.y
-mad r25.z, -r25.y, r27.y, r27.z
-and r25.w, r27.x, r21.x
-movc r21.z, r25.w, r25.z, r21.z
-xor r21.x, r21.x, r25.w
-mov r27.z, r27.w
-mov r21.y, r25.x
-endif
-if_nz r21.x
-// EDCAS parallax: the next steps, while no hit is found
-add r27.w, r27.z, -r27.y
-mul r22.xy, r9.xyxx, r27.wwww
-mad r11.xyz, r23.xyzx, r22.xxxx, r19.xyzx
-mad r11.xyz, -r24.xyzx, r22.yyyy, r11.xyzx
-mad r12.xyz, r24.xyzx, r22.xxxx, r20.xyzx
-mad r12.xyz, r23.xyzx, r22.yyyy, r12.xyzx
-frc r11.xyz, r11.xyzx
-frc r12.xyz, r12.xyzx
-mov r17.x, r11.x
-mov r17.y, r12.x
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mul r25.xy, r13.xyxx, r26.xxxx
-mov r17.x, r11.y
-mov r17.y, r12.y
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.yyyy, r25.xyxx
-mov r17.x, r11.z
-mov r17.y, r12.z
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.zzzz, r25.xyxx
-mad r25.xy, r25.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat r25.z, r25.x, l(32.786885), l(0.377049)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-add r25.z, r25.z, r12.w
-mad_sat r25.z, r25.z, l(6.000000), l(-5.400000)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-mad_sat r25.w, r12.w, l(3.333333), l(-2.333333)
-mul r25.x, r25.x, r25.w
-add r25.y, r25.y, r10.y
-mad r25.x, r25.z, r25.y, r25.x
-mul r25.x, r25.x, r10.x
-add r25.x, r25.x, -r27.w
-ge r27.x, r25.x, l(0.000000)
-add r25.y, r21.y, -r25.x
-div r25.y, r21.y, r25.y
-mad r25.z, -r25.y, r27.y, r27.z
-and r25.w, r27.x, r21.x
-movc r21.z, r25.w, r25.z, r21.z
-xor r21.x, r21.x, r25.w
-mov r27.z, r27.w
-mov r21.y, r25.x
-add r27.w, r27.z, -r27.y
-mul r22.xy, r9.xyxx, r27.wwww
-mad r11.xyz, r23.xyzx, r22.xxxx, r19.xyzx
-mad r11.xyz, -r24.xyzx, r22.yyyy, r11.xyzx
-mad r12.xyz, r24.xyzx, r22.xxxx, r20.xyzx
-mad r12.xyz, r23.xyzx, r22.yyyy, r12.xyzx
-frc r11.xyz, r11.xyzx
-frc r12.xyz, r12.xyzx
-mov r17.x, r11.x
-mov r17.y, r12.x
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mul r25.xy, r13.xyxx, r26.xxxx
-mov r17.x, r11.y
-mov r17.y, r12.y
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.yyyy, r25.xyxx
-mov r17.x, r11.z
-mov r17.y, r12.z
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.zzzz, r25.xyxx
-mad r25.xy, r25.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat r25.z, r25.x, l(32.786885), l(0.377049)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-add r25.z, r25.z, r12.w
-mad_sat r25.z, r25.z, l(6.000000), l(-5.400000)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-mad_sat r25.w, r12.w, l(3.333333), l(-2.333333)
-mul r25.x, r25.x, r25.w
-add r25.y, r25.y, r10.y
-mad r25.x, r25.z, r25.y, r25.x
-mul r25.x, r25.x, r10.x
-add r25.x, r25.x, -r27.w
-ge r27.x, r25.x, l(0.000000)
-add r25.y, r21.y, -r25.x
-div r25.y, r21.y, r25.y
-mad r25.z, -r25.y, r27.y, r27.z
-and r25.w, r27.x, r21.x
-movc r21.z, r25.w, r25.z, r21.z
-xor r21.x, r21.x, r25.w
-mov r27.z, r27.w
-mov r21.y, r25.x
-add r27.w, r27.z, -r27.y
-mul r22.xy, r9.xyxx, r27.wwww
-mad r11.xyz, r23.xyzx, r22.xxxx, r19.xyzx
-mad r11.xyz, -r24.xyzx, r22.yyyy, r11.xyzx
-mad r12.xyz, r24.xyzx, r22.xxxx, r20.xyzx
-mad r12.xyz, r23.xyzx, r22.yyyy, r12.xyzx
-frc r11.xyz, r11.xyzx
-frc r12.xyz, r12.xyzx
-mov r17.x, r11.x
-mov r17.y, r12.x
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mul r25.xy, r13.xyxx, r26.xxxx
-mov r17.x, r11.y
-mov r17.y, r12.y
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.yyyy, r25.xyxx
-mov r17.x, r11.z
-mov r17.y, r12.z
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.zzzz, r25.xyxx
-mad r25.xy, r25.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat r25.z, r25.x, l(32.786885), l(0.377049)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-add r25.z, r25.z, r12.w
-mad_sat r25.z, r25.z, l(6.000000), l(-5.400000)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-mad_sat r25.w, r12.w, l(3.333333), l(-2.333333)
-mul r25.x, r25.x, r25.w
-add r25.y, r25.y, r10.y
-mad r25.x, r25.z, r25.y, r25.x
-mul r25.x, r25.x, r10.x
-add r25.x, r25.x, -r27.w
-ge r27.x, r25.x, l(0.000000)
-add r25.y, r21.y, -r25.x
-div r25.y, r21.y, r25.y
-mad r25.z, -r25.y, r27.y, r27.z
-and r25.w, r27.x, r21.x
-movc r21.z, r25.w, r25.z, r21.z
-xor r21.x, r21.x, r25.w
-mov r27.z, r27.w
-mov r21.y, r25.x
-add r27.w, r27.z, -r27.y
-mul r22.xy, r9.xyxx, r27.wwww
-mad r11.xyz, r23.xyzx, r22.xxxx, r19.xyzx
-mad r11.xyz, -r24.xyzx, r22.yyyy, r11.xyzx
-mad r12.xyz, r24.xyzx, r22.xxxx, r20.xyzx
-mad r12.xyz, r23.xyzx, r22.yyyy, r12.xyzx
-frc r11.xyz, r11.xyzx
-frc r12.xyz, r12.xyzx
-mov r17.x, r11.x
-mov r17.y, r12.x
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mul r25.xy, r13.xyxx, r26.xxxx
-mov r17.x, r11.y
-mov r17.y, r12.y
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.yyyy, r25.xyxx
-mov r17.x, r11.z
-mov r17.y, r12.z
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.zzzz, r25.xyxx
-mad r25.xy, r25.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat r25.z, r25.x, l(32.786885), l(0.377049)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-add r25.z, r25.z, r12.w
-mad_sat r25.z, r25.z, l(6.000000), l(-5.400000)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-mad_sat r25.w, r12.w, l(3.333333), l(-2.333333)
-mul r25.x, r25.x, r25.w
-add r25.y, r25.y, r10.y
-mad r25.x, r25.z, r25.y, r25.x
-mul r25.x, r25.x, r10.x
-add r25.x, r25.x, -r27.w
-ge r27.x, r25.x, l(0.000000)
-add r25.y, r21.y, -r25.x
-div r25.y, r21.y, r25.y
-mad r25.z, -r25.y, r27.y, r27.z
-and r25.w, r27.x, r21.x
-movc r21.z, r25.w, r25.z, r21.z
-xor r21.x, r21.x, r25.w
-mov r27.z, r27.w
-mov r21.y, r25.x
-add r27.w, r27.z, -r27.y
-mul r22.xy, r9.xyxx, r27.wwww
-mad r11.xyz, r23.xyzx, r22.xxxx, r19.xyzx
-mad r11.xyz, -r24.xyzx, r22.yyyy, r11.xyzx
-mad r12.xyz, r24.xyzx, r22.xxxx, r20.xyzx
-mad r12.xyz, r23.xyzx, r22.yyyy, r12.xyzx
-frc r11.xyz, r11.xyzx
-frc r12.xyz, r12.xyzx
-mov r17.x, r11.x
-mov r17.y, r12.x
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mul r25.xy, r13.xyxx, r26.xxxx
-mov r17.x, r11.y
-mov r17.y, r12.y
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.yyyy, r25.xyxx
-mov r17.x, r11.z
-mov r17.y, r12.z
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.zzzz, r25.xyxx
-mad r25.xy, r25.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat r25.z, r25.x, l(32.786885), l(0.377049)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-add r25.z, r25.z, r12.w
-mad_sat r25.z, r25.z, l(6.000000), l(-5.400000)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-mad_sat r25.w, r12.w, l(3.333333), l(-2.333333)
-mul r25.x, r25.x, r25.w
-add r25.y, r25.y, r10.y
-mad r25.x, r25.z, r25.y, r25.x
-mul r25.x, r25.x, r10.x
-add r25.x, r25.x, -r27.w
-ge r27.x, r25.x, l(0.000000)
-add r25.y, r21.y, -r25.x
-div r25.y, r21.y, r25.y
-mad r25.z, -r25.y, r27.y, r27.z
-and r25.w, r27.x, r21.x
-movc r21.z, r25.w, r25.z, r21.z
-xor r21.x, r21.x, r25.w
-mov r27.z, r27.w
-mov r21.y, r25.x
-add r27.w, r27.z, -r27.y
-mul r22.xy, r9.xyxx, r27.wwww
-mad r11.xyz, r23.xyzx, r22.xxxx, r19.xyzx
-mad r11.xyz, -r24.xyzx, r22.yyyy, r11.xyzx
-mad r12.xyz, r24.xyzx, r22.xxxx, r20.xyzx
-mad r12.xyz, r23.xyzx, r22.yyyy, r12.xyzx
-frc r11.xyz, r11.xyzx
-frc r12.xyz, r12.xyzx
-mov r17.x, r11.x
-mov r17.y, r12.x
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mul r25.xy, r13.xyxx, r26.xxxx
-mov r17.x, r11.y
-mov r17.y, r12.y
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.yyyy, r25.xyxx
-mov r17.x, r11.z
-mov r17.y, r12.z
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.zzzz, r25.xyxx
-mad r25.xy, r25.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat r25.z, r25.x, l(32.786885), l(0.377049)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-add r25.z, r25.z, r12.w
-mad_sat r25.z, r25.z, l(6.000000), l(-5.400000)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-mad_sat r25.w, r12.w, l(3.333333), l(-2.333333)
-mul r25.x, r25.x, r25.w
-add r25.y, r25.y, r10.y
-mad r25.x, r25.z, r25.y, r25.x
-mul r25.x, r25.x, r10.x
-add r25.x, r25.x, -r27.w
-ge r27.x, r25.x, l(0.000000)
-add r25.y, r21.y, -r25.x
-div r25.y, r21.y, r25.y
-mad r25.z, -r25.y, r27.y, r27.z
-and r25.w, r27.x, r21.x
-movc r21.z, r25.w, r25.z, r21.z
-xor r21.x, r21.x, r25.w
-mov r27.z, r27.w
-mov r21.y, r25.x
-add r27.w, r27.z, -r27.y
-mul r22.xy, r9.xyxx, r27.wwww
-mad r11.xyz, r23.xyzx, r22.xxxx, r19.xyzx
-mad r11.xyz, -r24.xyzx, r22.yyyy, r11.xyzx
-mad r12.xyz, r24.xyzx, r22.xxxx, r20.xyzx
-mad r12.xyz, r23.xyzx, r22.yyyy, r12.xyzx
-frc r11.xyz, r11.xyzx
-frc r12.xyz, r12.xyzx
-mov r17.x, r11.x
-mov r17.y, r12.x
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mul r25.xy, r13.xyxx, r26.xxxx
-mov r17.x, r11.y
-mov r17.y, r12.y
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.yyyy, r25.xyxx
-mov r17.x, r11.z
-mov r17.y, r12.z
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.zzzz, r25.xyxx
-mad r25.xy, r25.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat r25.z, r25.x, l(32.786885), l(0.377049)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-add r25.z, r25.z, r12.w
-mad_sat r25.z, r25.z, l(6.000000), l(-5.400000)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-mad_sat r25.w, r12.w, l(3.333333), l(-2.333333)
-mul r25.x, r25.x, r25.w
-add r25.y, r25.y, r10.y
-mad r25.x, r25.z, r25.y, r25.x
-mul r25.x, r25.x, r10.x
-add r25.x, r25.x, -r27.w
-ge r27.x, r25.x, l(0.000000)
-add r25.y, r21.y, -r25.x
-div r25.y, r21.y, r25.y
-mad r25.z, -r25.y, r27.y, r27.z
-and r25.w, r27.x, r21.x
-movc r21.z, r25.w, r25.z, r21.z
-xor r21.x, r21.x, r25.w
-mov r27.z, r27.w
-mov r21.y, r25.x
-add r27.w, r27.z, -r27.y
-mul r22.xy, r9.xyxx, r27.wwww
-mad r11.xyz, r23.xyzx, r22.xxxx, r19.xyzx
-mad r11.xyz, -r24.xyzx, r22.yyyy, r11.xyzx
-mad r12.xyz, r24.xyzx, r22.xxxx, r20.xyzx
-mad r12.xyz, r23.xyzx, r22.yyyy, r12.xyzx
-frc r11.xyz, r11.xyzx
-frc r12.xyz, r12.xyzx
-mov r17.x, r11.x
-mov r17.y, r12.x
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mul r25.xy, r13.xyxx, r26.xxxx
-mov r17.x, r11.y
-mov r17.y, r12.y
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.yyyy, r25.xyxx
-mov r17.x, r11.z
-mov r17.y, r12.z
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.zzzz, r25.xyxx
-mad r25.xy, r25.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat r25.z, r25.x, l(32.786885), l(0.377049)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-add r25.z, r25.z, r12.w
-mad_sat r25.z, r25.z, l(6.000000), l(-5.400000)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-mad_sat r25.w, r12.w, l(3.333333), l(-2.333333)
-mul r25.x, r25.x, r25.w
-add r25.y, r25.y, r10.y
-mad r25.x, r25.z, r25.y, r25.x
-mul r25.x, r25.x, r10.x
-add r25.x, r25.x, -r27.w
-ge r27.x, r25.x, l(0.000000)
-add r25.y, r21.y, -r25.x
-div r25.y, r21.y, r25.y
-mad r25.z, -r25.y, r27.y, r27.z
-and r25.w, r27.x, r21.x
-movc r21.z, r25.w, r25.z, r21.z
-xor r21.x, r21.x, r25.w
-mov r27.z, r27.w
-mov r21.y, r25.x
-endif
-if_nz r21.x
-// EDCAS parallax: the next steps, while no hit is found
-add r27.w, r27.z, -r27.y
-mul r22.xy, r9.xyxx, r27.wwww
-mad r11.xyz, r23.xyzx, r22.xxxx, r19.xyzx
-mad r11.xyz, -r24.xyzx, r22.yyyy, r11.xyzx
-mad r12.xyz, r24.xyzx, r22.xxxx, r20.xyzx
-mad r12.xyz, r23.xyzx, r22.yyyy, r12.xyzx
-frc r11.xyz, r11.xyzx
-frc r12.xyz, r12.xyzx
-mov r17.x, r11.x
-mov r17.y, r12.x
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mul r25.xy, r13.xyxx, r26.xxxx
-mov r17.x, r11.y
-mov r17.y, r12.y
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.yyyy, r25.xyxx
-mov r17.x, r11.z
-mov r17.y, r12.z
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.zzzz, r25.xyxx
-mad r25.xy, r25.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat r25.z, r25.x, l(32.786885), l(0.377049)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-add r25.z, r25.z, r12.w
-mad_sat r25.z, r25.z, l(6.000000), l(-5.400000)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-mad_sat r25.w, r12.w, l(3.333333), l(-2.333333)
-mul r25.x, r25.x, r25.w
-add r25.y, r25.y, r10.y
-mad r25.x, r25.z, r25.y, r25.x
-mul r25.x, r25.x, r10.x
-add r25.x, r25.x, -r27.w
-ge r27.x, r25.x, l(0.000000)
-add r25.y, r21.y, -r25.x
-div r25.y, r21.y, r25.y
-mad r25.z, -r25.y, r27.y, r27.z
-and r25.w, r27.x, r21.x
-movc r21.z, r25.w, r25.z, r21.z
-xor r21.x, r21.x, r25.w
-mov r27.z, r27.w
-mov r21.y, r25.x
-add r27.w, r27.z, -r27.y
-mul r22.xy, r9.xyxx, r27.wwww
-mad r11.xyz, r23.xyzx, r22.xxxx, r19.xyzx
-mad r11.xyz, -r24.xyzx, r22.yyyy, r11.xyzx
-mad r12.xyz, r24.xyzx, r22.xxxx, r20.xyzx
-mad r12.xyz, r23.xyzx, r22.yyyy, r12.xyzx
-frc r11.xyz, r11.xyzx
-frc r12.xyz, r12.xyzx
-mov r17.x, r11.x
-mov r17.y, r12.x
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mul r25.xy, r13.xyxx, r26.xxxx
-mov r17.x, r11.y
-mov r17.y, r12.y
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.yyyy, r25.xyxx
-mov r17.x, r11.z
-mov r17.y, r12.z
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.zzzz, r25.xyxx
-mad r25.xy, r25.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat r25.z, r25.x, l(32.786885), l(0.377049)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-add r25.z, r25.z, r12.w
-mad_sat r25.z, r25.z, l(6.000000), l(-5.400000)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-mad_sat r25.w, r12.w, l(3.333333), l(-2.333333)
-mul r25.x, r25.x, r25.w
-add r25.y, r25.y, r10.y
-mad r25.x, r25.z, r25.y, r25.x
-mul r25.x, r25.x, r10.x
-add r25.x, r25.x, -r27.w
-ge r27.x, r25.x, l(0.000000)
-add r25.y, r21.y, -r25.x
-div r25.y, r21.y, r25.y
-mad r25.z, -r25.y, r27.y, r27.z
-and r25.w, r27.x, r21.x
-movc r21.z, r25.w, r25.z, r21.z
-xor r21.x, r21.x, r25.w
-mov r27.z, r27.w
-mov r21.y, r25.x
-add r27.w, r27.z, -r27.y
-mul r22.xy, r9.xyxx, r27.wwww
-mad r11.xyz, r23.xyzx, r22.xxxx, r19.xyzx
-mad r11.xyz, -r24.xyzx, r22.yyyy, r11.xyzx
-mad r12.xyz, r24.xyzx, r22.xxxx, r20.xyzx
-mad r12.xyz, r23.xyzx, r22.yyyy, r12.xyzx
-frc r11.xyz, r11.xyzx
-frc r12.xyz, r12.xyzx
-mov r17.x, r11.x
-mov r17.y, r12.x
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mul r25.xy, r13.xyxx, r26.xxxx
-mov r17.x, r11.y
-mov r17.y, r12.y
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.yyyy, r25.xyxx
-mov r17.x, r11.z
-mov r17.y, r12.z
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.zzzz, r25.xyxx
-mad r25.xy, r25.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat r25.z, r25.x, l(32.786885), l(0.377049)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-add r25.z, r25.z, r12.w
-mad_sat r25.z, r25.z, l(6.000000), l(-5.400000)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-mad_sat r25.w, r12.w, l(3.333333), l(-2.333333)
-mul r25.x, r25.x, r25.w
-add r25.y, r25.y, r10.y
-mad r25.x, r25.z, r25.y, r25.x
-mul r25.x, r25.x, r10.x
-add r25.x, r25.x, -r27.w
-ge r27.x, r25.x, l(0.000000)
-add r25.y, r21.y, -r25.x
-div r25.y, r21.y, r25.y
-mad r25.z, -r25.y, r27.y, r27.z
-and r25.w, r27.x, r21.x
-movc r21.z, r25.w, r25.z, r21.z
-xor r21.x, r21.x, r25.w
-mov r27.z, r27.w
-mov r21.y, r25.x
-add r27.w, r27.z, -r27.y
-mul r22.xy, r9.xyxx, r27.wwww
-mad r11.xyz, r23.xyzx, r22.xxxx, r19.xyzx
-mad r11.xyz, -r24.xyzx, r22.yyyy, r11.xyzx
-mad r12.xyz, r24.xyzx, r22.xxxx, r20.xyzx
-mad r12.xyz, r23.xyzx, r22.yyyy, r12.xyzx
-frc r11.xyz, r11.xyzx
-frc r12.xyz, r12.xyzx
-mov r17.x, r11.x
-mov r17.y, r12.x
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mul r25.xy, r13.xyxx, r26.xxxx
-mov r17.x, r11.y
-mov r17.y, r12.y
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.yyyy, r25.xyxx
-mov r17.x, r11.z
-mov r17.y, r12.z
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.zzzz, r25.xyxx
-mad r25.xy, r25.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat r25.z, r25.x, l(32.786885), l(0.377049)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-add r25.z, r25.z, r12.w
-mad_sat r25.z, r25.z, l(6.000000), l(-5.400000)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-mad_sat r25.w, r12.w, l(3.333333), l(-2.333333)
-mul r25.x, r25.x, r25.w
-add r25.y, r25.y, r10.y
-mad r25.x, r25.z, r25.y, r25.x
-mul r25.x, r25.x, r10.x
-add r25.x, r25.x, -r27.w
-ge r27.x, r25.x, l(0.000000)
-add r25.y, r21.y, -r25.x
-div r25.y, r21.y, r25.y
-mad r25.z, -r25.y, r27.y, r27.z
-and r25.w, r27.x, r21.x
-movc r21.z, r25.w, r25.z, r21.z
-xor r21.x, r21.x, r25.w
-mov r27.z, r27.w
-mov r21.y, r25.x
-add r27.w, r27.z, -r27.y
-mul r22.xy, r9.xyxx, r27.wwww
-mad r11.xyz, r23.xyzx, r22.xxxx, r19.xyzx
-mad r11.xyz, -r24.xyzx, r22.yyyy, r11.xyzx
-mad r12.xyz, r24.xyzx, r22.xxxx, r20.xyzx
-mad r12.xyz, r23.xyzx, r22.yyyy, r12.xyzx
-frc r11.xyz, r11.xyzx
-frc r12.xyz, r12.xyzx
-mov r17.x, r11.x
-mov r17.y, r12.x
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mul r25.xy, r13.xyxx, r26.xxxx
-mov r17.x, r11.y
-mov r17.y, r12.y
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.yyyy, r25.xyxx
-mov r17.x, r11.z
-mov r17.y, r12.z
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.zzzz, r25.xyxx
-mad r25.xy, r25.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat r25.z, r25.x, l(32.786885), l(0.377049)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-add r25.z, r25.z, r12.w
-mad_sat r25.z, r25.z, l(6.000000), l(-5.400000)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-mad_sat r25.w, r12.w, l(3.333333), l(-2.333333)
-mul r25.x, r25.x, r25.w
-add r25.y, r25.y, r10.y
-mad r25.x, r25.z, r25.y, r25.x
-mul r25.x, r25.x, r10.x
-add r25.x, r25.x, -r27.w
-ge r27.x, r25.x, l(0.000000)
-add r25.y, r21.y, -r25.x
-div r25.y, r21.y, r25.y
-mad r25.z, -r25.y, r27.y, r27.z
-and r25.w, r27.x, r21.x
-movc r21.z, r25.w, r25.z, r21.z
-xor r21.x, r21.x, r25.w
-mov r27.z, r27.w
-mov r21.y, r25.x
-add r27.w, r27.z, -r27.y
-mul r22.xy, r9.xyxx, r27.wwww
-mad r11.xyz, r23.xyzx, r22.xxxx, r19.xyzx
-mad r11.xyz, -r24.xyzx, r22.yyyy, r11.xyzx
-mad r12.xyz, r24.xyzx, r22.xxxx, r20.xyzx
-mad r12.xyz, r23.xyzx, r22.yyyy, r12.xyzx
-frc r11.xyz, r11.xyzx
-frc r12.xyz, r12.xyzx
-mov r17.x, r11.x
-mov r17.y, r12.x
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mul r25.xy, r13.xyxx, r26.xxxx
-mov r17.x, r11.y
-mov r17.y, r12.y
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.yyyy, r25.xyxx
-mov r17.x, r11.z
-mov r17.y, r12.z
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.zzzz, r25.xyxx
-mad r25.xy, r25.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat r25.z, r25.x, l(32.786885), l(0.377049)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-add r25.z, r25.z, r12.w
-mad_sat r25.z, r25.z, l(6.000000), l(-5.400000)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-mad_sat r25.w, r12.w, l(3.333333), l(-2.333333)
-mul r25.x, r25.x, r25.w
-add r25.y, r25.y, r10.y
-mad r25.x, r25.z, r25.y, r25.x
-mul r25.x, r25.x, r10.x
-add r25.x, r25.x, -r27.w
-ge r27.x, r25.x, l(0.000000)
-add r25.y, r21.y, -r25.x
-div r25.y, r21.y, r25.y
-mad r25.z, -r25.y, r27.y, r27.z
-and r25.w, r27.x, r21.x
-movc r21.z, r25.w, r25.z, r21.z
-xor r21.x, r21.x, r25.w
-mov r27.z, r27.w
-mov r21.y, r25.x
-add r27.w, r27.z, -r27.y
-mul r22.xy, r9.xyxx, r27.wwww
-mad r11.xyz, r23.xyzx, r22.xxxx, r19.xyzx
-mad r11.xyz, -r24.xyzx, r22.yyyy, r11.xyzx
-mad r12.xyz, r24.xyzx, r22.xxxx, r20.xyzx
-mad r12.xyz, r23.xyzx, r22.yyyy, r12.xyzx
-frc r11.xyz, r11.xyzx
-frc r12.xyz, r12.xyzx
-mov r17.x, r11.x
-mov r17.y, r12.x
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mul r25.xy, r13.xyxx, r26.xxxx
-mov r17.x, r11.y
-mov r17.y, r12.y
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.yyyy, r25.xyxx
-mov r17.x, r11.z
-mov r17.y, r12.z
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.zzzz, r25.xyxx
-mad r25.xy, r25.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat r25.z, r25.x, l(32.786885), l(0.377049)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-add r25.z, r25.z, r12.w
-mad_sat r25.z, r25.z, l(6.000000), l(-5.400000)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-mad_sat r25.w, r12.w, l(3.333333), l(-2.333333)
-mul r25.x, r25.x, r25.w
-add r25.y, r25.y, r10.y
-mad r25.x, r25.z, r25.y, r25.x
-mul r25.x, r25.x, r10.x
-add r25.x, r25.x, -r27.w
-ge r27.x, r25.x, l(0.000000)
-add r25.y, r21.y, -r25.x
-div r25.y, r21.y, r25.y
-mad r25.z, -r25.y, r27.y, r27.z
-and r25.w, r27.x, r21.x
-movc r21.z, r25.w, r25.z, r21.z
-xor r21.x, r21.x, r25.w
-mov r27.z, r27.w
-mov r21.y, r25.x
-add r27.w, r27.z, -r27.y
-mul r22.xy, r9.xyxx, r27.wwww
-mad r11.xyz, r23.xyzx, r22.xxxx, r19.xyzx
-mad r11.xyz, -r24.xyzx, r22.yyyy, r11.xyzx
-mad r12.xyz, r24.xyzx, r22.xxxx, r20.xyzx
-mad r12.xyz, r23.xyzx, r22.yyyy, r12.xyzx
-frc r11.xyz, r11.xyzx
-frc r12.xyz, r12.xyzx
-mov r17.x, r11.x
-mov r17.y, r12.x
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mul r25.xy, r13.xyxx, r26.xxxx
-mov r17.x, r11.y
-mov r17.y, r12.y
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.yyyy, r25.xyxx
-mov r17.x, r11.z
-mov r17.y, r12.z
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.zzzz, r25.xyxx
-mad r25.xy, r25.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat r25.z, r25.x, l(32.786885), l(0.377049)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-add r25.z, r25.z, r12.w
-mad_sat r25.z, r25.z, l(6.000000), l(-5.400000)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-mad_sat r25.w, r12.w, l(3.333333), l(-2.333333)
-mul r25.x, r25.x, r25.w
-add r25.y, r25.y, r10.y
-mad r25.x, r25.z, r25.y, r25.x
-mul r25.x, r25.x, r10.x
-add r25.x, r25.x, -r27.w
-ge r27.x, r25.x, l(0.000000)
-add r25.y, r21.y, -r25.x
-div r25.y, r21.y, r25.y
-mad r25.z, -r25.y, r27.y, r27.z
-and r25.w, r27.x, r21.x
-movc r21.z, r25.w, r25.z, r21.z
-xor r21.x, r21.x, r25.w
-mov r27.z, r27.w
-mov r21.y, r25.x
-endif
-if_nz r21.x
-// EDCAS parallax: the next steps, while no hit is found
-add r27.w, r27.z, -r27.y
-mul r22.xy, r9.xyxx, r27.wwww
-mad r11.xyz, r23.xyzx, r22.xxxx, r19.xyzx
-mad r11.xyz, -r24.xyzx, r22.yyyy, r11.xyzx
-mad r12.xyz, r24.xyzx, r22.xxxx, r20.xyzx
-mad r12.xyz, r23.xyzx, r22.yyyy, r12.xyzx
-frc r11.xyz, r11.xyzx
-frc r12.xyz, r12.xyzx
-mov r17.x, r11.x
-mov r17.y, r12.x
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mul r25.xy, r13.xyxx, r26.xxxx
-mov r17.x, r11.y
-mov r17.y, r12.y
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.yyyy, r25.xyxx
-mov r17.x, r11.z
-mov r17.y, r12.z
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.zzzz, r25.xyxx
-mad r25.xy, r25.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat r25.z, r25.x, l(32.786885), l(0.377049)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-add r25.z, r25.z, r12.w
-mad_sat r25.z, r25.z, l(6.000000), l(-5.400000)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-mad_sat r25.w, r12.w, l(3.333333), l(-2.333333)
-mul r25.x, r25.x, r25.w
-add r25.y, r25.y, r10.y
-mad r25.x, r25.z, r25.y, r25.x
-mul r25.x, r25.x, r10.x
-add r25.x, r25.x, -r27.w
-ge r27.x, r25.x, l(0.000000)
-add r25.y, r21.y, -r25.x
-div r25.y, r21.y, r25.y
-mad r25.z, -r25.y, r27.y, r27.z
-and r25.w, r27.x, r21.x
-movc r21.z, r25.w, r25.z, r21.z
-xor r21.x, r21.x, r25.w
-mov r27.z, r27.w
-mov r21.y, r25.x
-add r27.w, r27.z, -r27.y
-mul r22.xy, r9.xyxx, r27.wwww
-mad r11.xyz, r23.xyzx, r22.xxxx, r19.xyzx
-mad r11.xyz, -r24.xyzx, r22.yyyy, r11.xyzx
-mad r12.xyz, r24.xyzx, r22.xxxx, r20.xyzx
-mad r12.xyz, r23.xyzx, r22.yyyy, r12.xyzx
-frc r11.xyz, r11.xyzx
-frc r12.xyz, r12.xyzx
-mov r17.x, r11.x
-mov r17.y, r12.x
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mul r25.xy, r13.xyxx, r26.xxxx
-mov r17.x, r11.y
-mov r17.y, r12.y
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.yyyy, r25.xyxx
-mov r17.x, r11.z
-mov r17.y, r12.z
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.zzzz, r25.xyxx
-mad r25.xy, r25.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat r25.z, r25.x, l(32.786885), l(0.377049)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-add r25.z, r25.z, r12.w
-mad_sat r25.z, r25.z, l(6.000000), l(-5.400000)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-mad_sat r25.w, r12.w, l(3.333333), l(-2.333333)
-mul r25.x, r25.x, r25.w
-add r25.y, r25.y, r10.y
-mad r25.x, r25.z, r25.y, r25.x
-mul r25.x, r25.x, r10.x
-add r25.x, r25.x, -r27.w
-ge r27.x, r25.x, l(0.000000)
-add r25.y, r21.y, -r25.x
-div r25.y, r21.y, r25.y
-mad r25.z, -r25.y, r27.y, r27.z
-and r25.w, r27.x, r21.x
-movc r21.z, r25.w, r25.z, r21.z
-xor r21.x, r21.x, r25.w
-mov r27.z, r27.w
-mov r21.y, r25.x
-add r27.w, r27.z, -r27.y
-mul r22.xy, r9.xyxx, r27.wwww
-mad r11.xyz, r23.xyzx, r22.xxxx, r19.xyzx
-mad r11.xyz, -r24.xyzx, r22.yyyy, r11.xyzx
-mad r12.xyz, r24.xyzx, r22.xxxx, r20.xyzx
-mad r12.xyz, r23.xyzx, r22.yyyy, r12.xyzx
-frc r11.xyz, r11.xyzx
-frc r12.xyz, r12.xyzx
-mov r17.x, r11.x
-mov r17.y, r12.x
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mul r25.xy, r13.xyxx, r26.xxxx
-mov r17.x, r11.y
-mov r17.y, r12.y
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.yyyy, r25.xyxx
-mov r17.x, r11.z
-mov r17.y, r12.z
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.zzzz, r25.xyxx
-mad r25.xy, r25.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat r25.z, r25.x, l(32.786885), l(0.377049)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-add r25.z, r25.z, r12.w
-mad_sat r25.z, r25.z, l(6.000000), l(-5.400000)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-mad_sat r25.w, r12.w, l(3.333333), l(-2.333333)
-mul r25.x, r25.x, r25.w
-add r25.y, r25.y, r10.y
-mad r25.x, r25.z, r25.y, r25.x
-mul r25.x, r25.x, r10.x
-add r25.x, r25.x, -r27.w
-ge r27.x, r25.x, l(0.000000)
-add r25.y, r21.y, -r25.x
-div r25.y, r21.y, r25.y
-mad r25.z, -r25.y, r27.y, r27.z
-and r25.w, r27.x, r21.x
-movc r21.z, r25.w, r25.z, r21.z
-xor r21.x, r21.x, r25.w
-mov r27.z, r27.w
-mov r21.y, r25.x
-add r27.w, r27.z, -r27.y
-mul r22.xy, r9.xyxx, r27.wwww
-mad r11.xyz, r23.xyzx, r22.xxxx, r19.xyzx
-mad r11.xyz, -r24.xyzx, r22.yyyy, r11.xyzx
-mad r12.xyz, r24.xyzx, r22.xxxx, r20.xyzx
-mad r12.xyz, r23.xyzx, r22.yyyy, r12.xyzx
-frc r11.xyz, r11.xyzx
-frc r12.xyz, r12.xyzx
-mov r17.x, r11.x
-mov r17.y, r12.x
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mul r25.xy, r13.xyxx, r26.xxxx
-mov r17.x, r11.y
-mov r17.y, r12.y
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.yyyy, r25.xyxx
-mov r17.x, r11.z
-mov r17.y, r12.z
-sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
-mad r25.xy, r13.xyxx, r26.zzzz, r25.xyxx
-mad r25.xy, r25.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat r25.z, r25.x, l(32.786885), l(0.377049)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-add r25.z, r25.z, r12.w
-mad_sat r25.z, r25.z, l(6.000000), l(-5.400000)
-mad r25.w, r25.z, l(-2.000000), l(3.000000)
-mul r25.z, r25.z, r25.z
-mul r25.z, r25.z, r25.w
-mad_sat r25.w, r12.w, l(3.333333), l(-2.333333)
-mul r25.x, r25.x, r25.w
-add r25.y, r25.y, r10.y
-mad r25.x, r25.z, r25.y, r25.x
-mul r25.x, r25.x, r10.x
-add r25.x, r25.x, -r27.w
-ge r27.x, r25.x, l(0.000000)
-add r25.y, r21.y, -r25.x
-div r25.y, r21.y, r25.y
-mad r25.z, -r25.y, r27.y, r27.z
-and r25.w, r27.x, r21.x
-movc r21.z, r25.w, r25.z, r21.z
-xor r21.x, r21.x, r25.w
-mov r27.z, r27.w
-mov r21.y, r25.x
 add r27.w, r27.z, -r27.y
 mul r22.xy, r9.xyxx, r27.wwww
 mad r11.xyz, r23.xyzx, r22.xxxx, r19.xyzx
@@ -3842,7 +2225,7 @@ and r13.x, r13.x, r13.y
 and r13.x, r13.x, r10.w
 movc r28.xy, r13.xxxx, r28.xyxx, l(0.000000, 0.000000, 0.000000, 0.000000)
 mul r15.xy, r9.xyxx, r16.yyyy
-add r21.w, l(0.070000), -r16.y
+add r21.w, l(0.017500), -r16.y
 mul r21.xy, r9.zwzz, r21.wwww
 mov r15.z, l(0.000000)
 mad r22.xy, r21.xyxx, l(0.125000), r15.xyxx
@@ -3879,7 +2262,7 @@ mul r25.x, r25.x, r25.w
 add r25.y, r25.y, r10.y
 mad r25.x, r25.z, r25.y, r25.x
 mul r25.x, r25.x, r10.x
-mad r25.y, r16.y, l(0.875000), l(0.008750)
+mad r25.y, r16.y, l(0.875000), l(0.002188)
 add r25.x, r25.x, -r25.y
 mad_sat r25.x, r25.x, l(200.000000), l(0.000000)
 add r15.z, r15.z, r25.x
@@ -3917,7 +2300,7 @@ mul r25.x, r25.x, r25.w
 add r25.y, r25.y, r10.y
 mad r25.x, r25.z, r25.y, r25.x
 mul r25.x, r25.x, r10.x
-mad r25.y, r16.y, l(0.750000), l(0.017500)
+mad r25.y, r16.y, l(0.750000), l(0.004375)
 add r25.x, r25.x, -r25.y
 mad_sat r25.x, r25.x, l(200.000000), l(0.000000)
 add r15.z, r15.z, r25.x
@@ -3955,7 +2338,7 @@ mul r25.x, r25.x, r25.w
 add r25.y, r25.y, r10.y
 mad r25.x, r25.z, r25.y, r25.x
 mul r25.x, r25.x, r10.x
-mad r25.y, r16.y, l(0.625000), l(0.026250)
+mad r25.y, r16.y, l(0.625000), l(0.006563)
 add r25.x, r25.x, -r25.y
 mad_sat r25.x, r25.x, l(200.000000), l(0.000000)
 add r15.z, r15.z, r25.x
@@ -3993,7 +2376,7 @@ mul r25.x, r25.x, r25.w
 add r25.y, r25.y, r10.y
 mad r25.x, r25.z, r25.y, r25.x
 mul r25.x, r25.x, r10.x
-mad r25.y, r16.y, l(0.500000), l(0.035000)
+mad r25.y, r16.y, l(0.500000), l(0.008750)
 add r25.x, r25.x, -r25.y
 mad_sat r25.x, r25.x, l(200.000000), l(0.000000)
 add r15.z, r15.z, r25.x
@@ -4031,7 +2414,7 @@ mul r25.x, r25.x, r25.w
 add r25.y, r25.y, r10.y
 mad r25.x, r25.z, r25.y, r25.x
 mul r25.x, r25.x, r10.x
-mad r25.y, r16.y, l(0.375000), l(0.043750)
+mad r25.y, r16.y, l(0.375000), l(0.010938)
 add r25.x, r25.x, -r25.y
 mad_sat r25.x, r25.x, l(200.000000), l(0.000000)
 add r15.z, r15.z, r25.x
@@ -4069,7 +2452,7 @@ mul r25.x, r25.x, r25.w
 add r25.y, r25.y, r10.y
 mad r25.x, r25.z, r25.y, r25.x
 mul r25.x, r25.x, r10.x
-mad r25.y, r16.y, l(0.250000), l(0.052500)
+mad r25.y, r16.y, l(0.250000), l(0.013125)
 add r25.x, r25.x, -r25.y
 mad_sat r25.x, r25.x, l(200.000000), l(0.000000)
 add r15.z, r15.z, r25.x
@@ -4107,7 +2490,7 @@ mul r25.x, r25.x, r25.w
 add r25.y, r25.y, r10.y
 mad r25.x, r25.z, r25.y, r25.x
 mul r25.x, r25.x, r10.x
-mad r25.y, r16.y, l(0.125000), l(0.061250)
+mad r25.y, r16.y, l(0.125000), l(0.015313)
 add r25.x, r25.x, -r25.y
 mad_sat r25.x, r25.x, l(200.000000), l(0.000000)
 add r15.z, r15.z, r25.x
@@ -4145,14 +2528,588 @@ mul r25.x, r25.x, r25.w
 add r25.y, r25.y, r10.y
 mad r25.x, r25.z, r25.y, r25.x
 mul r25.x, r25.x, r10.x
-mad r25.y, r16.y, l(0.000000), l(0.070000)
+mad r25.y, r16.y, l(0.000000), l(0.017500)
 add r25.x, r25.x, -r25.y
 mad_sat r25.x, r25.x, l(200.000000), l(0.000000)
 add r15.z, r15.z, r25.x
 mul r15.z, r15.z, l(0.125000)
 movc r15.z, r15.w, r15.z, l(0.000000)
-add r25.x, l(0.070000), -r16.y
-mul r25.x, r25.x, l(6.666667)
+add r25.x, l(0.017500), -r16.y
+mul r25.x, r25.x, l(26.666667)
+eq r25.y, r8.y, l(10.000000)
+movc r28.z, r25.y, r25.x, r15.z
+else
+mov r28.xyz, l(0.000000, 0.000000, 0.000000, 0.000000)
+endif
+else
+ld_indexable(texture1d)(float,float,float,float) r15.xyzw, l(532, 0, 0, 0), t120.xyzw
+ge r13.y, r15.x, l(0.000000)
+and r10.w, r13.x, r13.y
+mov r12.z, l(0.400000)
+if_nz r10.w
+ld_indexable(texture1d)(float,float,float,float) r15.xyzw, l(517, 0, 0, 0), t120.xyzw
+eq r13.x, r15.x, l(0.000000)
+movc r15.x, r13.x, l(0.700000), r15.x
+lt r13.x, r15.x, l(0.000000)
+movc r15.x, r13.x, l(-10.000000), r15.x
+max r11.x, r15.x, l(0.020000)
+min r11.x, r11.x, l(0.980000)
+add r11.y, -r11.x, l(1.000000)
+log r11.x, r11.x
+log r11.y, r11.y
+add r11.x, r11.x, -r11.y
+mad r11.y, r11.x, l(0.004422646), l(0.008511348)
+mad r11.y, r11.y, r11.x, l(-0.618192882)
+mad r11.y, r11.y, r11.x, l(0.243088298)
+add r11.x, r18.x, -r11.y
+mad_sat r12.w, r11.x, l(0.250000), l(0.500000)
+deriv_rtx_fine r19.xyz, v3.xyzx
+deriv_rty_fine r20.xyz, v3.xyzx
+deriv_rtx_fine r21.xy, v1.xyxx
+deriv_rty_fine r21.zw, v1.xxxy
+dp3 r22.x, r19.xyzx, r19.xyzx
+dp3 r22.y, r20.xyzx, r20.xyzx
+dp3 r22.z, r19.xyzx, r20.xyzx
+mul r24.xyz, r19.yzxx, r20.zxyx
+mad r24.xyz, -r19.zxyx, r20.yzxx, r24.xyzx
+dp3 r25.x, v3.xyzx, r24.xyzx
+dp3 r25.y, r24.xyzx, r24.xyzx
+dp3 r25.z, v3.xyzx, v3.xyzx
+dp3 r23.x, v3.xyzx, r19.xyzx
+dp3 r23.y, v3.xyzx, r20.xyzx
+max r27.x, r22.x, r22.y
+sqrt r27.x, r27.x
+lt r27.y, l(0.000000), r8.w
+movc r27.y, r27.y, r8.w, l(1.000000)
+div r27.x, r27.x, r27.y
+mad_sat r27.y, r27.x, l(-50.000000), l(2.000000)
+mul r27.y, r27.y, r12.z
+mad_sat r27.z, r12.w, l(10.000000), l(-0.500000)
+mul r27.y, r27.y, r27.z
+mov r10.x, r27.y
+ld_indexable(texture1d)(float,float,float,float) r13.xyzw, l(514, 0, 0, 0), t120.xyzw
+eq r13.x, r13.w, l(0.000000)
+movc r10.y, r13.x, l(1.000000), r13.w
+max r10.y, r10.y, l(0.000000)
+mul r10.y, r10.y, l(0.025000)
+mul r27.x, r27.x, l(512.000000)
+max r27.x, r27.x, l(1.000000)
+log r10.z, r27.x
+lt r13.w, l(0.000000), r10.x
+if_nz r13.w
+// EDCAS parallax: only where its height has a weight
+mul r25.w, r22.x, r22.y
+mad r25.w, -r22.z, r22.z, r25.w
+dp3 r27.x, cb1[4].xyzx, r19.xyzx
+dp3 r27.y, cb1[4].xyzx, r20.xyzx
+dp3 r27.z, cb1[4].xyzx, r24.xyzx
+lt r15.w, r25.x, l(0.000000)
+movc r27.z, r15.w, -r27.z, r27.z
+sqrt r24.x, r25.y
+mul r24.y, r24.x, l(0.001000)
+lt r15.w, r24.y, r27.z
+and r15.w, r15.w, r10.w
+mul r27.w, r27.z, r27.z
+div r27.w, r25.y, r27.w
+add r27.w, r27.w, l(-1.000000)
+max r27.w, r27.w, l(0.000000)
+rsq r27.w, r27.w
+mul r27.w, r27.w, l(4.000000)
+min r27.w, r27.w, l(1.000000)
+mul r23.z, r27.x, r22.y
+mad r23.z, -r27.y, r22.z, r23.z
+mul r23.w, r27.y, r22.x
+mad r23.w, -r27.x, r22.z, r23.w
+sqrt r24.x, r25.y
+div r24.x, r24.x, r27.z
+div r24.x, r24.x, r25.w
+mul r24.x, r24.x, r27.w
+mul r12.x, r23.z, r21.x
+mad r12.x, r23.w, r21.z, r12.x
+mul r12.y, r23.z, r21.y
+mad r12.y, r23.w, r21.w, r12.y
+mul r12.xy, r12.xyxx, -r24.xxxx
+mul r16.w, r6.y, l(0.250000)
+round_ne r16.w, r16.w
+max r16.w, r16.w, l(1.000000)
+mul r16.w, r16.w, r6.x
+mov r9.xy, l(0.000000, 0.000000, 0.000000, 0.000000)
+mul r9.zw, r12.xxxy, r16.wwww
+mul r6.zw, v1.xxxy, r16.wwww
+ld_indexable(texture1d)(float,float,float,float) r13.xyzw, l(532, 0, 0, 0), t120.xyzw
+eq r13.y, r13.x, l(0.000000)
+movc r13.x, r13.y, l(1.000000), r13.x
+mul r9.zw, r9.zzzw, r13.xxxx
+div r27.x, r16.w, r6.x
+mul r27.y, r27.x, l(0.57735027)
+round_ne r27.y, r27.y
+max r27.y, r27.y, l(1.000000)
+add r27.y, r27.y, r27.y
+mul r27.z, r27.y, r6.x
+div r27.w, r27.z, r16.w
+mul r12.y, r6.w, r27.w
+mad r12.x, r12.y, l(-0.500000), r6.z
+round_ni r13.xy, r12.xyxx
+add r12.xy, r12.xyxx, -r13.xyxx
+add r12.z, r12.x, r12.y
+lt r11.w, l(1.000000), r12.z
+and r11.w, r11.w, l(1065353216)
+mad r27.w, r11.w, l(2.000000), l(-1.000000)
+add r12.z, r12.z, l(-1.000000)
+mul r25.x, r27.w, r12.z
+mad r25.y, -r27.w, r12.x, r11.w
+mad r25.z, -r27.w, r12.y, r11.w
+add r27.w, -r11.w, l(1.000000)
+add r19.x, r13.x, r11.w
+add r19.y, r13.x, r27.w
+mov r19.z, r19.x
+add r20.x, r13.y, r11.w
+mov r20.y, r20.x
+add r20.z, r13.y, r27.w
+div r11.xyz, r20.xyzx, r27.yyyy
+round_ni r11.xyz, r11.xyzx
+mad r12.xyz, -r11.xyzx, r27.yyyy, r20.xyzx
+mul r13.xyz, r11.xyzx, r27.yyyy
+mad r13.xyz, r13.xyzx, l(0.500000), r19.xyzx
+div r11.xyz, r13.xyzx, r27.xxxx
+round_ni r11.xyz, r11.xyzx
+mad r13.xyz, -r11.xyzx, r27.xxxx, r13.xyzx
+mad r21.xyz, r13.xyzx, r27.yyyy, r12.xyzx
+ftoi r21.xyz, r21.xyzx
+iadd r11.xyz, r21.xyzx, l(0x00000000, 0x00000000, 0x00000000, 0)
+ushr r13.xyz, r11.xyzx, l(16, 16, 16, 0)
+xor r11.xyz, r11.xyzx, r13.xyzx
+imul null, r11.xyz, r11.xyzx, l(0x7feb352d, 0x7feb352d, 0x7feb352d, 0)
+ushr r13.xyz, r11.xyzx, l(15, 15, 15, 0)
+xor r11.xyz, r11.xyzx, r13.xyzx
+imul null, r11.xyz, r11.xyzx, l(0x846ca68b, 0x846ca68b, 0x846ca68b, 0)
+ushr r13.xyz, r11.xyzx, l(16, 16, 16, 0)
+xor r11.xyz, r11.xyzx, r13.xyzx
+utof r11.xyz, r11.xyzx
+mul r11.xyz, r11.xyzx, l(2.328306437E-10, 2.328306437E-10, 2.328306437E-10, 0.000000)
+iadd r12.xyz, r21.xyzx, l(0x68e31da4, 0x68e31da4, 0x68e31da4, 0)
+ushr r13.xyz, r12.xyzx, l(16, 16, 16, 0)
+xor r12.xyz, r12.xyzx, r13.xyzx
+imul null, r12.xyz, r12.xyzx, l(0x7feb352d, 0x7feb352d, 0x7feb352d, 0)
+ushr r13.xyz, r12.xyzx, l(15, 15, 15, 0)
+xor r12.xyz, r12.xyzx, r13.xyzx
+imul null, r12.xyz, r12.xyzx, l(0x846ca68b, 0x846ca68b, 0x846ca68b, 0)
+ushr r13.xyz, r12.xyzx, l(16, 16, 16, 0)
+xor r12.xyz, r12.xyzx, r13.xyzx
+utof r12.xyz, r12.xyzx
+mul r12.xyz, r12.xyzx, l(2.328306437E-10, 2.328306437E-10, 2.328306437E-10, 0.000000)
+iadd r24.xyz, r21.xyzx, l(0xb5297a4d, 0xb5297a4d, 0xb5297a4d, 0)
+ushr r13.xyz, r24.xyzx, l(16, 16, 16, 0)
+xor r24.xyz, r24.xyzx, r13.xyzx
+imul null, r24.xyz, r24.xyzx, l(0x7feb352d, 0x7feb352d, 0x7feb352d, 0)
+ushr r13.xyz, r24.xyzx, l(15, 15, 15, 0)
+xor r24.xyz, r24.xyzx, r13.xyzx
+imul null, r24.xyz, r24.xyzx, l(0x846ca68b, 0x846ca68b, 0x846ca68b, 0)
+ushr r13.xyz, r24.xyzx, l(16, 16, 16, 0)
+xor r24.xyz, r24.xyzx, r13.xyzx
+utof r24.xyz, r24.xyzx
+mul r24.xyz, r24.xyzx, l(2.328306437E-10, 2.328306437E-10, 2.328306437E-10, 0.000000)
+div r27.w, r16.w, r27.z
+mad r19.xyz, r20.xyzx, l(0.500000), r19.xyzx
+mul r20.xyz, r20.xyzx, r27.wwww
+add r21.xyz, r19.xyzx, r11.xyzx
+add r22.xyz, r20.xyzx, r12.xyzx
+mul r13.xyz, r24.xyzx, l(6.28318531, 6.28318531, 6.28318531, 0.000000)
+mul r12.xyz, r24.xyzx, l(2.000000, 2.000000, 2.000000, 0.000000)
+round_ni r12.xyz, r12.xyzx
+mul r12.xyz, r12.xyzx, l(3.14159265, 3.14159265, 3.14159265, 0.000000)
+eq r27.x, r17.z, l(0.000000)
+movc r13.xyz, r27.xxxx, r12.xyzx, r13.xyzx
+sincos r24.x, r23.x, r13.x
+sincos r24.y, r23.y, r13.y
+sincos r24.z, r23.z, r13.z
+mul r26.xyz, r25.xyzx, r25.xyzx
+mul r26.xyz, r26.xyzx, r26.xyzx
+dp3 r27.x, r26.xyzx, l(1.000000, 1.000000, 1.000000, 0.000000)
+div r26.xyz, r26.xyzx, r27.xxxx
+lt r27.x, r18.w, l(0.000000)
+movc r23.xyz, r27.xxxx, l(1.000000, 1.000000, 1.000000, 0.000000), r23.xyzx
+movc r24.xyz, r27.xxxx, l(0.000000, 0.000000, 0.000000, 0.000000), r24.xyzx
+movc r21.xyz, r27.xxxx, r19.xyzx, r21.xyzx
+movc r22.xyz, r27.xxxx, r20.xyzx, r22.xyzx
+movc r25.xyz, r27.xxxx, l(1.000000, 0.000000, 0.000000, 0.000000), r25.xyzx
+movc r26.xyz, r27.xxxx, l(1.000000, 0.000000, 0.000000, 0.000000), r26.xyzx
+add r13.xyz, r6.zzzz, -r19.xyzx
+add r11.xyz, r6.wwww, -r20.xyzx
+mul r19.xyz, r23.xyzx, r13.xyzx
+mad r19.xyz, -r24.xyzx, r11.xyzx, r19.xyzx
+add r19.xyz, r19.xyzx, r21.xyzx
+mul r20.xyz, r24.xyzx, r13.xyzx
+mad r20.xyz, r23.xyzx, r11.xyzx, r20.xyzx
+add r20.xyz, r20.xyzx, r22.xyzx
+mov r22.xy, l(0.000000, 0.000000, 0.000000, 0.000000)
+mad r11.xyz, r23.xyzx, r22.xxxx, r19.xyzx
+mad r11.xyz, -r24.xyzx, r22.yyyy, r11.xyzx
+mad r12.xyz, r24.xyzx, r22.xxxx, r20.xyzx
+mad r12.xyz, r23.xyzx, r22.yyyy, r12.xyzx
+frc r11.xyz, r11.xyzx
+frc r12.xyz, r12.xyzx
+mov r17.x, r11.x
+mov r17.y, r12.x
+sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
+mul r25.xy, r13.xyxx, r26.xxxx
+mov r17.x, r11.y
+mov r17.y, r12.y
+sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
+mad r25.xy, r13.xyxx, r26.yyyy, r25.xyxx
+mov r17.x, r11.z
+mov r17.y, r12.z
+sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r10.z
+mad r25.xy, r13.xyxx, r26.zzzz, r25.xyxx
+mad r25.xy, r25.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
+mad_sat r25.z, r25.x, l(32.786885), l(0.377049)
+mad r25.w, r25.z, l(-2.000000), l(3.000000)
+mul r25.z, r25.z, r25.z
+mul r25.z, r25.z, r25.w
+add r25.z, r25.z, r12.w
+mad_sat r25.z, r25.z, l(6.000000), l(-5.400000)
+mad r25.w, r25.z, l(-2.000000), l(3.000000)
+mul r25.z, r25.z, r25.z
+mul r25.z, r25.z, r25.w
+mad_sat r25.w, r12.w, l(3.333333), l(-2.333333)
+mul r25.x, r25.x, r25.w
+add r25.y, r25.y, r10.y
+mad r25.x, r25.z, r25.y, r25.x
+mul r25.x, r25.x, r10.x
+mov r16.y, r25.x
+mov r28.xy, l(0.000000, 0.000000, 0.000000, 0.000000)
+mul r15.xy, r9.xyxx, r16.yyyy
+add r21.w, l(0.028000), -r16.y
+mul r21.xy, r9.zwzz, r21.wwww
+mov r15.z, l(0.000000)
+dp2 r27.x, r21.xyxx, r21.xyxx
+mul r27.x, r27.x, l(4194304.000000)
+max r27.x, r27.x, l(0.000001)
+log r27.x, r27.x
+mul r27.x, r27.x, l(0.500000)
+mad r22.xy, r21.xyxx, l(0.015625), r15.xyxx
+add r27.y, r27.x, l(-6.000000)
+max r27.y, r27.y, r10.z
+mad r11.xyz, r23.xyzx, r22.xxxx, r19.xyzx
+mad r11.xyz, -r24.xyzx, r22.yyyy, r11.xyzx
+mad r12.xyz, r24.xyzx, r22.xxxx, r20.xyzx
+mad r12.xyz, r23.xyzx, r22.yyyy, r12.xyzx
+frc r11.xyz, r11.xyzx
+frc r12.xyz, r12.xyzx
+mov r17.x, r11.x
+mov r17.y, r12.x
+sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r27.y
+mul r25.xy, r13.xyxx, r26.xxxx
+mov r17.x, r11.y
+mov r17.y, r12.y
+sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r27.y
+mad r25.xy, r13.xyxx, r26.yyyy, r25.xyxx
+mov r17.x, r11.z
+mov r17.y, r12.z
+sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r27.y
+mad r25.xy, r13.xyxx, r26.zzzz, r25.xyxx
+mad r25.xy, r25.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
+mad_sat r25.z, r25.x, l(32.786885), l(0.377049)
+mad r25.w, r25.z, l(-2.000000), l(3.000000)
+mul r25.z, r25.z, r25.z
+mul r25.z, r25.z, r25.w
+add r25.z, r25.z, r12.w
+mad_sat r25.z, r25.z, l(6.000000), l(-5.400000)
+mad r25.w, r25.z, l(-2.000000), l(3.000000)
+mul r25.z, r25.z, r25.z
+mul r25.z, r25.z, r25.w
+mad_sat r25.w, r12.w, l(3.333333), l(-2.333333)
+mul r25.x, r25.x, r25.w
+add r25.y, r25.y, r10.y
+mad r25.x, r25.z, r25.y, r25.x
+mul r25.x, r25.x, r10.x
+mad r25.y, r16.y, l(0.984375), l(0.000438)
+add r25.x, r25.x, -r25.y
+mad_sat r25.x, r25.x, l(400.000000), l(0.000000)
+max r15.z, r15.z, r25.x
+mad r22.xy, r21.xyxx, l(0.062500), r15.xyxx
+add r27.y, r27.x, l(-4.415037)
+max r27.y, r27.y, r10.z
+mad r11.xyz, r23.xyzx, r22.xxxx, r19.xyzx
+mad r11.xyz, -r24.xyzx, r22.yyyy, r11.xyzx
+mad r12.xyz, r24.xyzx, r22.xxxx, r20.xyzx
+mad r12.xyz, r23.xyzx, r22.yyyy, r12.xyzx
+frc r11.xyz, r11.xyzx
+frc r12.xyz, r12.xyzx
+mov r17.x, r11.x
+mov r17.y, r12.x
+sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r27.y
+mul r25.xy, r13.xyxx, r26.xxxx
+mov r17.x, r11.y
+mov r17.y, r12.y
+sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r27.y
+mad r25.xy, r13.xyxx, r26.yyyy, r25.xyxx
+mov r17.x, r11.z
+mov r17.y, r12.z
+sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r27.y
+mad r25.xy, r13.xyxx, r26.zzzz, r25.xyxx
+mad r25.xy, r25.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
+mad_sat r25.z, r25.x, l(32.786885), l(0.377049)
+mad r25.w, r25.z, l(-2.000000), l(3.000000)
+mul r25.z, r25.z, r25.z
+mul r25.z, r25.z, r25.w
+add r25.z, r25.z, r12.w
+mad_sat r25.z, r25.z, l(6.000000), l(-5.400000)
+mad r25.w, r25.z, l(-2.000000), l(3.000000)
+mul r25.z, r25.z, r25.z
+mul r25.z, r25.z, r25.w
+mad_sat r25.w, r12.w, l(3.333333), l(-2.333333)
+mul r25.x, r25.x, r25.w
+add r25.y, r25.y, r10.y
+mad r25.x, r25.z, r25.y, r25.x
+mul r25.x, r25.x, r10.x
+mad r25.y, r16.y, l(0.937500), l(0.001750)
+add r25.x, r25.x, -r25.y
+mad_sat r25.x, r25.x, l(400.000000), l(0.000000)
+max r15.z, r15.z, r25.x
+mad r22.xy, r21.xyxx, l(0.140625), r15.xyxx
+add r27.y, r27.x, l(-3.678072)
+max r27.y, r27.y, r10.z
+mad r11.xyz, r23.xyzx, r22.xxxx, r19.xyzx
+mad r11.xyz, -r24.xyzx, r22.yyyy, r11.xyzx
+mad r12.xyz, r24.xyzx, r22.xxxx, r20.xyzx
+mad r12.xyz, r23.xyzx, r22.yyyy, r12.xyzx
+frc r11.xyz, r11.xyzx
+frc r12.xyz, r12.xyzx
+mov r17.x, r11.x
+mov r17.y, r12.x
+sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r27.y
+mul r25.xy, r13.xyxx, r26.xxxx
+mov r17.x, r11.y
+mov r17.y, r12.y
+sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r27.y
+mad r25.xy, r13.xyxx, r26.yyyy, r25.xyxx
+mov r17.x, r11.z
+mov r17.y, r12.z
+sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r27.y
+mad r25.xy, r13.xyxx, r26.zzzz, r25.xyxx
+mad r25.xy, r25.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
+mad_sat r25.z, r25.x, l(32.786885), l(0.377049)
+mad r25.w, r25.z, l(-2.000000), l(3.000000)
+mul r25.z, r25.z, r25.z
+mul r25.z, r25.z, r25.w
+add r25.z, r25.z, r12.w
+mad_sat r25.z, r25.z, l(6.000000), l(-5.400000)
+mad r25.w, r25.z, l(-2.000000), l(3.000000)
+mul r25.z, r25.z, r25.z
+mul r25.z, r25.z, r25.w
+mad_sat r25.w, r12.w, l(3.333333), l(-2.333333)
+mul r25.x, r25.x, r25.w
+add r25.y, r25.y, r10.y
+mad r25.x, r25.z, r25.y, r25.x
+mul r25.x, r25.x, r10.x
+mad r25.y, r16.y, l(0.859375), l(0.003938)
+add r25.x, r25.x, -r25.y
+mad_sat r25.x, r25.x, l(400.000000), l(0.000000)
+max r15.z, r15.z, r25.x
+mad r22.xy, r21.xyxx, l(0.250000), r15.xyxx
+add r27.y, r27.x, l(-3.192645)
+max r27.y, r27.y, r10.z
+mad r11.xyz, r23.xyzx, r22.xxxx, r19.xyzx
+mad r11.xyz, -r24.xyzx, r22.yyyy, r11.xyzx
+mad r12.xyz, r24.xyzx, r22.xxxx, r20.xyzx
+mad r12.xyz, r23.xyzx, r22.yyyy, r12.xyzx
+frc r11.xyz, r11.xyzx
+frc r12.xyz, r12.xyzx
+mov r17.x, r11.x
+mov r17.y, r12.x
+sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r27.y
+mul r25.xy, r13.xyxx, r26.xxxx
+mov r17.x, r11.y
+mov r17.y, r12.y
+sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r27.y
+mad r25.xy, r13.xyxx, r26.yyyy, r25.xyxx
+mov r17.x, r11.z
+mov r17.y, r12.z
+sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r27.y
+mad r25.xy, r13.xyxx, r26.zzzz, r25.xyxx
+mad r25.xy, r25.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
+mad_sat r25.z, r25.x, l(32.786885), l(0.377049)
+mad r25.w, r25.z, l(-2.000000), l(3.000000)
+mul r25.z, r25.z, r25.z
+mul r25.z, r25.z, r25.w
+add r25.z, r25.z, r12.w
+mad_sat r25.z, r25.z, l(6.000000), l(-5.400000)
+mad r25.w, r25.z, l(-2.000000), l(3.000000)
+mul r25.z, r25.z, r25.z
+mul r25.z, r25.z, r25.w
+mad_sat r25.w, r12.w, l(3.333333), l(-2.333333)
+mul r25.x, r25.x, r25.w
+add r25.y, r25.y, r10.y
+mad r25.x, r25.z, r25.y, r25.x
+mul r25.x, r25.x, r10.x
+mad r25.y, r16.y, l(0.750000), l(0.007000)
+add r25.x, r25.x, -r25.y
+mad_sat r25.x, r25.x, l(400.000000), l(0.000000)
+max r15.z, r15.z, r25.x
+mad r22.xy, r21.xyxx, l(0.390625), r15.xyxx
+add r27.y, r27.x, l(-2.830075)
+max r27.y, r27.y, r10.z
+mad r11.xyz, r23.xyzx, r22.xxxx, r19.xyzx
+mad r11.xyz, -r24.xyzx, r22.yyyy, r11.xyzx
+mad r12.xyz, r24.xyzx, r22.xxxx, r20.xyzx
+mad r12.xyz, r23.xyzx, r22.yyyy, r12.xyzx
+frc r11.xyz, r11.xyzx
+frc r12.xyz, r12.xyzx
+mov r17.x, r11.x
+mov r17.y, r12.x
+sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r27.y
+mul r25.xy, r13.xyxx, r26.xxxx
+mov r17.x, r11.y
+mov r17.y, r12.y
+sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r27.y
+mad r25.xy, r13.xyxx, r26.yyyy, r25.xyxx
+mov r17.x, r11.z
+mov r17.y, r12.z
+sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r27.y
+mad r25.xy, r13.xyxx, r26.zzzz, r25.xyxx
+mad r25.xy, r25.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
+mad_sat r25.z, r25.x, l(32.786885), l(0.377049)
+mad r25.w, r25.z, l(-2.000000), l(3.000000)
+mul r25.z, r25.z, r25.z
+mul r25.z, r25.z, r25.w
+add r25.z, r25.z, r12.w
+mad_sat r25.z, r25.z, l(6.000000), l(-5.400000)
+mad r25.w, r25.z, l(-2.000000), l(3.000000)
+mul r25.z, r25.z, r25.z
+mul r25.z, r25.z, r25.w
+mad_sat r25.w, r12.w, l(3.333333), l(-2.333333)
+mul r25.x, r25.x, r25.w
+add r25.y, r25.y, r10.y
+mad r25.x, r25.z, r25.y, r25.x
+mul r25.x, r25.x, r10.x
+mad r25.y, r16.y, l(0.609375), l(0.010938)
+add r25.x, r25.x, -r25.y
+mad_sat r25.x, r25.x, l(400.000000), l(0.000000)
+max r15.z, r15.z, r25.x
+mad r22.xy, r21.xyxx, l(0.562500), r15.xyxx
+add r27.y, r27.x, l(-2.540568)
+max r27.y, r27.y, r10.z
+mad r11.xyz, r23.xyzx, r22.xxxx, r19.xyzx
+mad r11.xyz, -r24.xyzx, r22.yyyy, r11.xyzx
+mad r12.xyz, r24.xyzx, r22.xxxx, r20.xyzx
+mad r12.xyz, r23.xyzx, r22.yyyy, r12.xyzx
+frc r11.xyz, r11.xyzx
+frc r12.xyz, r12.xyzx
+mov r17.x, r11.x
+mov r17.y, r12.x
+sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r27.y
+mul r25.xy, r13.xyxx, r26.xxxx
+mov r17.x, r11.y
+mov r17.y, r12.y
+sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r27.y
+mad r25.xy, r13.xyxx, r26.yyyy, r25.xyxx
+mov r17.x, r11.z
+mov r17.y, r12.z
+sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r27.y
+mad r25.xy, r13.xyxx, r26.zzzz, r25.xyxx
+mad r25.xy, r25.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
+mad_sat r25.z, r25.x, l(32.786885), l(0.377049)
+mad r25.w, r25.z, l(-2.000000), l(3.000000)
+mul r25.z, r25.z, r25.z
+mul r25.z, r25.z, r25.w
+add r25.z, r25.z, r12.w
+mad_sat r25.z, r25.z, l(6.000000), l(-5.400000)
+mad r25.w, r25.z, l(-2.000000), l(3.000000)
+mul r25.z, r25.z, r25.z
+mul r25.z, r25.z, r25.w
+mad_sat r25.w, r12.w, l(3.333333), l(-2.333333)
+mul r25.x, r25.x, r25.w
+add r25.y, r25.y, r10.y
+mad r25.x, r25.z, r25.y, r25.x
+mul r25.x, r25.x, r10.x
+mad r25.y, r16.y, l(0.437500), l(0.015750)
+add r25.x, r25.x, -r25.y
+mad_sat r25.x, r25.x, l(400.000000), l(0.000000)
+max r15.z, r15.z, r25.x
+mad r22.xy, r21.xyxx, l(0.765625), r15.xyxx
+add r27.y, r27.x, l(-2.299560)
+max r27.y, r27.y, r10.z
+mad r11.xyz, r23.xyzx, r22.xxxx, r19.xyzx
+mad r11.xyz, -r24.xyzx, r22.yyyy, r11.xyzx
+mad r12.xyz, r24.xyzx, r22.xxxx, r20.xyzx
+mad r12.xyz, r23.xyzx, r22.yyyy, r12.xyzx
+frc r11.xyz, r11.xyzx
+frc r12.xyz, r12.xyzx
+mov r17.x, r11.x
+mov r17.y, r12.x
+sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r27.y
+mul r25.xy, r13.xyxx, r26.xxxx
+mov r17.x, r11.y
+mov r17.y, r12.y
+sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r27.y
+mad r25.xy, r13.xyxx, r26.yyyy, r25.xyxx
+mov r17.x, r11.z
+mov r17.y, r12.z
+sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r27.y
+mad r25.xy, r13.xyxx, r26.zzzz, r25.xyxx
+mad r25.xy, r25.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
+mad_sat r25.z, r25.x, l(32.786885), l(0.377049)
+mad r25.w, r25.z, l(-2.000000), l(3.000000)
+mul r25.z, r25.z, r25.z
+mul r25.z, r25.z, r25.w
+add r25.z, r25.z, r12.w
+mad_sat r25.z, r25.z, l(6.000000), l(-5.400000)
+mad r25.w, r25.z, l(-2.000000), l(3.000000)
+mul r25.z, r25.z, r25.z
+mul r25.z, r25.z, r25.w
+mad_sat r25.w, r12.w, l(3.333333), l(-2.333333)
+mul r25.x, r25.x, r25.w
+add r25.y, r25.y, r10.y
+mad r25.x, r25.z, r25.y, r25.x
+mul r25.x, r25.x, r10.x
+mad r25.y, r16.y, l(0.234375), l(0.021438)
+add r25.x, r25.x, -r25.y
+mad_sat r25.x, r25.x, l(400.000000), l(0.000000)
+max r15.z, r15.z, r25.x
+mad r22.xy, r21.xyxx, l(1.000000), r15.xyxx
+add r27.y, r27.x, l(-2.093109)
+max r27.y, r27.y, r10.z
+mad r11.xyz, r23.xyzx, r22.xxxx, r19.xyzx
+mad r11.xyz, -r24.xyzx, r22.yyyy, r11.xyzx
+mad r12.xyz, r24.xyzx, r22.xxxx, r20.xyzx
+mad r12.xyz, r23.xyzx, r22.yyyy, r12.xyzx
+frc r11.xyz, r11.xyzx
+frc r12.xyz, r12.xyzx
+mov r17.x, r11.x
+mov r17.y, r12.x
+sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r27.y
+mul r25.xy, r13.xyxx, r26.xxxx
+mov r17.x, r11.y
+mov r17.y, r12.y
+sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r27.y
+mad r25.xy, r13.xyxx, r26.yyyy, r25.xyxx
+mov r17.x, r11.z
+mov r17.y, r12.z
+sample_l_indexable(texture2darray)(float,float,float,float) r13.xy, r17.xyzx, t117.xyzw, s0, r27.y
+mad r25.xy, r13.xyxx, r26.zzzz, r25.xyxx
+mad r25.xy, r25.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
+mad_sat r25.z, r25.x, l(32.786885), l(0.377049)
+mad r25.w, r25.z, l(-2.000000), l(3.000000)
+mul r25.z, r25.z, r25.z
+mul r25.z, r25.z, r25.w
+add r25.z, r25.z, r12.w
+mad_sat r25.z, r25.z, l(6.000000), l(-5.400000)
+mad r25.w, r25.z, l(-2.000000), l(3.000000)
+mul r25.z, r25.z, r25.z
+mul r25.z, r25.z, r25.w
+mad_sat r25.w, r12.w, l(3.333333), l(-2.333333)
+mul r25.x, r25.x, r25.w
+add r25.y, r25.y, r10.y
+mad r25.x, r25.z, r25.y, r25.x
+mul r25.x, r25.x, r10.x
+mad r25.y, r16.y, l(0.000000), l(0.028000)
+add r25.x, r25.x, -r25.y
+mad_sat r25.x, r25.x, l(400.000000), l(0.000000)
+max r15.z, r15.z, r25.x
+movc r15.z, r15.w, r15.z, l(0.000000)
+add r25.x, l(0.017500), -r16.y
+mul r25.x, r25.x, l(26.666667)
 eq r25.y, r8.y, l(10.000000)
 movc r28.z, r25.y, r25.x, r15.z
 else
@@ -4160,6 +3117,7 @@ mov r28.xyz, l(0.000000, 0.000000, 0.000000, 0.000000)
 endif
 else
 mov r28.xyz, l(0.000000, 0.000000, 0.000000, 0.000000)
+endif
 endif
 ld_indexable(texture1d)(float,float,float,float) r15.xyzw, l(514, 0, 0, 0), t120.xyzw
 mov r17.z, r15.x
@@ -4702,7 +3660,7 @@ lt r11.y, r15.x, l(3.500000)
 and r11.z, r11.x, r11.y
 ld_indexable(texture1d)(float,float,float,float) r15.xyzw, l(517, 0, 0, 0), t120.xyzw
 eq r11.x, r15.x, l(0.000000)
-movc r15.x, r11.x, l(0.500000), r15.x
+movc r15.x, r11.x, l(0.700000), r15.x
 lt r11.x, r15.x, l(0.000000)
 movc r15.x, r11.x, l(-10.000000), r15.x
 max r11.x, r15.x, l(0.020000)
@@ -4711,11 +3669,11 @@ add r11.y, -r11.x, l(1.000000)
 log r11.x, r11.x
 log r11.y, r11.y
 add r11.x, r11.x, -r11.y
-mad r11.y, r11.x, l(-0.002437424), l(-0.018739033)
-mad r11.y, r11.y, r11.x, l(-0.487268350)
-mad r11.y, r11.y, r11.x, l(0.264974522)
+mad r11.y, r11.x, l(0.004422646), l(0.008511348)
+mad r11.y, r11.y, r11.x, l(-0.618192882)
+mad r11.y, r11.y, r11.x, l(0.243088298)
 add r11.x, r18.x, -r11.y
-mad_sat r15.w, r11.x, l(0.400000), l(0.500000)
+mad_sat r15.w, r11.x, l(0.250000), l(0.500000)
 mad_sat r15.w, r15.w, l(4.000000), l(-0.200000)
 mul r15.w, r15.w, l(1.000000)
 and r15.w, r15.w, r11.z
@@ -5209,7 +4167,7 @@ movc r25.xyz, r27.xxxx, l(1.000000, 0.000000, 0.000000, 0.000000), r25.xyzx
 movc r26.xyz, r27.xxxx, l(1.000000, 0.000000, 0.000000, 0.000000), r26.xyzx
 mov r17.z, l(0.000000)
 mov r15.xyz, l(0.000000, 0.000000, 0.000000, 0.000000)
-mov r7.xy, l(0.000000, 0.000000, 0.000000, 0.000000)
+mov r27.xy, l(0.000000, 0.000000, 0.000000, 0.000000)
 add r13.x, r6.z, -r19.x
 add r13.y, r6.w, -r20.x
 mul r13.z, r23.x, r13.x
@@ -5227,6 +4185,17 @@ mul r11.z, r23.x, r9.z
 mad r11.z, -r24.x, r9.w, r11.z
 mul r11.w, r24.x, r9.z
 mad r11.w, r23.x, r9.w, r11.w
+mul r13.xy, r13.zwzz, l(12.000000, 12.000000, 0.000000, 0.000000)
+frc r13.xy, r13.xyxx
+mov r13.z, r17.z
+mul r12.xyzw, r11.xyzw, l(12.000000, 12.000000, 12.000000, 12.000000)
+sample_d_indexable(texture2darray)(float,float,float,float) r27.zw, r13.xyzx, t116.xxxy, s0, r12.xyxx, r12.zwzz
+mad r27.zw, r27.zzzw, l(0.000000, 0.000000, 3.011811, 3.011811), l(0.000000, 0.000000, -1.511811, -1.511811)
+mul r13.x, r23.x, r27.z
+mad r13.x, r24.x, r27.w, r13.x
+mul r13.y, r23.x, r27.w
+mad r13.y, -r24.x, r27.z, r13.y
+mad r27.xy, r13.xyxx, r25.xxxx, r27.xyxx
 sample_d_indexable(texture2darray)(float,float,float,float) r12.xy, r17.xyzx, t116.xyxx, s0, r11.xyxx, r11.zwzz
 mad r12.xy, r12.xyxx, l(3.011811, 3.011811, 0.000000, 0.000000), l(-1.511811, -1.511811, 0.000000, 0.000000)
 mul r13.x, r23.x, r12.x
@@ -5236,27 +4205,6 @@ mad r13.y, -r24.x, r12.x, r13.y
 mad r15.xy, r13.xyxx, r25.xxxx, r15.xyxx
 sample_d_indexable(texture2darray)(float,float,float,float) r12.zw, r17.xyzx, t117.xxxy, s0, r11.xyxx, r11.zwzz
 mad r15.z, r12.z, r26.x, r15.z
-max r13.x, |r11.x|, |r11.y|
-max r13.y, |r11.z|, |r11.w|
-max r13.x, r13.x, r13.y
-max r7.z, r13.x, l(0.000488281)
-add r13.x, r17.x, r7.z
-mov r13.y, r17.y
-frc r13.xy, r13.xyxx
-mov r13.z, r17.z
-sample_d_indexable(texture2darray)(float,float,float,float) r13.w, r13.xyzx, t117.xxxy, s0, r11.xyxx, r11.zwzz
-add r13.w, r13.w, -r12.w
-mov r13.x, r17.x
-add r13.y, r17.y, r7.z
-frc r13.xy, r13.xyxx
-sample_d_indexable(texture2darray)(float,float,float,float) r12.z, r13.xyzx, t117.xxyx, s0, r11.xyxx, r11.zwzz
-add r12.z, r12.z, -r12.w
-mul r13.x, r13.w, r11.x
-mad r13.x, r12.z, r11.y, r13.x
-mul r13.y, r13.w, r11.z
-mad r13.y, r12.z, r11.w, r13.y
-div r12.x, r25.x, r7.z
-mad r7.xy, r13.xyxx, r12.xxxx, r7.xyxx
 add r13.x, r6.z, -r19.y
 add r13.y, r6.w, -r20.y
 mul r13.z, r23.y, r13.x
@@ -5274,6 +4222,17 @@ mul r11.z, r23.y, r9.z
 mad r11.z, -r24.y, r9.w, r11.z
 mul r11.w, r24.y, r9.z
 mad r11.w, r23.y, r9.w, r11.w
+mul r13.xy, r13.zwzz, l(12.000000, 12.000000, 0.000000, 0.000000)
+frc r13.xy, r13.xyxx
+mov r13.z, r17.z
+mul r12.xyzw, r11.xyzw, l(12.000000, 12.000000, 12.000000, 12.000000)
+sample_d_indexable(texture2darray)(float,float,float,float) r27.zw, r13.xyzx, t116.xxxy, s0, r12.xyxx, r12.zwzz
+mad r27.zw, r27.zzzw, l(0.000000, 0.000000, 3.011811, 3.011811), l(0.000000, 0.000000, -1.511811, -1.511811)
+mul r13.x, r23.y, r27.z
+mad r13.x, r24.y, r27.w, r13.x
+mul r13.y, r23.y, r27.w
+mad r13.y, -r24.y, r27.z, r13.y
+mad r27.xy, r13.xyxx, r25.yyyy, r27.xyxx
 sample_d_indexable(texture2darray)(float,float,float,float) r12.xy, r17.xyzx, t116.xyxx, s0, r11.xyxx, r11.zwzz
 mad r12.xy, r12.xyxx, l(3.011811, 3.011811, 0.000000, 0.000000), l(-1.511811, -1.511811, 0.000000, 0.000000)
 mul r13.x, r23.y, r12.x
@@ -5283,27 +4242,6 @@ mad r13.y, -r24.y, r12.x, r13.y
 mad r15.xy, r13.xyxx, r25.yyyy, r15.xyxx
 sample_d_indexable(texture2darray)(float,float,float,float) r12.zw, r17.xyzx, t117.xxxy, s0, r11.xyxx, r11.zwzz
 mad r15.z, r12.z, r26.y, r15.z
-max r13.x, |r11.x|, |r11.y|
-max r13.y, |r11.z|, |r11.w|
-max r13.x, r13.x, r13.y
-max r7.z, r13.x, l(0.000488281)
-add r13.x, r17.x, r7.z
-mov r13.y, r17.y
-frc r13.xy, r13.xyxx
-mov r13.z, r17.z
-sample_d_indexable(texture2darray)(float,float,float,float) r13.w, r13.xyzx, t117.xxxy, s0, r11.xyxx, r11.zwzz
-add r13.w, r13.w, -r12.w
-mov r13.x, r17.x
-add r13.y, r17.y, r7.z
-frc r13.xy, r13.xyxx
-sample_d_indexable(texture2darray)(float,float,float,float) r12.z, r13.xyzx, t117.xxyx, s0, r11.xyxx, r11.zwzz
-add r12.z, r12.z, -r12.w
-mul r13.x, r13.w, r11.x
-mad r13.x, r12.z, r11.y, r13.x
-mul r13.y, r13.w, r11.z
-mad r13.y, r12.z, r11.w, r13.y
-div r12.x, r25.y, r7.z
-mad r7.xy, r13.xyxx, r12.xxxx, r7.xyxx
 add r13.x, r6.z, -r19.z
 add r13.y, r6.w, -r20.z
 mul r13.z, r23.z, r13.x
@@ -5321,6 +4259,17 @@ mul r11.z, r23.z, r9.z
 mad r11.z, -r24.z, r9.w, r11.z
 mul r11.w, r24.z, r9.z
 mad r11.w, r23.z, r9.w, r11.w
+mul r13.xy, r13.zwzz, l(12.000000, 12.000000, 0.000000, 0.000000)
+frc r13.xy, r13.xyxx
+mov r13.z, r17.z
+mul r12.xyzw, r11.xyzw, l(12.000000, 12.000000, 12.000000, 12.000000)
+sample_d_indexable(texture2darray)(float,float,float,float) r27.zw, r13.xyzx, t116.xxxy, s0, r12.xyxx, r12.zwzz
+mad r27.zw, r27.zzzw, l(0.000000, 0.000000, 3.011811, 3.011811), l(0.000000, 0.000000, -1.511811, -1.511811)
+mul r13.x, r23.z, r27.z
+mad r13.x, r24.z, r27.w, r13.x
+mul r13.y, r23.z, r27.w
+mad r13.y, -r24.z, r27.z, r13.y
+mad r27.xy, r13.xyxx, r25.zzzz, r27.xyxx
 sample_d_indexable(texture2darray)(float,float,float,float) r12.xy, r17.xyzx, t116.xyxx, s0, r11.xyxx, r11.zwzz
 mad r12.xy, r12.xyxx, l(3.011811, 3.011811, 0.000000, 0.000000), l(-1.511811, -1.511811, 0.000000, 0.000000)
 mul r13.x, r23.z, r12.x
@@ -5330,55 +4279,26 @@ mad r13.y, -r24.z, r12.x, r13.y
 mad r15.xy, r13.xyxx, r25.zzzz, r15.xyxx
 sample_d_indexable(texture2darray)(float,float,float,float) r12.zw, r17.xyzx, t117.xxxy, s0, r11.xyxx, r11.zwzz
 mad r15.z, r12.z, r26.z, r15.z
-max r13.x, |r11.x|, |r11.y|
-max r13.y, |r11.z|, |r11.w|
-max r13.x, r13.x, r13.y
-max r7.z, r13.x, l(0.000488281)
-add r13.x, r17.x, r7.z
-mov r13.y, r17.y
-frc r13.xy, r13.xyxx
-mov r13.z, r17.z
-sample_d_indexable(texture2darray)(float,float,float,float) r13.w, r13.xyzx, t117.xxxy, s0, r11.xyxx, r11.zwzz
-add r13.w, r13.w, -r12.w
-mov r13.x, r17.x
-add r13.y, r17.y, r7.z
-frc r13.xy, r13.xyxx
-sample_d_indexable(texture2darray)(float,float,float,float) r12.z, r13.xyzx, t117.xxyx, s0, r11.xyxx, r11.zwzz
-add r12.z, r12.z, -r12.w
-mul r13.x, r13.w, r11.x
-mad r13.x, r12.z, r11.y, r13.x
-mul r13.y, r13.w, r11.z
-mad r13.y, r12.z, r11.w, r13.y
-div r12.x, r25.z, r7.z
-mad r7.xy, r13.xyxx, r12.xxxx, r7.xyxx
 div r15.w, cb2[0].x, r16.w
 mul r15.xy, r15.xyxx, r15.wwww
 mul r14.z, r15.x, r9.x
 mad r14.z, r15.y, r9.y, r14.z
 mul r14.w, r15.x, r9.z
 mad r14.w, r15.y, r9.w, r14.w
+mul r27.xy, r27.xyxx, r15.wwww
+mul r27.z, r27.x, r9.x
+mad r27.z, r27.y, r9.y, r27.z
+mul r27.w, r27.x, r9.z
+mad r27.w, r27.y, r9.w, r27.w
+ld_indexable(texture1d)(float,float,float,float) r13.xyzw, l(532, 0, 0, 0), t120.xyzw
+eq r13.x, r13.y, l(0.000000)
+movc r13.y, r13.x, l(1.000000), r13.y
+max r13.y, r13.y, l(0.000000)
+mul r13.y, r13.y, l(0.300000)
+mul r27.zw, r27.zzzw, r13.yyyy
 add r15.z, r15.z, l(-0.500000)
 mul r16.y, r15.z, l(0.160000)
-ld_indexable(texture1d)(float,float,float,float) r15.xyzw, l(517, 0, 0, 0), t120.xyzw
-eq r13.x, r15.x, l(0.000000)
-movc r15.x, r13.x, l(0.500000), r15.x
-lt r13.x, r15.x, l(0.000000)
-movc r15.x, r13.x, l(-10.000000), r15.x
-max r11.x, r15.x, l(0.020000)
-min r11.x, r11.x, l(0.980000)
-add r11.y, -r11.x, l(1.000000)
-log r11.x, r11.x
-log r11.y, r11.y
-add r11.x, r11.x, -r11.y
-mad r11.y, r11.x, l(-0.002437424), l(-0.018739033)
-mad r11.y, r11.y, r11.x, l(-0.487268350)
-mad r11.y, r11.y, r11.x, l(0.264974522)
-add r11.x, r18.x, -r11.y
-mad_sat r12.w, r11.x, l(0.400000), l(0.500000)
-mad_sat r12.w, r12.w, l(-3.333333), l(3.333333)
-mul r7.xy, r7.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000)
-add r13.xy, r14.zwzz, -r7.xyxx
-mad r14.zw, -r13.xxxy, r12.wwww, r14.xxzw
+add r14.zw, r14.zzzw, r27.zzzw
 ld_indexable(texture1d)(float,float,float,float) r15.xyzw, l(514, 0, 0, 0), t120.xyzw
 mov r17.z, r15.x
 else
@@ -5431,7 +4351,7 @@ movc r9.w, r9.w, r8.w, l(1.000000)
 div r26.z, r7.w, r9.w
 ld_indexable(texture1d)(float,float,float,float) r15.xyzw, l(517, 0, 0, 0), t120.xyzw
 eq r7.x, r15.x, l(0.000000)
-movc r15.x, r7.x, l(0.500000), r15.x
+movc r15.x, r7.x, l(0.700000), r15.x
 lt r7.x, r15.x, l(0.000000)
 movc r15.x, r7.x, l(-10.000000), r15.x
 mad r15.y, r10.y, l(-0.800000), l(0.800000)
@@ -5447,32 +4367,74 @@ add r7.y, -r7.x, l(1.000000)
 log r7.x, r7.x
 log r7.y, r7.y
 add r7.x, r7.x, -r7.y
-mad r7.y, r7.x, l(-0.002437424), l(-0.018739033)
-mad r7.y, r7.y, r7.x, l(-0.487268350)
-mad r7.y, r7.y, r7.x, l(0.264974522)
+mad r7.y, r7.x, l(0.004422646), l(0.008511348)
+mad r7.y, r7.y, r7.x, l(-0.618192882)
+mad r7.y, r7.y, r7.x, l(0.243088298)
 add r7.x, r18.x, -r7.y
-mad_sat r6.y, r7.x, l(0.400000), l(0.500000)
+mad_sat r6.y, r7.x, l(0.250000), l(0.500000)
 add r7.x, r6.z, r6.y
 deriv_rtx_fine r7.y, r7.x
 deriv_rty_fine r7.z, r7.x
 add r7.y, |r7.y|, |r7.z|
 max r7.y, r7.y, l(0.000100)
 rcp r7.y, r7.y
-min r7.y, r7.y, l(6.000000)
-add r7.x, r7.x, l(-0.983333)
+min r7.y, r7.y, l(20.000000)
+add r7.x, r7.x, l(-0.925000)
 mad_sat r7.x, r7.x, r7.y, l(0.500000)
-dp3 r7.z, v3.xyzx, v3.xyzx
-sqrt r7.z, r7.z
-lt r7.w, l(0.000000), r8.w
-movc r7.w, r7.w, r8.w, l(1.000000)
-div r7.z, r7.z, r7.w
-mad_sat r7.y, r26.z, l(20.000000000), l(-1.000000)
-mad_sat r7.z, r7.z, l(0.001818182), l(-0.272727)
-add r7.w, r6.y, -r7.x
-mad r7.x, r7.w, r7.y, r7.x
-mad_sat r7.w, r28.w, l(1.600000), r15.x
-add r7.w, r7.w, -r7.x
-mad r7.x, r7.w, r7.z, r7.x
+add r7.w, r6.z, r6.y
+mad_sat r7.w, r7.w, l(5.000000), l(-3.500000)
+mul r7.w, r7.w, r7.w
+ld_indexable(texture1d)(float,float,float,float) r7.y, l(532, 0, 0, 0), t120.xzxx
+eq r7.z, r7.y, l(0.000000)
+movc r7.y, r7.z, l(1.000000), r7.y
+max r7.y, r7.y, l(0.000000)
+mul r7.y, r7.y, l(0.350000)
+mul r7.w, r7.w, r7.y
+max r7.x, r7.x, r7.w
+mad_sat r7.y, r26.z, l(2.500000000), l(-1.000000)
+mov r7.w, l(0.765700)
+mad_sat r7.z, r26.z, l(-0.006153846), l(2.000000)
+mul r7.z, r7.z, r7.z
+mad r7.w, r7.z, l(-0.049240), r7.w
+mad_sat r7.z, r26.z, l(-0.023529412), l(2.000000)
+mul r7.z, r7.z, r7.z
+mad r7.w, r7.z, l(-0.110290), r7.w
+mad_sat r7.z, r26.z, l(-0.080000000), l(2.000000)
+mul r7.z, r7.z, r7.z
+mad r7.w, r7.z, l(-0.067133), r7.w
+mad_sat r7.z, r26.z, l(-0.571428571), l(2.000000)
+mul r7.z, r7.z, r7.z
+mad r7.w, r7.z, l(-0.268013), r7.w
+mad_sat r7.z, r26.z, l(-1.600000000), l(2.000000)
+mul r7.z, r7.z, r7.z
+mad r7.w, r7.z, l(-0.271024), r7.w
+max r7.w, r7.w, l(0.000001)
+rsq r7.w, r7.w
+mul r7.w, r7.w, l(0.250000)
+min r7.w, r7.w, l(5.000000)
+max r15.y, r15.x, l(0.020000)
+min r15.y, r15.y, l(0.980000)
+add r15.z, -r15.y, l(1.000000)
+log r15.y, r15.y
+log r15.z, r15.z
+add r15.y, r15.y, -r15.z
+mul r15.z, r15.y, r15.y
+mad r15.z, r15.z, l(-0.002131013), l(0.427713124)
+mul r15.y, r15.z, r15.y
+mad r15.y, r15.y, l(0.875043), r18.x
+add r15.y, r15.y, l(-0.500000)
+deriv_rtx_fine r15.z, r15.y
+deriv_rty_fine r15.w, r15.y
+add r15.z, |r15.z|, |r15.w|
+max r15.z, r15.z, l(0.000100)
+rcp r15.z, r15.z
+min r7.w, r7.w, r15.z
+mad_sat r15.y, r15.y, r7.w, l(0.500000)
+mad r15.z, r15.y, l(-2.000000), l(3.000000)
+mul r15.y, r15.y, r15.y
+mul r15.y, r15.y, r15.z
+add r15.y, r15.y, -r7.x
+mad r7.x, r15.y, r7.y, r7.x
 lt r7.w, r15.x, l(0.000000)
 movc r18.x, r7.w, l(0.000000), r7.x
 ld_indexable(texture1d)(float,float,float,float) r15.xyzw, l(514, 0, 0, 0), t120.xyzw
@@ -5552,7 +4514,7 @@ max r15.w, r15.y, l(0.000000)
 mad r7.x, r7.w, l(-0.700000), l(1.000000)
 mad r15.z, r15.z, r7.x, r15.w
 mul r26.x, r15.z, r6.y
-mul r26.x, r26.x, l(2.000000)
+mul r26.x, r26.x, l(6.000000)
 mad r26.y, r6.y, l(-0.950000), l(1.000000)
 mad r15.w, r7.w, l(-0.250000), l(1.000000)
 mul r15.w, r15.w, r6.y
@@ -5711,11 +4673,9 @@ eq r30.y, r29.y, l(0.000000)
 movc r29.y, r30.y, l(0.500000), r29.y
 add r30.x, r29.y, -r1.w
 mad r30.x, r30.z, r30.x, r1.w
-// EDCAS sparkle: z520 (0 = 1, under 0 = off) widens or narrows the cone of facets that glint
+// EDCAS sparkle: z520 (0 = off, the default; above 0 = on: 1 the cone of facets that glint as built, more widens it)
 ld_indexable(texture1d)(float,float,float,float) r36.xyzw, l(520, 0, 0, 0), t120.xyzw
-eq r36.w, r36.z, l(0.000000)
-movc r36.z, r36.w, l(1.000000), r36.z
-lt r36.w, r36.z, l(0.000000)
+ge r36.w, l(0.000000), r36.z
 deriv_rtx_fine r32.xyz, v3.xyzx
 deriv_rty_fine r33.xyz, v3.xyzx
 dp3 r32.w, r32.xyzx, r32.xyzx
@@ -5723,6 +4683,13 @@ dp3 r33.w, r33.xyzx, r33.xyzx
 max r32.w, r32.w, r33.w
 sqrt r36.x, r32.w
 movc r32.w, r36.w, l(0.000000), r29.x
+mul r34.xyz, r32.yzxy, r33.zxyz
+mad r34.xyz, -r32.zxyz, r33.yzxy, r34.xyzx
+dp3 r34.x, r34.xyzx, r34.xyzx
+sqrt r34.x, r34.x
+log r34.x, r34.x
+mad_sat r34.x, r34.x, l(-0.163458), l(-0.653831)
+mul r32.w, r32.w, r34.x
 mov r32.y, l(0.000000)
 lt r33.x, l(0.000000), r32.w
 if_nz r33.x
@@ -5784,7 +4751,7 @@ if_nz r33.x
   mul r37.xyz, r37.xyzx, r33.xxxx
   dp3 r33.x, r34.xyzx, r37.xyzx
   mul r33.y, r36.z, r36.z
-  mad r33.y, r33.y, l(-0.004050000), l(1.000000)
+  mad r33.y, r33.y, l(-0.001458000), l(1.000000)
   ge r33.x, r33.x, r33.y
   and r33.x, r33.x, r32.w
   mul r33.x, r33.x, r37.w
@@ -5796,7 +4763,7 @@ if_nz r33.x
   dp3 r33.y, r34.xyzx, r34.xyzx
   rsq r33.y, r33.y
   mul r0.xyz, r34.xyzx, r33.yyyy
-  add r33.y, -r30.x, l(0.250000)
+  add r33.y, -r30.x, l(0.450000)
   mad r30.x, r33.x, r33.y, r30.x
   add r32.x, r32.x, l(1.000000)
   exp r32.z, -r32.x
@@ -5851,7 +4818,7 @@ if_nz r33.x
   mul r37.xyz, r37.xyzx, r33.xxxx
   dp3 r33.x, r34.xyzx, r37.xyzx
   mul r33.y, r36.z, r36.z
-  mad r33.y, r33.y, l(-0.004050000), l(1.000000)
+  mad r33.y, r33.y, l(-0.001458000), l(1.000000)
   ge r33.x, r33.x, r33.y
   and r33.x, r33.x, r32.w
   mul r33.x, r33.x, r37.w
@@ -5863,7 +4830,7 @@ if_nz r33.x
   dp3 r33.y, r34.xyzx, r34.xyzx
   rsq r33.y, r33.y
   mul r0.xyz, r34.xyzx, r33.yyyy
-  add r33.y, -r30.x, l(0.250000)
+  add r33.y, -r30.x, l(0.450000)
   mad r30.x, r33.x, r33.y, r30.x
 endif
 mov r29.x, r30.z
@@ -5886,5 +4853,21 @@ mov o2.xyzw, r3.xywz
 mov o1.xyzw, r1.xyzw
 // EDCAS terrain mask: this ground's distance from the camera (m), for the dust
 dp3 r38.x, v3.xyzx, v3.xyzx
-sqrt o4.x, r38.x
+sqrt r38.x, r38.x
+min o4.x, r38.x, l(60000.000000)
+// and how far the sun has set here (0 up, 1 down), for the sun pass
+add r38.xyz, v3.xyzx, cb2[12].xyzx
+dp3 r38.w, r38.xyzx, r38.xyzx
+rsq r38.w, r38.w
+mul r38.xyz, r38.xyzx, r38.wwww
+dp3 r38.x, r38.xyzx, cb1[4].xyzx
+mad_sat r38.x, r38.x, l(-100.000000), l(0.500000)
+mad r38.y, r38.x, l(-2.000000), l(3.000000)
+mul r38.x, r38.x, r38.x
+mul r38.x, r38.x, r38.y
+// none on ground farther than MASK_FAR_M (see the docstring)
+dp3 r38.z, v3.xyzx, v3.xyzx
+lt r38.z, r38.z, l(3600000000.000000)
+and r38.z, r38.z, l(0x3f800000)
+mul o4.y, r38.x, r38.z
 ret

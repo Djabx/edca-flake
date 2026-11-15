@@ -68,15 +68,26 @@ float3 lampCamera()
 	return -(lightView[2].xyz * lightView[2].w + lightView[3].xyz * lightView[3].w + lightView[4].xyz * lightView[4].w);
 }
 
-// Lamp i of all three draws, in that order.
+// Lamp i of all three draws, in that order. One return after the record is chosen, as lampAt does:
+// with a return in each branch fxc warned of a potentially uninitialized result (X4000), a false alarm.
 Light lamp(uint i, uint spots, uint spots2, float3 camera)
 {
-	if (i < spots)
-		return decode(Spots[i].q[0], Spots[i].q[1], Spots[i].q[2], camera);
-	if (i < spots + spots2)
-		return decode(Spots2[i - spots].q[0], Spots2[i - spots].q[1], Spots2[i - spots].q[2], camera);
-	uint j = i - spots - spots2;
-	return decode(Small[j].q[0], Small[j].q[1], Small[j].q[2], camera);
+	uint4 q0, q1, q2;
+	if (i < spots) {
+		q0 = Spots[i].q[0];
+		q1 = Spots[i].q[1];
+		q2 = Spots[i].q[2];
+	} else if (i < spots + spots2) {
+		q0 = Spots2[i - spots].q[0];
+		q1 = Spots2[i - spots].q[1];
+		q2 = Spots2[i - spots].q[2];
+	} else {
+		uint j = i - spots - spots2;
+		q0 = Small[j].q[0];
+		q1 = Small[j].q[1];
+		q2 = Small[j].q[2];
+	}
+	return decode(q0, q1, q2, camera);
 }
 
 // Lamp i's place relative to the camera and its range (`decode`'s `at`), from the record's first 16

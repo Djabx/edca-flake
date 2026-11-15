@@ -1,6 +1,6 @@
 [package]
 name = "edcas-client"
-version = "0.43.121"
+version = "0.43.185"
 edition = "2021"
 rust-version = "1.95"
 readme = "../../README.md"

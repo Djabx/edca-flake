@@ -81,81 +81,95 @@ impl InventoryView {
     }
 }
 
+/// Storage cap of a material: its Material Trader grade (G1 300 … G5 100).
+///
+/// Derived from our own data: the highest count each material reaches in the
+/// `Materials` events stored on the server (2026-11-14), where thousands of
+/// commanders sit at the cap. Frontier's older rarity grades differ for many
+/// encoded materials and must not be used here.
 fn material_cap(name: &str) -> i32 {
-    match name {
-        // ── Raw G1 (cap 300) ──
+    match name.to_ascii_lowercase().as_str() {
+        // ── Raw ──
         "carbon" | "iron" | "lead" | "nickel" | "phosphorus" | "rhenium" | "sulphur" => 300,
-        // ── Raw G2 (cap 250) ──
         "arsenic" | "chromium" | "germanium" | "manganese" | "vanadium" | "zinc" | "zirconium" => 250,
-        // ── Raw G3 (cap 200) ──
         "boron" | "cadmium" | "mercury" | "molybdenum" | "niobium" | "tin" | "tungsten" => 200,
-        // ── Raw G4 (cap 150) ──
-        "antimony" | "indium" | "palladium" | "polonium" | "ruthenium" | "selenium" | "technetium" | "tellurium" | "yttrium" => 150,
-        // ── Raw G5 (cap 100) ──
-        "technetiummagnetics" | "protoradiolicalloy" | "protolightalloy" | "protoheatsink" => 100,
+        "antimony" | "polonium" | "ruthenium" | "selenium" | "technetium" | "tellurium" | "yttrium" => 150,
 
-        // ── Manufactured G1 (cap 300) ──
+        // ── Manufactured ──
         "basicconductors" | "chemicalstorageunits" | "compactcomposites" | "crystalshards"
-        | "gridresistors" | "heatconductionwiring" | "mechanicalscrap" | "salvagedalloysv1"
-        | "temperedalloys" | "wornshieldemitters" => 300,
-        // ── Manufactured G2 (cap 250) ──
+        | "gridresistors" | "heatconductionwiring" | "mechanicalscrap" | "salvagedalloys"
+        | "temperedalloys" | "wornshieldemitters" | "guardian_powercell"
+        | "guardian_sentinel_wreckagecomponents" | "tg_abrasion03" => 300,
         "chemicalprocessors" | "conductivecomponents" | "filamentcomposites"
-        | "flawedfocuscrystals" | "galvanisingalloys" | "heatdispersionplate"
-        | "heatresistantceramics" | "hybridcapacitors" | "mechanicalequipment"
-        | "shieldemitters" | "uncutfocuscrystals" | "irregularcomponents" => 250,
-        // ── Manufactured G3 (cap 200) ──
+        | "galvanisingalloys" | "heatdispersionplate" | "heatresistantceramics"
+        | "hybridcapacitors" | "mechanicalequipment" | "shieldemitters"
+        | "uncutfocuscrystals" | "guardian_powerconduit" | "tg_causticshard"
+        | "unknowncarapace" => 250,
         "chemicaldistillery" | "conductiveceramics" | "electrochemicalarrays"
         | "focuscrystals" | "heatexchangers" | "highdensitycomposites"
         | "mechanicalcomponents" | "phasealloys" | "precipitatedalloys"
-        | "refinedfocuscrystals" | "shieldingsensors" | "unknownfragment" => 200,
-        // ── Manufactured G4 (cap 150) ──
+        | "shieldingsensors" | "unknownenergycell" | "guardian_sentinel_weaponparts"
+        | "guardian_techcomponent" | "tg_abrasion02" | "tg_biomechanicalconduits"
+        | "tg_causticgeneratorparts" | "tg_wreckagecomponents" => 200,
         "chemicalmanipulators" | "compoundshielding" | "conductivepolymers"
-        | "configurablecomponents" | "heatvanes" | "polymercapacitors"
-        | "propulsionelements" | "protolightalloys" | "refinedalloys"
-        | "thermicalloys" | "wornalloys" | "biotechconductors" => 150,
-        // ── Manufactured G5 (cap 100) ──
-        "biotechconductors2" | "compressedliquid" | "coredynamicscomposites"
-        | "fedcorecomposites" | "fedproprietarycomposites" | "imperialshielding"
-        | "improvisedfittings" | "militarygrades" | "militarygradealloys"
-        | "militarysupercapacitors" | "pharmaceuticalisolators"
-        | "proprietarycomposites" | "protoheatradiators" | "protoradiolicalloys"
-        | "securecryptographickey" | "unknownenergycell"
-        | "unknownorganiccircuitry" | "unknowntechnologycomponents" => 100,
+        | "configurablecomponents" | "fedproprietarycomposites" | "heatvanes"
+        | "polymercapacitors" | "protolightalloys" | "refinedfocuscrystals"
+        | "thermicalloys" | "unknowntechnologycomponents" | "tg_causticcrystal"
+        | "tg_weaponparts" => 150,
+        "biotechconductors" | "exquisitefocuscrystals" | "fedcorecomposites"
+        | "imperialshielding" | "improvisedcomponents" | "militarygradealloys"
+        | "militarysupercapacitors" | "pharmaceuticalisolators" | "protoheatradiators"
+        | "protoradiolicalloys" | "unknownenergysource" | "unknownorganiccircuitry"
+        | "unknowncorechip" | "tg_abrasion01" | "tg_propulsionelement" => 100,
 
-        // ── Encoded G1 (cap 300) ──
-        "bulkscandata" | "disruptedwakeechoes" | "legacyfirmware"
-        | "shieldcyclerecordings" | "shieldsoakanalysis" | "wakesolutions" => 300,
-        // ── Encoded G2 (cap 250) ──
-        "abberantshieldpatternanalysis" | "abnormalcompactEmissionsdata"
-        | "adaptiveencryptors" | "consumerfirmware" | "fsdtelemetry"
-        | "inconsistentshieldsoakanalysis" | "jammingcodes" | "scanarchives"
-        | "scrambledemissiondata" | "shieldfrequencydata"
-        | "symmetrickeys" | "unusualencryptedfiles" => 250,
-        // ── Encoded G3 (cap 200) ──
-        "classifiedscandata" | "classifiedscanfragment" | "decodedemissiondata"
-        | "differencedscanner" | "emissiondata" | "encryptedfiles"
-        | "encryptioncodes" | "industrialfirmware" | "iotdatabank"
-        | "largecapacitypowerregulator" | "modifiedconsumerfirmware"
-        | "scandatabanks" | "securityfirmware"
-        | "shieldpatternanalysis" | "wakescans" => 200,
-        // ── Encoded G4 (cap 150) ──
-        "adaptiveencryptors2" | "ancientbiologicaldata" | "ancientculturaldata"
-        | "ancienthistoricaldata" | "ancientlanguagedata" | "ancienttechnologicaldata"
-        | "archivedemissiondata" | "atypicaldisruptedwakeechoes"
-        | "atypicalencryptionarchives" | "classifiedscandata2"
-        | "dataportfolio" | "encryptionarchives" | "encryptionkeys"
-        | "hyperspacetrajectories" | "legacyfirmware2" | "lostandfoundartefacts"
-        | "patternepsilonobeliskdata" | "patternalphaobeliskdata"
-        | "patternbetaobeliskdata" | "patterngammaobeliskdata"
-        | "patternzetaobeliskdata" | "quirkycomponentdata"
-        | "scandatabanks2" | "securityfirmware2" | "shieldsoakanalysis2"
-        | "taggedencryptioncodes" | "unclassifiedrelic" => 150,
-        // ── Encoded G5 (cap 100) ──
-        "adaptiveencryptors3" | "classifiedscandata3" | "patterndeltaobeliskdata"
-        | "specialisedlegacyfirmware" | "unknownenergysource"
-        | "unknownshipsignature" | "unknownwakescan" => 100,
+        // ── Encoded ──
+        "bulkscandata" | "disruptedwakeechoes" | "encryptedfiles" | "legacyfirmware"
+        | "scrambledemissiondata" | "shieldcyclerecordings" => 300,
+        "archivedemissiondata" | "consumerfirmware" | "encryptioncodes" | "fsdtelemetry"
+        | "scanarchives" | "shieldsoakanalysis" | "tg_structuraldata" => 250,
+        "emissiondata" | "industrialfirmware" | "scandatabanks" | "shielddensityreports"
+        | "symmetrickeys" | "wakesolutions" | "tg_compositiondata" | "tg_interdictiondata"
+        | "tg_shipflightdata" | "tg_shutdowndata" | "unknownshipsignature" => 200,
+        "decodedemissiondata" | "encodedscandata" | "encryptionarchives"
+        | "hyperspacetrajectories" | "securityfirmware" | "shieldpatternanalysis"
+        | "ancientbiologicaldata" | "ancientculturaldata" | "ancienthistoricaldata"
+        | "ancientlanguagedata" | "ancienttechnologicaldata" | "tg_residuedata"
+        | "tg_shipsystemsdata" | "unknownwakedata" => 150,
+        "adaptiveencryptors" | "classifiedscandata" | "compactemissionsdata"
+        | "dataminedwake" | "embeddedfirmware" | "shieldfrequencydata" => 100,
 
-        // fallback
+        // Unknown to our data (e.g. Guardian blueprint segments, max seen 34).
         _ => 150,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::material_cap;
+
+    #[test]
+    fn encoded_caps_follow_the_material_trader_grades() {
+        // The 15 rows of the build-158 bug report, by trader grade.
+        for n in ["adaptiveencryptors", "shieldfrequencydata", "classifiedscandata", "dataminedwake", "compactemissionsdata"] {
+            assert_eq!(material_cap(n), 100, "{n}");
+        }
+        for n in ["securityfirmware", "shieldpatternanalysis", "decodedemissiondata"] {
+            assert_eq!(material_cap(n), 150, "{n}");
+        }
+        for n in ["wakesolutions", "symmetrickeys", "shielddensityreports"] {
+            assert_eq!(material_cap(n), 200, "{n}");
+        }
+        for n in ["shieldsoakanalysis", "encryptioncodes", "archivedemissiondata"] {
+            assert_eq!(material_cap(n), 250, "{n}");
+        }
+        for n in ["encryptedfiles", "scrambledemissiondata"] {
+            assert_eq!(material_cap(n), 300, "{n}");
+        }
+    }
+
+    #[test]
+    fn names_match_regardless_of_case() {
+        assert_eq!(material_cap("BiotechConductors"), 100);
+        assert_eq!(material_cap("SalvagedAlloys"), 300);
     }
 }

@@ -41,7 +41,6 @@ mul {k}.z, {k}.z, {a}.w
 mov {k}.x, l(0.000000)
 // EDCAS crust mask: {m}.x
 mov {m}.x, l(0.000000)
-mov {m}.y, {a}.w
 ld_indexable(texture1d)(float,float,float,float) {j}.xyzw, l(514, 0, 0, 0), t120.xyzw
 ge {f}.x, {j}.x, l(1.500000)
 lt {f}.y, {j}.x, l(3.500000)
@@ -49,6 +48,15 @@ and {f}.x, {f}.x, {f}.y
 if_nz {f}.x
 add {g}.xyz, v3.xyzx, -cb2[12].xyzx
 mov {m}.x, l(0.500000)
+deriv_rtx_fine {n}.xyz, v3.xyzx
+deriv_rty_fine {o}.xyz, v3.xyzx
+dp3 {n}.w, {n}.xyzx, {n}.xyzx
+dp3 {o}.w, {o}.xyzx, {o}.xyzx
+max {n}.w, {n}.w, {o}.w
+sqrt {n}.w, {n}.w
+lt {o}.w, l(0.000000), {c}.w
+movc {o}.w, {o}.w, {c}.w, l(1.000000)
+div {m}.y, {n}.w, {o}.w
 dp3 {n}.x, {g}.xyzx, l(-0.000242190, -0.000660840, 0.001368027, 0.000000)
 dp3 {n}.y, {g}.xyzx, l(-0.000872392, 0.001194643, 0.000422640, 0.000000)
 dp3 {n}.z, {g}.xyzx, l(-0.001243841, -0.000709213, -0.000562797, 0.000000)
@@ -94,7 +102,11 @@ mad {v}.xyzw, {u}.xyzw, {p}.zzzz, {v}.xyzw
 add {u}.xy, {v}.ywyy, -{v}.xzxx
 mad {u}.xy, {u}.xyxx, {p}.xxxx, {v}.xzxx
 add {u}.y, {u}.y, -{u}.x
-mad {z}.w, {u}.y, {p}.y, {u}.x
+mad {j}.w, {u}.y, {p}.y, {u}.x
+add {j}.w, {j}.w, l(-0.500000)
+mad_sat {n}.x, {m}.y, l(-0.006153846), l(2.000000)
+mul {n}.x, {n}.x, l(1.200000)
+mad {m}.x, {j}.w, {n}.x, {m}.x
 dp3 {n}.x, {g}.xyzx, l(0.002040761, -0.001928961, 0.005168798, 0.000000)
 dp3 {n}.y, {g}.xyzx, l(0.001718910, 0.005459080, 0.001358627, 0.000000)
 dp3 {n}.z, {g}.xyzx, l(-0.005242396, 0.001039051, 0.002457586, 0.000000)
@@ -189,11 +201,13 @@ add {u}.xy, {v}.ywyy, -{v}.xzxx
 mad {u}.xy, {u}.xyxx, {p}.xxxx, {v}.xzxx
 add {u}.y, {u}.y, -{u}.x
 mad {j}.y, {u}.y, {p}.y, {u}.x
-add {z}.w, {z}.w, l(-0.500000)
 add {j}.y, {j}.y, l(-0.500000)
-mad {m}.x, {z}.w, l(1.200000), {m}.x
-mad {m}.x, {j}.z, l(1.800000), {m}.x
-mad {m}.x, {j}.y, l(1.400000), {m}.x
+mad_sat {n}.x, {m}.y, l(-0.023529412), l(2.000000)
+mul {n}.x, {n}.x, l(1.800000)
+mad {m}.x, {j}.z, {n}.x, {m}.x
+mad_sat {n}.x, {m}.y, l(-0.080000000), l(2.000000)
+mul {n}.x, {n}.x, l(1.400000)
+mad {m}.x, {j}.y, {n}.x, {m}.x
 mul {d}.xyz, cb2[12].xyzx, l(-0.0009765625, -0.0009765625, -0.0009765625, 0.000000)
 round_ne {d}.xyz, {d}.xyzx
 mul {d}.xyz, {d}.xyzx, l(1024.000000, 1024.000000, 1024.000000, 0.000000)
@@ -306,26 +320,27 @@ mad {u}.xy, {u}.xyxx, {p}.xxxx, {v}.xzxx
 add {u}.y, {u}.y, -{u}.x
 mad {j}.y, {u}.y, {p}.y, {u}.x
 add {j}.xy, {j}.xyxx, l(-0.500000, -0.500000, 0.000000, 0.000000)
-mul {j}.x, {j}.x, l(2.800000)
-mad {j}.x, {j}.y, l(2.800000), {j}.x
-mad {m}.x, {j}.x, {m}.y, {m}.x
-else
-mov {z}.w, l(0.000000)
+mad_sat {n}.x, {m}.y, l(-0.571428571), l(2.000000)
+mul {n}.x, {n}.x, l(2.800000)
+mad {m}.x, {j}.x, {n}.x, {m}.x
+mad_sat {n}.x, {m}.y, l(-1.600000000), l(2.000000)
+mul {n}.x, {n}.x, l(2.800000)
+mad {m}.x, {j}.y, {n}.x, {m}.x
 endif
 // EDCAS parallax occlusion mapping: z.xy the uv shift, z.z the shadow
 ld_indexable(texture1d)(float,float,float,float) {j}.xyzw, l(514, 0, 0, 0), t120.xyzw
-eq {h}.x, {j}.z, l(0.000000)
-movc {g}.z, {h}.x, l(1.000000), {j}.z
+mov {g}.z, {j}.z
 ge {h}.x, {j}.x, l(1.500000)
 lt {h}.y, {j}.x, l(3.500000)
 and {h}.x, {h}.x, {h}.y
-ge {h}.y, {j}.z, l(0.000000)
+lt {h}.y, l(0.000000), {j}.z
 and {e}.w, {h}.x, {h}.y
 max {g}.z, {g}.z, l(0.000000)
+mul {g}.z, {g}.z, l(0.250000)
 if_nz {e}.w
 ld_indexable(texture1d)(float,float,float,float) {j}.xyzw, l(517, 0, 0, 0), t120.xyzw
 eq {h}.x, {j}.x, l(0.000000)
-movc {j}.x, {h}.x, l(0.500000), {j}.x
+movc {j}.x, {h}.x, l(0.700000), {j}.x
 lt {h}.x, {j}.x, l(0.000000)
 movc {j}.x, {h}.x, l(-10.000000), {j}.x
 max {f}.x, {j}.x, l(0.020000)
@@ -334,11 +349,11 @@ add {f}.y, -{f}.x, l(1.000000)
 log {f}.x, {f}.x
 log {f}.y, {f}.y
 add {f}.x, {f}.x, -{f}.y
-mad {f}.y, {f}.x, l(-0.002437424), l(-0.018739033)
-mad {f}.y, {f}.y, {f}.x, l(-0.487268350)
-mad {f}.y, {f}.y, {f}.x, l(0.264974522)
+mad {f}.y, {f}.x, l(0.004422646), l(0.008511348)
+mad {f}.y, {f}.y, {f}.x, l(-0.618192882)
+mad {f}.y, {f}.y, {f}.x, l(0.243088298)
 add {f}.x, {m}.x, -{f}.y
-mad_sat {g}.w, {f}.x, l(0.400000), l(0.500000)
+mad_sat {g}.w, {f}.x, l(0.250000), l(0.500000)
 deriv_rtx_fine {n}.xyz, v3.xyzx
 deriv_rty_fine {o}.xyz, v3.xyzx
 deriv_rtx_fine {p}.xy, v1.xyxx
@@ -382,7 +397,7 @@ max {w}.y, {w}.y, l(0.000000)
 min {k}.y, {w}.y, l(16.000000)
 rsq {k}.y, {k}.y
 mul {k}.y, {k}.y, l(0.006000)
-min {k}.y, {k}.y, l(0.002113)
+min {k}.y, {k}.y, l(0.001071)
 rsq {w}.y, {w}.y
 mul {w}.y, {w}.y, l(4.000000)
 min {w}.y, {w}.y, l(1.000000)
@@ -541,10 +556,10 @@ mad {o}.xyz, {s}.xyzx, {f}.xyzx, {o}.xyzx
 add {o}.xyz, {o}.xyzx, {r}.xyzx
 eq {p}.x, l(0.000000), l(0.000000)
 mov {p}.y, l(-1.000000)
-mad {p}.z, {k}.y, l(-71.000000), l(0.070000)
+mad {p}.z, {k}.y, l(-35.000000), l(0.017500)
 mov {w}.y, {k}.y
-mov {w}.z, l(0.070000)
-mul {r}.xy, {d}.xyxx, l(0.070000)
+mov {w}.z, l(0.017500)
+mul {r}.xy, {d}.xyxx, l(0.017500)
 mad {f}.xyz, {s}.xyzx, {r}.xxxx, {n}.xyzx
 mad {f}.xyz, -{t}.xyzx, {r}.yyyy, {f}.xyzx
 mad {g}.xyz, {t}.xyzx, {r}.xxxx, {o}.xyzx
@@ -578,10 +593,10 @@ mul {u}.x, {u}.x, {u}.w
 add {u}.y, {u}.y, {e}.y
 mad {u}.x, {u}.z, {u}.y, {u}.x
 mul {u}.x, {u}.x, {e}.x
-add {u}.x, {u}.x, l(-0.070000)
+add {u}.x, {u}.x, l(-0.017500)
 ge {w}.x, {u}.x, l(0.000000)
 and {u}.w, {w}.x, {p}.x
-movc {p}.z, {u}.w, l(0.070000), {p}.z
+movc {p}.z, {u}.w, l(0.017500), {p}.z
 xor {p}.x, {p}.x, {u}.w
 mov {p}.y, {u}.x
 add {w}.w, {w}.z, -{w}.y
@@ -1990,1638 +2005,6 @@ mov {p}.y, {u}.x
 endif
 if_nz {p}.x
 // EDCAS parallax: the next steps, while no hit is found
-add {w}.w, {w}.z, -{w}.y
-mul {r}.xy, {d}.xyxx, {w}.wwww
-mad {f}.xyz, {s}.xyzx, {r}.xxxx, {n}.xyzx
-mad {f}.xyz, -{t}.xyzx, {r}.yyyy, {f}.xyzx
-mad {g}.xyz, {t}.xyzx, {r}.xxxx, {o}.xyzx
-mad {g}.xyz, {s}.xyzx, {r}.yyyy, {g}.xyzx
-frc {f}.xyz, {f}.xyzx
-frc {g}.xyz, {g}.xyzx
-mov {q}.x, {f}.x
-mov {q}.y, {g}.x
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mul {u}.xy, {h}.xyxx, {v}.xxxx
-mov {q}.x, {f}.y
-mov {q}.y, {g}.y
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.yyyy, {u}.xyxx
-mov {q}.x, {f}.z
-mov {q}.y, {g}.z
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.zzzz, {u}.xyxx
-mad {u}.xy, {u}.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat {u}.z, {u}.x, l(32.786885), l(0.377049)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-add {u}.z, {u}.z, {g}.w
-mad_sat {u}.z, {u}.z, l(6.000000), l(-5.400000)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-mad_sat {u}.w, {g}.w, l(3.333333), l(-2.333333)
-mul {u}.x, {u}.x, {u}.w
-add {u}.y, {u}.y, {e}.y
-mad {u}.x, {u}.z, {u}.y, {u}.x
-mul {u}.x, {u}.x, {e}.x
-add {u}.x, {u}.x, -{w}.w
-ge {w}.x, {u}.x, l(0.000000)
-add {u}.y, {p}.y, -{u}.x
-div {u}.y, {p}.y, {u}.y
-mad {u}.z, -{u}.y, {w}.y, {w}.z
-and {u}.w, {w}.x, {p}.x
-movc {p}.z, {u}.w, {u}.z, {p}.z
-xor {p}.x, {p}.x, {u}.w
-mov {w}.z, {w}.w
-mov {p}.y, {u}.x
-add {w}.w, {w}.z, -{w}.y
-mul {r}.xy, {d}.xyxx, {w}.wwww
-mad {f}.xyz, {s}.xyzx, {r}.xxxx, {n}.xyzx
-mad {f}.xyz, -{t}.xyzx, {r}.yyyy, {f}.xyzx
-mad {g}.xyz, {t}.xyzx, {r}.xxxx, {o}.xyzx
-mad {g}.xyz, {s}.xyzx, {r}.yyyy, {g}.xyzx
-frc {f}.xyz, {f}.xyzx
-frc {g}.xyz, {g}.xyzx
-mov {q}.x, {f}.x
-mov {q}.y, {g}.x
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mul {u}.xy, {h}.xyxx, {v}.xxxx
-mov {q}.x, {f}.y
-mov {q}.y, {g}.y
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.yyyy, {u}.xyxx
-mov {q}.x, {f}.z
-mov {q}.y, {g}.z
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.zzzz, {u}.xyxx
-mad {u}.xy, {u}.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat {u}.z, {u}.x, l(32.786885), l(0.377049)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-add {u}.z, {u}.z, {g}.w
-mad_sat {u}.z, {u}.z, l(6.000000), l(-5.400000)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-mad_sat {u}.w, {g}.w, l(3.333333), l(-2.333333)
-mul {u}.x, {u}.x, {u}.w
-add {u}.y, {u}.y, {e}.y
-mad {u}.x, {u}.z, {u}.y, {u}.x
-mul {u}.x, {u}.x, {e}.x
-add {u}.x, {u}.x, -{w}.w
-ge {w}.x, {u}.x, l(0.000000)
-add {u}.y, {p}.y, -{u}.x
-div {u}.y, {p}.y, {u}.y
-mad {u}.z, -{u}.y, {w}.y, {w}.z
-and {u}.w, {w}.x, {p}.x
-movc {p}.z, {u}.w, {u}.z, {p}.z
-xor {p}.x, {p}.x, {u}.w
-mov {w}.z, {w}.w
-mov {p}.y, {u}.x
-add {w}.w, {w}.z, -{w}.y
-mul {r}.xy, {d}.xyxx, {w}.wwww
-mad {f}.xyz, {s}.xyzx, {r}.xxxx, {n}.xyzx
-mad {f}.xyz, -{t}.xyzx, {r}.yyyy, {f}.xyzx
-mad {g}.xyz, {t}.xyzx, {r}.xxxx, {o}.xyzx
-mad {g}.xyz, {s}.xyzx, {r}.yyyy, {g}.xyzx
-frc {f}.xyz, {f}.xyzx
-frc {g}.xyz, {g}.xyzx
-mov {q}.x, {f}.x
-mov {q}.y, {g}.x
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mul {u}.xy, {h}.xyxx, {v}.xxxx
-mov {q}.x, {f}.y
-mov {q}.y, {g}.y
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.yyyy, {u}.xyxx
-mov {q}.x, {f}.z
-mov {q}.y, {g}.z
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.zzzz, {u}.xyxx
-mad {u}.xy, {u}.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat {u}.z, {u}.x, l(32.786885), l(0.377049)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-add {u}.z, {u}.z, {g}.w
-mad_sat {u}.z, {u}.z, l(6.000000), l(-5.400000)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-mad_sat {u}.w, {g}.w, l(3.333333), l(-2.333333)
-mul {u}.x, {u}.x, {u}.w
-add {u}.y, {u}.y, {e}.y
-mad {u}.x, {u}.z, {u}.y, {u}.x
-mul {u}.x, {u}.x, {e}.x
-add {u}.x, {u}.x, -{w}.w
-ge {w}.x, {u}.x, l(0.000000)
-add {u}.y, {p}.y, -{u}.x
-div {u}.y, {p}.y, {u}.y
-mad {u}.z, -{u}.y, {w}.y, {w}.z
-and {u}.w, {w}.x, {p}.x
-movc {p}.z, {u}.w, {u}.z, {p}.z
-xor {p}.x, {p}.x, {u}.w
-mov {w}.z, {w}.w
-mov {p}.y, {u}.x
-add {w}.w, {w}.z, -{w}.y
-mul {r}.xy, {d}.xyxx, {w}.wwww
-mad {f}.xyz, {s}.xyzx, {r}.xxxx, {n}.xyzx
-mad {f}.xyz, -{t}.xyzx, {r}.yyyy, {f}.xyzx
-mad {g}.xyz, {t}.xyzx, {r}.xxxx, {o}.xyzx
-mad {g}.xyz, {s}.xyzx, {r}.yyyy, {g}.xyzx
-frc {f}.xyz, {f}.xyzx
-frc {g}.xyz, {g}.xyzx
-mov {q}.x, {f}.x
-mov {q}.y, {g}.x
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mul {u}.xy, {h}.xyxx, {v}.xxxx
-mov {q}.x, {f}.y
-mov {q}.y, {g}.y
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.yyyy, {u}.xyxx
-mov {q}.x, {f}.z
-mov {q}.y, {g}.z
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.zzzz, {u}.xyxx
-mad {u}.xy, {u}.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat {u}.z, {u}.x, l(32.786885), l(0.377049)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-add {u}.z, {u}.z, {g}.w
-mad_sat {u}.z, {u}.z, l(6.000000), l(-5.400000)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-mad_sat {u}.w, {g}.w, l(3.333333), l(-2.333333)
-mul {u}.x, {u}.x, {u}.w
-add {u}.y, {u}.y, {e}.y
-mad {u}.x, {u}.z, {u}.y, {u}.x
-mul {u}.x, {u}.x, {e}.x
-add {u}.x, {u}.x, -{w}.w
-ge {w}.x, {u}.x, l(0.000000)
-add {u}.y, {p}.y, -{u}.x
-div {u}.y, {p}.y, {u}.y
-mad {u}.z, -{u}.y, {w}.y, {w}.z
-and {u}.w, {w}.x, {p}.x
-movc {p}.z, {u}.w, {u}.z, {p}.z
-xor {p}.x, {p}.x, {u}.w
-mov {w}.z, {w}.w
-mov {p}.y, {u}.x
-add {w}.w, {w}.z, -{w}.y
-mul {r}.xy, {d}.xyxx, {w}.wwww
-mad {f}.xyz, {s}.xyzx, {r}.xxxx, {n}.xyzx
-mad {f}.xyz, -{t}.xyzx, {r}.yyyy, {f}.xyzx
-mad {g}.xyz, {t}.xyzx, {r}.xxxx, {o}.xyzx
-mad {g}.xyz, {s}.xyzx, {r}.yyyy, {g}.xyzx
-frc {f}.xyz, {f}.xyzx
-frc {g}.xyz, {g}.xyzx
-mov {q}.x, {f}.x
-mov {q}.y, {g}.x
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mul {u}.xy, {h}.xyxx, {v}.xxxx
-mov {q}.x, {f}.y
-mov {q}.y, {g}.y
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.yyyy, {u}.xyxx
-mov {q}.x, {f}.z
-mov {q}.y, {g}.z
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.zzzz, {u}.xyxx
-mad {u}.xy, {u}.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat {u}.z, {u}.x, l(32.786885), l(0.377049)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-add {u}.z, {u}.z, {g}.w
-mad_sat {u}.z, {u}.z, l(6.000000), l(-5.400000)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-mad_sat {u}.w, {g}.w, l(3.333333), l(-2.333333)
-mul {u}.x, {u}.x, {u}.w
-add {u}.y, {u}.y, {e}.y
-mad {u}.x, {u}.z, {u}.y, {u}.x
-mul {u}.x, {u}.x, {e}.x
-add {u}.x, {u}.x, -{w}.w
-ge {w}.x, {u}.x, l(0.000000)
-add {u}.y, {p}.y, -{u}.x
-div {u}.y, {p}.y, {u}.y
-mad {u}.z, -{u}.y, {w}.y, {w}.z
-and {u}.w, {w}.x, {p}.x
-movc {p}.z, {u}.w, {u}.z, {p}.z
-xor {p}.x, {p}.x, {u}.w
-mov {w}.z, {w}.w
-mov {p}.y, {u}.x
-add {w}.w, {w}.z, -{w}.y
-mul {r}.xy, {d}.xyxx, {w}.wwww
-mad {f}.xyz, {s}.xyzx, {r}.xxxx, {n}.xyzx
-mad {f}.xyz, -{t}.xyzx, {r}.yyyy, {f}.xyzx
-mad {g}.xyz, {t}.xyzx, {r}.xxxx, {o}.xyzx
-mad {g}.xyz, {s}.xyzx, {r}.yyyy, {g}.xyzx
-frc {f}.xyz, {f}.xyzx
-frc {g}.xyz, {g}.xyzx
-mov {q}.x, {f}.x
-mov {q}.y, {g}.x
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mul {u}.xy, {h}.xyxx, {v}.xxxx
-mov {q}.x, {f}.y
-mov {q}.y, {g}.y
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.yyyy, {u}.xyxx
-mov {q}.x, {f}.z
-mov {q}.y, {g}.z
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.zzzz, {u}.xyxx
-mad {u}.xy, {u}.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat {u}.z, {u}.x, l(32.786885), l(0.377049)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-add {u}.z, {u}.z, {g}.w
-mad_sat {u}.z, {u}.z, l(6.000000), l(-5.400000)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-mad_sat {u}.w, {g}.w, l(3.333333), l(-2.333333)
-mul {u}.x, {u}.x, {u}.w
-add {u}.y, {u}.y, {e}.y
-mad {u}.x, {u}.z, {u}.y, {u}.x
-mul {u}.x, {u}.x, {e}.x
-add {u}.x, {u}.x, -{w}.w
-ge {w}.x, {u}.x, l(0.000000)
-add {u}.y, {p}.y, -{u}.x
-div {u}.y, {p}.y, {u}.y
-mad {u}.z, -{u}.y, {w}.y, {w}.z
-and {u}.w, {w}.x, {p}.x
-movc {p}.z, {u}.w, {u}.z, {p}.z
-xor {p}.x, {p}.x, {u}.w
-mov {w}.z, {w}.w
-mov {p}.y, {u}.x
-add {w}.w, {w}.z, -{w}.y
-mul {r}.xy, {d}.xyxx, {w}.wwww
-mad {f}.xyz, {s}.xyzx, {r}.xxxx, {n}.xyzx
-mad {f}.xyz, -{t}.xyzx, {r}.yyyy, {f}.xyzx
-mad {g}.xyz, {t}.xyzx, {r}.xxxx, {o}.xyzx
-mad {g}.xyz, {s}.xyzx, {r}.yyyy, {g}.xyzx
-frc {f}.xyz, {f}.xyzx
-frc {g}.xyz, {g}.xyzx
-mov {q}.x, {f}.x
-mov {q}.y, {g}.x
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mul {u}.xy, {h}.xyxx, {v}.xxxx
-mov {q}.x, {f}.y
-mov {q}.y, {g}.y
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.yyyy, {u}.xyxx
-mov {q}.x, {f}.z
-mov {q}.y, {g}.z
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.zzzz, {u}.xyxx
-mad {u}.xy, {u}.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat {u}.z, {u}.x, l(32.786885), l(0.377049)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-add {u}.z, {u}.z, {g}.w
-mad_sat {u}.z, {u}.z, l(6.000000), l(-5.400000)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-mad_sat {u}.w, {g}.w, l(3.333333), l(-2.333333)
-mul {u}.x, {u}.x, {u}.w
-add {u}.y, {u}.y, {e}.y
-mad {u}.x, {u}.z, {u}.y, {u}.x
-mul {u}.x, {u}.x, {e}.x
-add {u}.x, {u}.x, -{w}.w
-ge {w}.x, {u}.x, l(0.000000)
-add {u}.y, {p}.y, -{u}.x
-div {u}.y, {p}.y, {u}.y
-mad {u}.z, -{u}.y, {w}.y, {w}.z
-and {u}.w, {w}.x, {p}.x
-movc {p}.z, {u}.w, {u}.z, {p}.z
-xor {p}.x, {p}.x, {u}.w
-mov {w}.z, {w}.w
-mov {p}.y, {u}.x
-add {w}.w, {w}.z, -{w}.y
-mul {r}.xy, {d}.xyxx, {w}.wwww
-mad {f}.xyz, {s}.xyzx, {r}.xxxx, {n}.xyzx
-mad {f}.xyz, -{t}.xyzx, {r}.yyyy, {f}.xyzx
-mad {g}.xyz, {t}.xyzx, {r}.xxxx, {o}.xyzx
-mad {g}.xyz, {s}.xyzx, {r}.yyyy, {g}.xyzx
-frc {f}.xyz, {f}.xyzx
-frc {g}.xyz, {g}.xyzx
-mov {q}.x, {f}.x
-mov {q}.y, {g}.x
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mul {u}.xy, {h}.xyxx, {v}.xxxx
-mov {q}.x, {f}.y
-mov {q}.y, {g}.y
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.yyyy, {u}.xyxx
-mov {q}.x, {f}.z
-mov {q}.y, {g}.z
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.zzzz, {u}.xyxx
-mad {u}.xy, {u}.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat {u}.z, {u}.x, l(32.786885), l(0.377049)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-add {u}.z, {u}.z, {g}.w
-mad_sat {u}.z, {u}.z, l(6.000000), l(-5.400000)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-mad_sat {u}.w, {g}.w, l(3.333333), l(-2.333333)
-mul {u}.x, {u}.x, {u}.w
-add {u}.y, {u}.y, {e}.y
-mad {u}.x, {u}.z, {u}.y, {u}.x
-mul {u}.x, {u}.x, {e}.x
-add {u}.x, {u}.x, -{w}.w
-ge {w}.x, {u}.x, l(0.000000)
-add {u}.y, {p}.y, -{u}.x
-div {u}.y, {p}.y, {u}.y
-mad {u}.z, -{u}.y, {w}.y, {w}.z
-and {u}.w, {w}.x, {p}.x
-movc {p}.z, {u}.w, {u}.z, {p}.z
-xor {p}.x, {p}.x, {u}.w
-mov {w}.z, {w}.w
-mov {p}.y, {u}.x
-endif
-if_nz {p}.x
-// EDCAS parallax: the next steps, while no hit is found
-add {w}.w, {w}.z, -{w}.y
-mul {r}.xy, {d}.xyxx, {w}.wwww
-mad {f}.xyz, {s}.xyzx, {r}.xxxx, {n}.xyzx
-mad {f}.xyz, -{t}.xyzx, {r}.yyyy, {f}.xyzx
-mad {g}.xyz, {t}.xyzx, {r}.xxxx, {o}.xyzx
-mad {g}.xyz, {s}.xyzx, {r}.yyyy, {g}.xyzx
-frc {f}.xyz, {f}.xyzx
-frc {g}.xyz, {g}.xyzx
-mov {q}.x, {f}.x
-mov {q}.y, {g}.x
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mul {u}.xy, {h}.xyxx, {v}.xxxx
-mov {q}.x, {f}.y
-mov {q}.y, {g}.y
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.yyyy, {u}.xyxx
-mov {q}.x, {f}.z
-mov {q}.y, {g}.z
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.zzzz, {u}.xyxx
-mad {u}.xy, {u}.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat {u}.z, {u}.x, l(32.786885), l(0.377049)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-add {u}.z, {u}.z, {g}.w
-mad_sat {u}.z, {u}.z, l(6.000000), l(-5.400000)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-mad_sat {u}.w, {g}.w, l(3.333333), l(-2.333333)
-mul {u}.x, {u}.x, {u}.w
-add {u}.y, {u}.y, {e}.y
-mad {u}.x, {u}.z, {u}.y, {u}.x
-mul {u}.x, {u}.x, {e}.x
-add {u}.x, {u}.x, -{w}.w
-ge {w}.x, {u}.x, l(0.000000)
-add {u}.y, {p}.y, -{u}.x
-div {u}.y, {p}.y, {u}.y
-mad {u}.z, -{u}.y, {w}.y, {w}.z
-and {u}.w, {w}.x, {p}.x
-movc {p}.z, {u}.w, {u}.z, {p}.z
-xor {p}.x, {p}.x, {u}.w
-mov {w}.z, {w}.w
-mov {p}.y, {u}.x
-add {w}.w, {w}.z, -{w}.y
-mul {r}.xy, {d}.xyxx, {w}.wwww
-mad {f}.xyz, {s}.xyzx, {r}.xxxx, {n}.xyzx
-mad {f}.xyz, -{t}.xyzx, {r}.yyyy, {f}.xyzx
-mad {g}.xyz, {t}.xyzx, {r}.xxxx, {o}.xyzx
-mad {g}.xyz, {s}.xyzx, {r}.yyyy, {g}.xyzx
-frc {f}.xyz, {f}.xyzx
-frc {g}.xyz, {g}.xyzx
-mov {q}.x, {f}.x
-mov {q}.y, {g}.x
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mul {u}.xy, {h}.xyxx, {v}.xxxx
-mov {q}.x, {f}.y
-mov {q}.y, {g}.y
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.yyyy, {u}.xyxx
-mov {q}.x, {f}.z
-mov {q}.y, {g}.z
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.zzzz, {u}.xyxx
-mad {u}.xy, {u}.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat {u}.z, {u}.x, l(32.786885), l(0.377049)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-add {u}.z, {u}.z, {g}.w
-mad_sat {u}.z, {u}.z, l(6.000000), l(-5.400000)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-mad_sat {u}.w, {g}.w, l(3.333333), l(-2.333333)
-mul {u}.x, {u}.x, {u}.w
-add {u}.y, {u}.y, {e}.y
-mad {u}.x, {u}.z, {u}.y, {u}.x
-mul {u}.x, {u}.x, {e}.x
-add {u}.x, {u}.x, -{w}.w
-ge {w}.x, {u}.x, l(0.000000)
-add {u}.y, {p}.y, -{u}.x
-div {u}.y, {p}.y, {u}.y
-mad {u}.z, -{u}.y, {w}.y, {w}.z
-and {u}.w, {w}.x, {p}.x
-movc {p}.z, {u}.w, {u}.z, {p}.z
-xor {p}.x, {p}.x, {u}.w
-mov {w}.z, {w}.w
-mov {p}.y, {u}.x
-add {w}.w, {w}.z, -{w}.y
-mul {r}.xy, {d}.xyxx, {w}.wwww
-mad {f}.xyz, {s}.xyzx, {r}.xxxx, {n}.xyzx
-mad {f}.xyz, -{t}.xyzx, {r}.yyyy, {f}.xyzx
-mad {g}.xyz, {t}.xyzx, {r}.xxxx, {o}.xyzx
-mad {g}.xyz, {s}.xyzx, {r}.yyyy, {g}.xyzx
-frc {f}.xyz, {f}.xyzx
-frc {g}.xyz, {g}.xyzx
-mov {q}.x, {f}.x
-mov {q}.y, {g}.x
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mul {u}.xy, {h}.xyxx, {v}.xxxx
-mov {q}.x, {f}.y
-mov {q}.y, {g}.y
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.yyyy, {u}.xyxx
-mov {q}.x, {f}.z
-mov {q}.y, {g}.z
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.zzzz, {u}.xyxx
-mad {u}.xy, {u}.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat {u}.z, {u}.x, l(32.786885), l(0.377049)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-add {u}.z, {u}.z, {g}.w
-mad_sat {u}.z, {u}.z, l(6.000000), l(-5.400000)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-mad_sat {u}.w, {g}.w, l(3.333333), l(-2.333333)
-mul {u}.x, {u}.x, {u}.w
-add {u}.y, {u}.y, {e}.y
-mad {u}.x, {u}.z, {u}.y, {u}.x
-mul {u}.x, {u}.x, {e}.x
-add {u}.x, {u}.x, -{w}.w
-ge {w}.x, {u}.x, l(0.000000)
-add {u}.y, {p}.y, -{u}.x
-div {u}.y, {p}.y, {u}.y
-mad {u}.z, -{u}.y, {w}.y, {w}.z
-and {u}.w, {w}.x, {p}.x
-movc {p}.z, {u}.w, {u}.z, {p}.z
-xor {p}.x, {p}.x, {u}.w
-mov {w}.z, {w}.w
-mov {p}.y, {u}.x
-add {w}.w, {w}.z, -{w}.y
-mul {r}.xy, {d}.xyxx, {w}.wwww
-mad {f}.xyz, {s}.xyzx, {r}.xxxx, {n}.xyzx
-mad {f}.xyz, -{t}.xyzx, {r}.yyyy, {f}.xyzx
-mad {g}.xyz, {t}.xyzx, {r}.xxxx, {o}.xyzx
-mad {g}.xyz, {s}.xyzx, {r}.yyyy, {g}.xyzx
-frc {f}.xyz, {f}.xyzx
-frc {g}.xyz, {g}.xyzx
-mov {q}.x, {f}.x
-mov {q}.y, {g}.x
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mul {u}.xy, {h}.xyxx, {v}.xxxx
-mov {q}.x, {f}.y
-mov {q}.y, {g}.y
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.yyyy, {u}.xyxx
-mov {q}.x, {f}.z
-mov {q}.y, {g}.z
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.zzzz, {u}.xyxx
-mad {u}.xy, {u}.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat {u}.z, {u}.x, l(32.786885), l(0.377049)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-add {u}.z, {u}.z, {g}.w
-mad_sat {u}.z, {u}.z, l(6.000000), l(-5.400000)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-mad_sat {u}.w, {g}.w, l(3.333333), l(-2.333333)
-mul {u}.x, {u}.x, {u}.w
-add {u}.y, {u}.y, {e}.y
-mad {u}.x, {u}.z, {u}.y, {u}.x
-mul {u}.x, {u}.x, {e}.x
-add {u}.x, {u}.x, -{w}.w
-ge {w}.x, {u}.x, l(0.000000)
-add {u}.y, {p}.y, -{u}.x
-div {u}.y, {p}.y, {u}.y
-mad {u}.z, -{u}.y, {w}.y, {w}.z
-and {u}.w, {w}.x, {p}.x
-movc {p}.z, {u}.w, {u}.z, {p}.z
-xor {p}.x, {p}.x, {u}.w
-mov {w}.z, {w}.w
-mov {p}.y, {u}.x
-add {w}.w, {w}.z, -{w}.y
-mul {r}.xy, {d}.xyxx, {w}.wwww
-mad {f}.xyz, {s}.xyzx, {r}.xxxx, {n}.xyzx
-mad {f}.xyz, -{t}.xyzx, {r}.yyyy, {f}.xyzx
-mad {g}.xyz, {t}.xyzx, {r}.xxxx, {o}.xyzx
-mad {g}.xyz, {s}.xyzx, {r}.yyyy, {g}.xyzx
-frc {f}.xyz, {f}.xyzx
-frc {g}.xyz, {g}.xyzx
-mov {q}.x, {f}.x
-mov {q}.y, {g}.x
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mul {u}.xy, {h}.xyxx, {v}.xxxx
-mov {q}.x, {f}.y
-mov {q}.y, {g}.y
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.yyyy, {u}.xyxx
-mov {q}.x, {f}.z
-mov {q}.y, {g}.z
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.zzzz, {u}.xyxx
-mad {u}.xy, {u}.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat {u}.z, {u}.x, l(32.786885), l(0.377049)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-add {u}.z, {u}.z, {g}.w
-mad_sat {u}.z, {u}.z, l(6.000000), l(-5.400000)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-mad_sat {u}.w, {g}.w, l(3.333333), l(-2.333333)
-mul {u}.x, {u}.x, {u}.w
-add {u}.y, {u}.y, {e}.y
-mad {u}.x, {u}.z, {u}.y, {u}.x
-mul {u}.x, {u}.x, {e}.x
-add {u}.x, {u}.x, -{w}.w
-ge {w}.x, {u}.x, l(0.000000)
-add {u}.y, {p}.y, -{u}.x
-div {u}.y, {p}.y, {u}.y
-mad {u}.z, -{u}.y, {w}.y, {w}.z
-and {u}.w, {w}.x, {p}.x
-movc {p}.z, {u}.w, {u}.z, {p}.z
-xor {p}.x, {p}.x, {u}.w
-mov {w}.z, {w}.w
-mov {p}.y, {u}.x
-add {w}.w, {w}.z, -{w}.y
-mul {r}.xy, {d}.xyxx, {w}.wwww
-mad {f}.xyz, {s}.xyzx, {r}.xxxx, {n}.xyzx
-mad {f}.xyz, -{t}.xyzx, {r}.yyyy, {f}.xyzx
-mad {g}.xyz, {t}.xyzx, {r}.xxxx, {o}.xyzx
-mad {g}.xyz, {s}.xyzx, {r}.yyyy, {g}.xyzx
-frc {f}.xyz, {f}.xyzx
-frc {g}.xyz, {g}.xyzx
-mov {q}.x, {f}.x
-mov {q}.y, {g}.x
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mul {u}.xy, {h}.xyxx, {v}.xxxx
-mov {q}.x, {f}.y
-mov {q}.y, {g}.y
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.yyyy, {u}.xyxx
-mov {q}.x, {f}.z
-mov {q}.y, {g}.z
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.zzzz, {u}.xyxx
-mad {u}.xy, {u}.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat {u}.z, {u}.x, l(32.786885), l(0.377049)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-add {u}.z, {u}.z, {g}.w
-mad_sat {u}.z, {u}.z, l(6.000000), l(-5.400000)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-mad_sat {u}.w, {g}.w, l(3.333333), l(-2.333333)
-mul {u}.x, {u}.x, {u}.w
-add {u}.y, {u}.y, {e}.y
-mad {u}.x, {u}.z, {u}.y, {u}.x
-mul {u}.x, {u}.x, {e}.x
-add {u}.x, {u}.x, -{w}.w
-ge {w}.x, {u}.x, l(0.000000)
-add {u}.y, {p}.y, -{u}.x
-div {u}.y, {p}.y, {u}.y
-mad {u}.z, -{u}.y, {w}.y, {w}.z
-and {u}.w, {w}.x, {p}.x
-movc {p}.z, {u}.w, {u}.z, {p}.z
-xor {p}.x, {p}.x, {u}.w
-mov {w}.z, {w}.w
-mov {p}.y, {u}.x
-add {w}.w, {w}.z, -{w}.y
-mul {r}.xy, {d}.xyxx, {w}.wwww
-mad {f}.xyz, {s}.xyzx, {r}.xxxx, {n}.xyzx
-mad {f}.xyz, -{t}.xyzx, {r}.yyyy, {f}.xyzx
-mad {g}.xyz, {t}.xyzx, {r}.xxxx, {o}.xyzx
-mad {g}.xyz, {s}.xyzx, {r}.yyyy, {g}.xyzx
-frc {f}.xyz, {f}.xyzx
-frc {g}.xyz, {g}.xyzx
-mov {q}.x, {f}.x
-mov {q}.y, {g}.x
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mul {u}.xy, {h}.xyxx, {v}.xxxx
-mov {q}.x, {f}.y
-mov {q}.y, {g}.y
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.yyyy, {u}.xyxx
-mov {q}.x, {f}.z
-mov {q}.y, {g}.z
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.zzzz, {u}.xyxx
-mad {u}.xy, {u}.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat {u}.z, {u}.x, l(32.786885), l(0.377049)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-add {u}.z, {u}.z, {g}.w
-mad_sat {u}.z, {u}.z, l(6.000000), l(-5.400000)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-mad_sat {u}.w, {g}.w, l(3.333333), l(-2.333333)
-mul {u}.x, {u}.x, {u}.w
-add {u}.y, {u}.y, {e}.y
-mad {u}.x, {u}.z, {u}.y, {u}.x
-mul {u}.x, {u}.x, {e}.x
-add {u}.x, {u}.x, -{w}.w
-ge {w}.x, {u}.x, l(0.000000)
-add {u}.y, {p}.y, -{u}.x
-div {u}.y, {p}.y, {u}.y
-mad {u}.z, -{u}.y, {w}.y, {w}.z
-and {u}.w, {w}.x, {p}.x
-movc {p}.z, {u}.w, {u}.z, {p}.z
-xor {p}.x, {p}.x, {u}.w
-mov {w}.z, {w}.w
-mov {p}.y, {u}.x
-add {w}.w, {w}.z, -{w}.y
-mul {r}.xy, {d}.xyxx, {w}.wwww
-mad {f}.xyz, {s}.xyzx, {r}.xxxx, {n}.xyzx
-mad {f}.xyz, -{t}.xyzx, {r}.yyyy, {f}.xyzx
-mad {g}.xyz, {t}.xyzx, {r}.xxxx, {o}.xyzx
-mad {g}.xyz, {s}.xyzx, {r}.yyyy, {g}.xyzx
-frc {f}.xyz, {f}.xyzx
-frc {g}.xyz, {g}.xyzx
-mov {q}.x, {f}.x
-mov {q}.y, {g}.x
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mul {u}.xy, {h}.xyxx, {v}.xxxx
-mov {q}.x, {f}.y
-mov {q}.y, {g}.y
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.yyyy, {u}.xyxx
-mov {q}.x, {f}.z
-mov {q}.y, {g}.z
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.zzzz, {u}.xyxx
-mad {u}.xy, {u}.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat {u}.z, {u}.x, l(32.786885), l(0.377049)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-add {u}.z, {u}.z, {g}.w
-mad_sat {u}.z, {u}.z, l(6.000000), l(-5.400000)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-mad_sat {u}.w, {g}.w, l(3.333333), l(-2.333333)
-mul {u}.x, {u}.x, {u}.w
-add {u}.y, {u}.y, {e}.y
-mad {u}.x, {u}.z, {u}.y, {u}.x
-mul {u}.x, {u}.x, {e}.x
-add {u}.x, {u}.x, -{w}.w
-ge {w}.x, {u}.x, l(0.000000)
-add {u}.y, {p}.y, -{u}.x
-div {u}.y, {p}.y, {u}.y
-mad {u}.z, -{u}.y, {w}.y, {w}.z
-and {u}.w, {w}.x, {p}.x
-movc {p}.z, {u}.w, {u}.z, {p}.z
-xor {p}.x, {p}.x, {u}.w
-mov {w}.z, {w}.w
-mov {p}.y, {u}.x
-endif
-if_nz {p}.x
-// EDCAS parallax: the next steps, while no hit is found
-add {w}.w, {w}.z, -{w}.y
-mul {r}.xy, {d}.xyxx, {w}.wwww
-mad {f}.xyz, {s}.xyzx, {r}.xxxx, {n}.xyzx
-mad {f}.xyz, -{t}.xyzx, {r}.yyyy, {f}.xyzx
-mad {g}.xyz, {t}.xyzx, {r}.xxxx, {o}.xyzx
-mad {g}.xyz, {s}.xyzx, {r}.yyyy, {g}.xyzx
-frc {f}.xyz, {f}.xyzx
-frc {g}.xyz, {g}.xyzx
-mov {q}.x, {f}.x
-mov {q}.y, {g}.x
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mul {u}.xy, {h}.xyxx, {v}.xxxx
-mov {q}.x, {f}.y
-mov {q}.y, {g}.y
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.yyyy, {u}.xyxx
-mov {q}.x, {f}.z
-mov {q}.y, {g}.z
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.zzzz, {u}.xyxx
-mad {u}.xy, {u}.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat {u}.z, {u}.x, l(32.786885), l(0.377049)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-add {u}.z, {u}.z, {g}.w
-mad_sat {u}.z, {u}.z, l(6.000000), l(-5.400000)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-mad_sat {u}.w, {g}.w, l(3.333333), l(-2.333333)
-mul {u}.x, {u}.x, {u}.w
-add {u}.y, {u}.y, {e}.y
-mad {u}.x, {u}.z, {u}.y, {u}.x
-mul {u}.x, {u}.x, {e}.x
-add {u}.x, {u}.x, -{w}.w
-ge {w}.x, {u}.x, l(0.000000)
-add {u}.y, {p}.y, -{u}.x
-div {u}.y, {p}.y, {u}.y
-mad {u}.z, -{u}.y, {w}.y, {w}.z
-and {u}.w, {w}.x, {p}.x
-movc {p}.z, {u}.w, {u}.z, {p}.z
-xor {p}.x, {p}.x, {u}.w
-mov {w}.z, {w}.w
-mov {p}.y, {u}.x
-add {w}.w, {w}.z, -{w}.y
-mul {r}.xy, {d}.xyxx, {w}.wwww
-mad {f}.xyz, {s}.xyzx, {r}.xxxx, {n}.xyzx
-mad {f}.xyz, -{t}.xyzx, {r}.yyyy, {f}.xyzx
-mad {g}.xyz, {t}.xyzx, {r}.xxxx, {o}.xyzx
-mad {g}.xyz, {s}.xyzx, {r}.yyyy, {g}.xyzx
-frc {f}.xyz, {f}.xyzx
-frc {g}.xyz, {g}.xyzx
-mov {q}.x, {f}.x
-mov {q}.y, {g}.x
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mul {u}.xy, {h}.xyxx, {v}.xxxx
-mov {q}.x, {f}.y
-mov {q}.y, {g}.y
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.yyyy, {u}.xyxx
-mov {q}.x, {f}.z
-mov {q}.y, {g}.z
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.zzzz, {u}.xyxx
-mad {u}.xy, {u}.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat {u}.z, {u}.x, l(32.786885), l(0.377049)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-add {u}.z, {u}.z, {g}.w
-mad_sat {u}.z, {u}.z, l(6.000000), l(-5.400000)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-mad_sat {u}.w, {g}.w, l(3.333333), l(-2.333333)
-mul {u}.x, {u}.x, {u}.w
-add {u}.y, {u}.y, {e}.y
-mad {u}.x, {u}.z, {u}.y, {u}.x
-mul {u}.x, {u}.x, {e}.x
-add {u}.x, {u}.x, -{w}.w
-ge {w}.x, {u}.x, l(0.000000)
-add {u}.y, {p}.y, -{u}.x
-div {u}.y, {p}.y, {u}.y
-mad {u}.z, -{u}.y, {w}.y, {w}.z
-and {u}.w, {w}.x, {p}.x
-movc {p}.z, {u}.w, {u}.z, {p}.z
-xor {p}.x, {p}.x, {u}.w
-mov {w}.z, {w}.w
-mov {p}.y, {u}.x
-add {w}.w, {w}.z, -{w}.y
-mul {r}.xy, {d}.xyxx, {w}.wwww
-mad {f}.xyz, {s}.xyzx, {r}.xxxx, {n}.xyzx
-mad {f}.xyz, -{t}.xyzx, {r}.yyyy, {f}.xyzx
-mad {g}.xyz, {t}.xyzx, {r}.xxxx, {o}.xyzx
-mad {g}.xyz, {s}.xyzx, {r}.yyyy, {g}.xyzx
-frc {f}.xyz, {f}.xyzx
-frc {g}.xyz, {g}.xyzx
-mov {q}.x, {f}.x
-mov {q}.y, {g}.x
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mul {u}.xy, {h}.xyxx, {v}.xxxx
-mov {q}.x, {f}.y
-mov {q}.y, {g}.y
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.yyyy, {u}.xyxx
-mov {q}.x, {f}.z
-mov {q}.y, {g}.z
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.zzzz, {u}.xyxx
-mad {u}.xy, {u}.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat {u}.z, {u}.x, l(32.786885), l(0.377049)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-add {u}.z, {u}.z, {g}.w
-mad_sat {u}.z, {u}.z, l(6.000000), l(-5.400000)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-mad_sat {u}.w, {g}.w, l(3.333333), l(-2.333333)
-mul {u}.x, {u}.x, {u}.w
-add {u}.y, {u}.y, {e}.y
-mad {u}.x, {u}.z, {u}.y, {u}.x
-mul {u}.x, {u}.x, {e}.x
-add {u}.x, {u}.x, -{w}.w
-ge {w}.x, {u}.x, l(0.000000)
-add {u}.y, {p}.y, -{u}.x
-div {u}.y, {p}.y, {u}.y
-mad {u}.z, -{u}.y, {w}.y, {w}.z
-and {u}.w, {w}.x, {p}.x
-movc {p}.z, {u}.w, {u}.z, {p}.z
-xor {p}.x, {p}.x, {u}.w
-mov {w}.z, {w}.w
-mov {p}.y, {u}.x
-add {w}.w, {w}.z, -{w}.y
-mul {r}.xy, {d}.xyxx, {w}.wwww
-mad {f}.xyz, {s}.xyzx, {r}.xxxx, {n}.xyzx
-mad {f}.xyz, -{t}.xyzx, {r}.yyyy, {f}.xyzx
-mad {g}.xyz, {t}.xyzx, {r}.xxxx, {o}.xyzx
-mad {g}.xyz, {s}.xyzx, {r}.yyyy, {g}.xyzx
-frc {f}.xyz, {f}.xyzx
-frc {g}.xyz, {g}.xyzx
-mov {q}.x, {f}.x
-mov {q}.y, {g}.x
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mul {u}.xy, {h}.xyxx, {v}.xxxx
-mov {q}.x, {f}.y
-mov {q}.y, {g}.y
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.yyyy, {u}.xyxx
-mov {q}.x, {f}.z
-mov {q}.y, {g}.z
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.zzzz, {u}.xyxx
-mad {u}.xy, {u}.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat {u}.z, {u}.x, l(32.786885), l(0.377049)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-add {u}.z, {u}.z, {g}.w
-mad_sat {u}.z, {u}.z, l(6.000000), l(-5.400000)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-mad_sat {u}.w, {g}.w, l(3.333333), l(-2.333333)
-mul {u}.x, {u}.x, {u}.w
-add {u}.y, {u}.y, {e}.y
-mad {u}.x, {u}.z, {u}.y, {u}.x
-mul {u}.x, {u}.x, {e}.x
-add {u}.x, {u}.x, -{w}.w
-ge {w}.x, {u}.x, l(0.000000)
-add {u}.y, {p}.y, -{u}.x
-div {u}.y, {p}.y, {u}.y
-mad {u}.z, -{u}.y, {w}.y, {w}.z
-and {u}.w, {w}.x, {p}.x
-movc {p}.z, {u}.w, {u}.z, {p}.z
-xor {p}.x, {p}.x, {u}.w
-mov {w}.z, {w}.w
-mov {p}.y, {u}.x
-add {w}.w, {w}.z, -{w}.y
-mul {r}.xy, {d}.xyxx, {w}.wwww
-mad {f}.xyz, {s}.xyzx, {r}.xxxx, {n}.xyzx
-mad {f}.xyz, -{t}.xyzx, {r}.yyyy, {f}.xyzx
-mad {g}.xyz, {t}.xyzx, {r}.xxxx, {o}.xyzx
-mad {g}.xyz, {s}.xyzx, {r}.yyyy, {g}.xyzx
-frc {f}.xyz, {f}.xyzx
-frc {g}.xyz, {g}.xyzx
-mov {q}.x, {f}.x
-mov {q}.y, {g}.x
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mul {u}.xy, {h}.xyxx, {v}.xxxx
-mov {q}.x, {f}.y
-mov {q}.y, {g}.y
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.yyyy, {u}.xyxx
-mov {q}.x, {f}.z
-mov {q}.y, {g}.z
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.zzzz, {u}.xyxx
-mad {u}.xy, {u}.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat {u}.z, {u}.x, l(32.786885), l(0.377049)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-add {u}.z, {u}.z, {g}.w
-mad_sat {u}.z, {u}.z, l(6.000000), l(-5.400000)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-mad_sat {u}.w, {g}.w, l(3.333333), l(-2.333333)
-mul {u}.x, {u}.x, {u}.w
-add {u}.y, {u}.y, {e}.y
-mad {u}.x, {u}.z, {u}.y, {u}.x
-mul {u}.x, {u}.x, {e}.x
-add {u}.x, {u}.x, -{w}.w
-ge {w}.x, {u}.x, l(0.000000)
-add {u}.y, {p}.y, -{u}.x
-div {u}.y, {p}.y, {u}.y
-mad {u}.z, -{u}.y, {w}.y, {w}.z
-and {u}.w, {w}.x, {p}.x
-movc {p}.z, {u}.w, {u}.z, {p}.z
-xor {p}.x, {p}.x, {u}.w
-mov {w}.z, {w}.w
-mov {p}.y, {u}.x
-add {w}.w, {w}.z, -{w}.y
-mul {r}.xy, {d}.xyxx, {w}.wwww
-mad {f}.xyz, {s}.xyzx, {r}.xxxx, {n}.xyzx
-mad {f}.xyz, -{t}.xyzx, {r}.yyyy, {f}.xyzx
-mad {g}.xyz, {t}.xyzx, {r}.xxxx, {o}.xyzx
-mad {g}.xyz, {s}.xyzx, {r}.yyyy, {g}.xyzx
-frc {f}.xyz, {f}.xyzx
-frc {g}.xyz, {g}.xyzx
-mov {q}.x, {f}.x
-mov {q}.y, {g}.x
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mul {u}.xy, {h}.xyxx, {v}.xxxx
-mov {q}.x, {f}.y
-mov {q}.y, {g}.y
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.yyyy, {u}.xyxx
-mov {q}.x, {f}.z
-mov {q}.y, {g}.z
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.zzzz, {u}.xyxx
-mad {u}.xy, {u}.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat {u}.z, {u}.x, l(32.786885), l(0.377049)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-add {u}.z, {u}.z, {g}.w
-mad_sat {u}.z, {u}.z, l(6.000000), l(-5.400000)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-mad_sat {u}.w, {g}.w, l(3.333333), l(-2.333333)
-mul {u}.x, {u}.x, {u}.w
-add {u}.y, {u}.y, {e}.y
-mad {u}.x, {u}.z, {u}.y, {u}.x
-mul {u}.x, {u}.x, {e}.x
-add {u}.x, {u}.x, -{w}.w
-ge {w}.x, {u}.x, l(0.000000)
-add {u}.y, {p}.y, -{u}.x
-div {u}.y, {p}.y, {u}.y
-mad {u}.z, -{u}.y, {w}.y, {w}.z
-and {u}.w, {w}.x, {p}.x
-movc {p}.z, {u}.w, {u}.z, {p}.z
-xor {p}.x, {p}.x, {u}.w
-mov {w}.z, {w}.w
-mov {p}.y, {u}.x
-add {w}.w, {w}.z, -{w}.y
-mul {r}.xy, {d}.xyxx, {w}.wwww
-mad {f}.xyz, {s}.xyzx, {r}.xxxx, {n}.xyzx
-mad {f}.xyz, -{t}.xyzx, {r}.yyyy, {f}.xyzx
-mad {g}.xyz, {t}.xyzx, {r}.xxxx, {o}.xyzx
-mad {g}.xyz, {s}.xyzx, {r}.yyyy, {g}.xyzx
-frc {f}.xyz, {f}.xyzx
-frc {g}.xyz, {g}.xyzx
-mov {q}.x, {f}.x
-mov {q}.y, {g}.x
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mul {u}.xy, {h}.xyxx, {v}.xxxx
-mov {q}.x, {f}.y
-mov {q}.y, {g}.y
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.yyyy, {u}.xyxx
-mov {q}.x, {f}.z
-mov {q}.y, {g}.z
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.zzzz, {u}.xyxx
-mad {u}.xy, {u}.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat {u}.z, {u}.x, l(32.786885), l(0.377049)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-add {u}.z, {u}.z, {g}.w
-mad_sat {u}.z, {u}.z, l(6.000000), l(-5.400000)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-mad_sat {u}.w, {g}.w, l(3.333333), l(-2.333333)
-mul {u}.x, {u}.x, {u}.w
-add {u}.y, {u}.y, {e}.y
-mad {u}.x, {u}.z, {u}.y, {u}.x
-mul {u}.x, {u}.x, {e}.x
-add {u}.x, {u}.x, -{w}.w
-ge {w}.x, {u}.x, l(0.000000)
-add {u}.y, {p}.y, -{u}.x
-div {u}.y, {p}.y, {u}.y
-mad {u}.z, -{u}.y, {w}.y, {w}.z
-and {u}.w, {w}.x, {p}.x
-movc {p}.z, {u}.w, {u}.z, {p}.z
-xor {p}.x, {p}.x, {u}.w
-mov {w}.z, {w}.w
-mov {p}.y, {u}.x
-add {w}.w, {w}.z, -{w}.y
-mul {r}.xy, {d}.xyxx, {w}.wwww
-mad {f}.xyz, {s}.xyzx, {r}.xxxx, {n}.xyzx
-mad {f}.xyz, -{t}.xyzx, {r}.yyyy, {f}.xyzx
-mad {g}.xyz, {t}.xyzx, {r}.xxxx, {o}.xyzx
-mad {g}.xyz, {s}.xyzx, {r}.yyyy, {g}.xyzx
-frc {f}.xyz, {f}.xyzx
-frc {g}.xyz, {g}.xyzx
-mov {q}.x, {f}.x
-mov {q}.y, {g}.x
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mul {u}.xy, {h}.xyxx, {v}.xxxx
-mov {q}.x, {f}.y
-mov {q}.y, {g}.y
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.yyyy, {u}.xyxx
-mov {q}.x, {f}.z
-mov {q}.y, {g}.z
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.zzzz, {u}.xyxx
-mad {u}.xy, {u}.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat {u}.z, {u}.x, l(32.786885), l(0.377049)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-add {u}.z, {u}.z, {g}.w
-mad_sat {u}.z, {u}.z, l(6.000000), l(-5.400000)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-mad_sat {u}.w, {g}.w, l(3.333333), l(-2.333333)
-mul {u}.x, {u}.x, {u}.w
-add {u}.y, {u}.y, {e}.y
-mad {u}.x, {u}.z, {u}.y, {u}.x
-mul {u}.x, {u}.x, {e}.x
-add {u}.x, {u}.x, -{w}.w
-ge {w}.x, {u}.x, l(0.000000)
-add {u}.y, {p}.y, -{u}.x
-div {u}.y, {p}.y, {u}.y
-mad {u}.z, -{u}.y, {w}.y, {w}.z
-and {u}.w, {w}.x, {p}.x
-movc {p}.z, {u}.w, {u}.z, {p}.z
-xor {p}.x, {p}.x, {u}.w
-mov {w}.z, {w}.w
-mov {p}.y, {u}.x
-endif
-if_nz {p}.x
-// EDCAS parallax: the next steps, while no hit is found
-add {w}.w, {w}.z, -{w}.y
-mul {r}.xy, {d}.xyxx, {w}.wwww
-mad {f}.xyz, {s}.xyzx, {r}.xxxx, {n}.xyzx
-mad {f}.xyz, -{t}.xyzx, {r}.yyyy, {f}.xyzx
-mad {g}.xyz, {t}.xyzx, {r}.xxxx, {o}.xyzx
-mad {g}.xyz, {s}.xyzx, {r}.yyyy, {g}.xyzx
-frc {f}.xyz, {f}.xyzx
-frc {g}.xyz, {g}.xyzx
-mov {q}.x, {f}.x
-mov {q}.y, {g}.x
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mul {u}.xy, {h}.xyxx, {v}.xxxx
-mov {q}.x, {f}.y
-mov {q}.y, {g}.y
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.yyyy, {u}.xyxx
-mov {q}.x, {f}.z
-mov {q}.y, {g}.z
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.zzzz, {u}.xyxx
-mad {u}.xy, {u}.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat {u}.z, {u}.x, l(32.786885), l(0.377049)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-add {u}.z, {u}.z, {g}.w
-mad_sat {u}.z, {u}.z, l(6.000000), l(-5.400000)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-mad_sat {u}.w, {g}.w, l(3.333333), l(-2.333333)
-mul {u}.x, {u}.x, {u}.w
-add {u}.y, {u}.y, {e}.y
-mad {u}.x, {u}.z, {u}.y, {u}.x
-mul {u}.x, {u}.x, {e}.x
-add {u}.x, {u}.x, -{w}.w
-ge {w}.x, {u}.x, l(0.000000)
-add {u}.y, {p}.y, -{u}.x
-div {u}.y, {p}.y, {u}.y
-mad {u}.z, -{u}.y, {w}.y, {w}.z
-and {u}.w, {w}.x, {p}.x
-movc {p}.z, {u}.w, {u}.z, {p}.z
-xor {p}.x, {p}.x, {u}.w
-mov {w}.z, {w}.w
-mov {p}.y, {u}.x
-add {w}.w, {w}.z, -{w}.y
-mul {r}.xy, {d}.xyxx, {w}.wwww
-mad {f}.xyz, {s}.xyzx, {r}.xxxx, {n}.xyzx
-mad {f}.xyz, -{t}.xyzx, {r}.yyyy, {f}.xyzx
-mad {g}.xyz, {t}.xyzx, {r}.xxxx, {o}.xyzx
-mad {g}.xyz, {s}.xyzx, {r}.yyyy, {g}.xyzx
-frc {f}.xyz, {f}.xyzx
-frc {g}.xyz, {g}.xyzx
-mov {q}.x, {f}.x
-mov {q}.y, {g}.x
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mul {u}.xy, {h}.xyxx, {v}.xxxx
-mov {q}.x, {f}.y
-mov {q}.y, {g}.y
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.yyyy, {u}.xyxx
-mov {q}.x, {f}.z
-mov {q}.y, {g}.z
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.zzzz, {u}.xyxx
-mad {u}.xy, {u}.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat {u}.z, {u}.x, l(32.786885), l(0.377049)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-add {u}.z, {u}.z, {g}.w
-mad_sat {u}.z, {u}.z, l(6.000000), l(-5.400000)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-mad_sat {u}.w, {g}.w, l(3.333333), l(-2.333333)
-mul {u}.x, {u}.x, {u}.w
-add {u}.y, {u}.y, {e}.y
-mad {u}.x, {u}.z, {u}.y, {u}.x
-mul {u}.x, {u}.x, {e}.x
-add {u}.x, {u}.x, -{w}.w
-ge {w}.x, {u}.x, l(0.000000)
-add {u}.y, {p}.y, -{u}.x
-div {u}.y, {p}.y, {u}.y
-mad {u}.z, -{u}.y, {w}.y, {w}.z
-and {u}.w, {w}.x, {p}.x
-movc {p}.z, {u}.w, {u}.z, {p}.z
-xor {p}.x, {p}.x, {u}.w
-mov {w}.z, {w}.w
-mov {p}.y, {u}.x
-add {w}.w, {w}.z, -{w}.y
-mul {r}.xy, {d}.xyxx, {w}.wwww
-mad {f}.xyz, {s}.xyzx, {r}.xxxx, {n}.xyzx
-mad {f}.xyz, -{t}.xyzx, {r}.yyyy, {f}.xyzx
-mad {g}.xyz, {t}.xyzx, {r}.xxxx, {o}.xyzx
-mad {g}.xyz, {s}.xyzx, {r}.yyyy, {g}.xyzx
-frc {f}.xyz, {f}.xyzx
-frc {g}.xyz, {g}.xyzx
-mov {q}.x, {f}.x
-mov {q}.y, {g}.x
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mul {u}.xy, {h}.xyxx, {v}.xxxx
-mov {q}.x, {f}.y
-mov {q}.y, {g}.y
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.yyyy, {u}.xyxx
-mov {q}.x, {f}.z
-mov {q}.y, {g}.z
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.zzzz, {u}.xyxx
-mad {u}.xy, {u}.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat {u}.z, {u}.x, l(32.786885), l(0.377049)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-add {u}.z, {u}.z, {g}.w
-mad_sat {u}.z, {u}.z, l(6.000000), l(-5.400000)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-mad_sat {u}.w, {g}.w, l(3.333333), l(-2.333333)
-mul {u}.x, {u}.x, {u}.w
-add {u}.y, {u}.y, {e}.y
-mad {u}.x, {u}.z, {u}.y, {u}.x
-mul {u}.x, {u}.x, {e}.x
-add {u}.x, {u}.x, -{w}.w
-ge {w}.x, {u}.x, l(0.000000)
-add {u}.y, {p}.y, -{u}.x
-div {u}.y, {p}.y, {u}.y
-mad {u}.z, -{u}.y, {w}.y, {w}.z
-and {u}.w, {w}.x, {p}.x
-movc {p}.z, {u}.w, {u}.z, {p}.z
-xor {p}.x, {p}.x, {u}.w
-mov {w}.z, {w}.w
-mov {p}.y, {u}.x
-add {w}.w, {w}.z, -{w}.y
-mul {r}.xy, {d}.xyxx, {w}.wwww
-mad {f}.xyz, {s}.xyzx, {r}.xxxx, {n}.xyzx
-mad {f}.xyz, -{t}.xyzx, {r}.yyyy, {f}.xyzx
-mad {g}.xyz, {t}.xyzx, {r}.xxxx, {o}.xyzx
-mad {g}.xyz, {s}.xyzx, {r}.yyyy, {g}.xyzx
-frc {f}.xyz, {f}.xyzx
-frc {g}.xyz, {g}.xyzx
-mov {q}.x, {f}.x
-mov {q}.y, {g}.x
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mul {u}.xy, {h}.xyxx, {v}.xxxx
-mov {q}.x, {f}.y
-mov {q}.y, {g}.y
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.yyyy, {u}.xyxx
-mov {q}.x, {f}.z
-mov {q}.y, {g}.z
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.zzzz, {u}.xyxx
-mad {u}.xy, {u}.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat {u}.z, {u}.x, l(32.786885), l(0.377049)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-add {u}.z, {u}.z, {g}.w
-mad_sat {u}.z, {u}.z, l(6.000000), l(-5.400000)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-mad_sat {u}.w, {g}.w, l(3.333333), l(-2.333333)
-mul {u}.x, {u}.x, {u}.w
-add {u}.y, {u}.y, {e}.y
-mad {u}.x, {u}.z, {u}.y, {u}.x
-mul {u}.x, {u}.x, {e}.x
-add {u}.x, {u}.x, -{w}.w
-ge {w}.x, {u}.x, l(0.000000)
-add {u}.y, {p}.y, -{u}.x
-div {u}.y, {p}.y, {u}.y
-mad {u}.z, -{u}.y, {w}.y, {w}.z
-and {u}.w, {w}.x, {p}.x
-movc {p}.z, {u}.w, {u}.z, {p}.z
-xor {p}.x, {p}.x, {u}.w
-mov {w}.z, {w}.w
-mov {p}.y, {u}.x
-add {w}.w, {w}.z, -{w}.y
-mul {r}.xy, {d}.xyxx, {w}.wwww
-mad {f}.xyz, {s}.xyzx, {r}.xxxx, {n}.xyzx
-mad {f}.xyz, -{t}.xyzx, {r}.yyyy, {f}.xyzx
-mad {g}.xyz, {t}.xyzx, {r}.xxxx, {o}.xyzx
-mad {g}.xyz, {s}.xyzx, {r}.yyyy, {g}.xyzx
-frc {f}.xyz, {f}.xyzx
-frc {g}.xyz, {g}.xyzx
-mov {q}.x, {f}.x
-mov {q}.y, {g}.x
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mul {u}.xy, {h}.xyxx, {v}.xxxx
-mov {q}.x, {f}.y
-mov {q}.y, {g}.y
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.yyyy, {u}.xyxx
-mov {q}.x, {f}.z
-mov {q}.y, {g}.z
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.zzzz, {u}.xyxx
-mad {u}.xy, {u}.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat {u}.z, {u}.x, l(32.786885), l(0.377049)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-add {u}.z, {u}.z, {g}.w
-mad_sat {u}.z, {u}.z, l(6.000000), l(-5.400000)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-mad_sat {u}.w, {g}.w, l(3.333333), l(-2.333333)
-mul {u}.x, {u}.x, {u}.w
-add {u}.y, {u}.y, {e}.y
-mad {u}.x, {u}.z, {u}.y, {u}.x
-mul {u}.x, {u}.x, {e}.x
-add {u}.x, {u}.x, -{w}.w
-ge {w}.x, {u}.x, l(0.000000)
-add {u}.y, {p}.y, -{u}.x
-div {u}.y, {p}.y, {u}.y
-mad {u}.z, -{u}.y, {w}.y, {w}.z
-and {u}.w, {w}.x, {p}.x
-movc {p}.z, {u}.w, {u}.z, {p}.z
-xor {p}.x, {p}.x, {u}.w
-mov {w}.z, {w}.w
-mov {p}.y, {u}.x
-add {w}.w, {w}.z, -{w}.y
-mul {r}.xy, {d}.xyxx, {w}.wwww
-mad {f}.xyz, {s}.xyzx, {r}.xxxx, {n}.xyzx
-mad {f}.xyz, -{t}.xyzx, {r}.yyyy, {f}.xyzx
-mad {g}.xyz, {t}.xyzx, {r}.xxxx, {o}.xyzx
-mad {g}.xyz, {s}.xyzx, {r}.yyyy, {g}.xyzx
-frc {f}.xyz, {f}.xyzx
-frc {g}.xyz, {g}.xyzx
-mov {q}.x, {f}.x
-mov {q}.y, {g}.x
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mul {u}.xy, {h}.xyxx, {v}.xxxx
-mov {q}.x, {f}.y
-mov {q}.y, {g}.y
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.yyyy, {u}.xyxx
-mov {q}.x, {f}.z
-mov {q}.y, {g}.z
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.zzzz, {u}.xyxx
-mad {u}.xy, {u}.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat {u}.z, {u}.x, l(32.786885), l(0.377049)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-add {u}.z, {u}.z, {g}.w
-mad_sat {u}.z, {u}.z, l(6.000000), l(-5.400000)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-mad_sat {u}.w, {g}.w, l(3.333333), l(-2.333333)
-mul {u}.x, {u}.x, {u}.w
-add {u}.y, {u}.y, {e}.y
-mad {u}.x, {u}.z, {u}.y, {u}.x
-mul {u}.x, {u}.x, {e}.x
-add {u}.x, {u}.x, -{w}.w
-ge {w}.x, {u}.x, l(0.000000)
-add {u}.y, {p}.y, -{u}.x
-div {u}.y, {p}.y, {u}.y
-mad {u}.z, -{u}.y, {w}.y, {w}.z
-and {u}.w, {w}.x, {p}.x
-movc {p}.z, {u}.w, {u}.z, {p}.z
-xor {p}.x, {p}.x, {u}.w
-mov {w}.z, {w}.w
-mov {p}.y, {u}.x
-add {w}.w, {w}.z, -{w}.y
-mul {r}.xy, {d}.xyxx, {w}.wwww
-mad {f}.xyz, {s}.xyzx, {r}.xxxx, {n}.xyzx
-mad {f}.xyz, -{t}.xyzx, {r}.yyyy, {f}.xyzx
-mad {g}.xyz, {t}.xyzx, {r}.xxxx, {o}.xyzx
-mad {g}.xyz, {s}.xyzx, {r}.yyyy, {g}.xyzx
-frc {f}.xyz, {f}.xyzx
-frc {g}.xyz, {g}.xyzx
-mov {q}.x, {f}.x
-mov {q}.y, {g}.x
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mul {u}.xy, {h}.xyxx, {v}.xxxx
-mov {q}.x, {f}.y
-mov {q}.y, {g}.y
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.yyyy, {u}.xyxx
-mov {q}.x, {f}.z
-mov {q}.y, {g}.z
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.zzzz, {u}.xyxx
-mad {u}.xy, {u}.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat {u}.z, {u}.x, l(32.786885), l(0.377049)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-add {u}.z, {u}.z, {g}.w
-mad_sat {u}.z, {u}.z, l(6.000000), l(-5.400000)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-mad_sat {u}.w, {g}.w, l(3.333333), l(-2.333333)
-mul {u}.x, {u}.x, {u}.w
-add {u}.y, {u}.y, {e}.y
-mad {u}.x, {u}.z, {u}.y, {u}.x
-mul {u}.x, {u}.x, {e}.x
-add {u}.x, {u}.x, -{w}.w
-ge {w}.x, {u}.x, l(0.000000)
-add {u}.y, {p}.y, -{u}.x
-div {u}.y, {p}.y, {u}.y
-mad {u}.z, -{u}.y, {w}.y, {w}.z
-and {u}.w, {w}.x, {p}.x
-movc {p}.z, {u}.w, {u}.z, {p}.z
-xor {p}.x, {p}.x, {u}.w
-mov {w}.z, {w}.w
-mov {p}.y, {u}.x
-add {w}.w, {w}.z, -{w}.y
-mul {r}.xy, {d}.xyxx, {w}.wwww
-mad {f}.xyz, {s}.xyzx, {r}.xxxx, {n}.xyzx
-mad {f}.xyz, -{t}.xyzx, {r}.yyyy, {f}.xyzx
-mad {g}.xyz, {t}.xyzx, {r}.xxxx, {o}.xyzx
-mad {g}.xyz, {s}.xyzx, {r}.yyyy, {g}.xyzx
-frc {f}.xyz, {f}.xyzx
-frc {g}.xyz, {g}.xyzx
-mov {q}.x, {f}.x
-mov {q}.y, {g}.x
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mul {u}.xy, {h}.xyxx, {v}.xxxx
-mov {q}.x, {f}.y
-mov {q}.y, {g}.y
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.yyyy, {u}.xyxx
-mov {q}.x, {f}.z
-mov {q}.y, {g}.z
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.zzzz, {u}.xyxx
-mad {u}.xy, {u}.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat {u}.z, {u}.x, l(32.786885), l(0.377049)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-add {u}.z, {u}.z, {g}.w
-mad_sat {u}.z, {u}.z, l(6.000000), l(-5.400000)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-mad_sat {u}.w, {g}.w, l(3.333333), l(-2.333333)
-mul {u}.x, {u}.x, {u}.w
-add {u}.y, {u}.y, {e}.y
-mad {u}.x, {u}.z, {u}.y, {u}.x
-mul {u}.x, {u}.x, {e}.x
-add {u}.x, {u}.x, -{w}.w
-ge {w}.x, {u}.x, l(0.000000)
-add {u}.y, {p}.y, -{u}.x
-div {u}.y, {p}.y, {u}.y
-mad {u}.z, -{u}.y, {w}.y, {w}.z
-and {u}.w, {w}.x, {p}.x
-movc {p}.z, {u}.w, {u}.z, {p}.z
-xor {p}.x, {p}.x, {u}.w
-mov {w}.z, {w}.w
-mov {p}.y, {u}.x
-endif
-if_nz {p}.x
-// EDCAS parallax: the next steps, while no hit is found
-add {w}.w, {w}.z, -{w}.y
-mul {r}.xy, {d}.xyxx, {w}.wwww
-mad {f}.xyz, {s}.xyzx, {r}.xxxx, {n}.xyzx
-mad {f}.xyz, -{t}.xyzx, {r}.yyyy, {f}.xyzx
-mad {g}.xyz, {t}.xyzx, {r}.xxxx, {o}.xyzx
-mad {g}.xyz, {s}.xyzx, {r}.yyyy, {g}.xyzx
-frc {f}.xyz, {f}.xyzx
-frc {g}.xyz, {g}.xyzx
-mov {q}.x, {f}.x
-mov {q}.y, {g}.x
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mul {u}.xy, {h}.xyxx, {v}.xxxx
-mov {q}.x, {f}.y
-mov {q}.y, {g}.y
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.yyyy, {u}.xyxx
-mov {q}.x, {f}.z
-mov {q}.y, {g}.z
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.zzzz, {u}.xyxx
-mad {u}.xy, {u}.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat {u}.z, {u}.x, l(32.786885), l(0.377049)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-add {u}.z, {u}.z, {g}.w
-mad_sat {u}.z, {u}.z, l(6.000000), l(-5.400000)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-mad_sat {u}.w, {g}.w, l(3.333333), l(-2.333333)
-mul {u}.x, {u}.x, {u}.w
-add {u}.y, {u}.y, {e}.y
-mad {u}.x, {u}.z, {u}.y, {u}.x
-mul {u}.x, {u}.x, {e}.x
-add {u}.x, {u}.x, -{w}.w
-ge {w}.x, {u}.x, l(0.000000)
-add {u}.y, {p}.y, -{u}.x
-div {u}.y, {p}.y, {u}.y
-mad {u}.z, -{u}.y, {w}.y, {w}.z
-and {u}.w, {w}.x, {p}.x
-movc {p}.z, {u}.w, {u}.z, {p}.z
-xor {p}.x, {p}.x, {u}.w
-mov {w}.z, {w}.w
-mov {p}.y, {u}.x
-add {w}.w, {w}.z, -{w}.y
-mul {r}.xy, {d}.xyxx, {w}.wwww
-mad {f}.xyz, {s}.xyzx, {r}.xxxx, {n}.xyzx
-mad {f}.xyz, -{t}.xyzx, {r}.yyyy, {f}.xyzx
-mad {g}.xyz, {t}.xyzx, {r}.xxxx, {o}.xyzx
-mad {g}.xyz, {s}.xyzx, {r}.yyyy, {g}.xyzx
-frc {f}.xyz, {f}.xyzx
-frc {g}.xyz, {g}.xyzx
-mov {q}.x, {f}.x
-mov {q}.y, {g}.x
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mul {u}.xy, {h}.xyxx, {v}.xxxx
-mov {q}.x, {f}.y
-mov {q}.y, {g}.y
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.yyyy, {u}.xyxx
-mov {q}.x, {f}.z
-mov {q}.y, {g}.z
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.zzzz, {u}.xyxx
-mad {u}.xy, {u}.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat {u}.z, {u}.x, l(32.786885), l(0.377049)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-add {u}.z, {u}.z, {g}.w
-mad_sat {u}.z, {u}.z, l(6.000000), l(-5.400000)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-mad_sat {u}.w, {g}.w, l(3.333333), l(-2.333333)
-mul {u}.x, {u}.x, {u}.w
-add {u}.y, {u}.y, {e}.y
-mad {u}.x, {u}.z, {u}.y, {u}.x
-mul {u}.x, {u}.x, {e}.x
-add {u}.x, {u}.x, -{w}.w
-ge {w}.x, {u}.x, l(0.000000)
-add {u}.y, {p}.y, -{u}.x
-div {u}.y, {p}.y, {u}.y
-mad {u}.z, -{u}.y, {w}.y, {w}.z
-and {u}.w, {w}.x, {p}.x
-movc {p}.z, {u}.w, {u}.z, {p}.z
-xor {p}.x, {p}.x, {u}.w
-mov {w}.z, {w}.w
-mov {p}.y, {u}.x
-add {w}.w, {w}.z, -{w}.y
-mul {r}.xy, {d}.xyxx, {w}.wwww
-mad {f}.xyz, {s}.xyzx, {r}.xxxx, {n}.xyzx
-mad {f}.xyz, -{t}.xyzx, {r}.yyyy, {f}.xyzx
-mad {g}.xyz, {t}.xyzx, {r}.xxxx, {o}.xyzx
-mad {g}.xyz, {s}.xyzx, {r}.yyyy, {g}.xyzx
-frc {f}.xyz, {f}.xyzx
-frc {g}.xyz, {g}.xyzx
-mov {q}.x, {f}.x
-mov {q}.y, {g}.x
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mul {u}.xy, {h}.xyxx, {v}.xxxx
-mov {q}.x, {f}.y
-mov {q}.y, {g}.y
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.yyyy, {u}.xyxx
-mov {q}.x, {f}.z
-mov {q}.y, {g}.z
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.zzzz, {u}.xyxx
-mad {u}.xy, {u}.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat {u}.z, {u}.x, l(32.786885), l(0.377049)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-add {u}.z, {u}.z, {g}.w
-mad_sat {u}.z, {u}.z, l(6.000000), l(-5.400000)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-mad_sat {u}.w, {g}.w, l(3.333333), l(-2.333333)
-mul {u}.x, {u}.x, {u}.w
-add {u}.y, {u}.y, {e}.y
-mad {u}.x, {u}.z, {u}.y, {u}.x
-mul {u}.x, {u}.x, {e}.x
-add {u}.x, {u}.x, -{w}.w
-ge {w}.x, {u}.x, l(0.000000)
-add {u}.y, {p}.y, -{u}.x
-div {u}.y, {p}.y, {u}.y
-mad {u}.z, -{u}.y, {w}.y, {w}.z
-and {u}.w, {w}.x, {p}.x
-movc {p}.z, {u}.w, {u}.z, {p}.z
-xor {p}.x, {p}.x, {u}.w
-mov {w}.z, {w}.w
-mov {p}.y, {u}.x
-add {w}.w, {w}.z, -{w}.y
-mul {r}.xy, {d}.xyxx, {w}.wwww
-mad {f}.xyz, {s}.xyzx, {r}.xxxx, {n}.xyzx
-mad {f}.xyz, -{t}.xyzx, {r}.yyyy, {f}.xyzx
-mad {g}.xyz, {t}.xyzx, {r}.xxxx, {o}.xyzx
-mad {g}.xyz, {s}.xyzx, {r}.yyyy, {g}.xyzx
-frc {f}.xyz, {f}.xyzx
-frc {g}.xyz, {g}.xyzx
-mov {q}.x, {f}.x
-mov {q}.y, {g}.x
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mul {u}.xy, {h}.xyxx, {v}.xxxx
-mov {q}.x, {f}.y
-mov {q}.y, {g}.y
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.yyyy, {u}.xyxx
-mov {q}.x, {f}.z
-mov {q}.y, {g}.z
-sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
-mad {u}.xy, {h}.xyxx, {v}.zzzz, {u}.xyxx
-mad {u}.xy, {u}.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
-mad_sat {u}.z, {u}.x, l(32.786885), l(0.377049)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-add {u}.z, {u}.z, {g}.w
-mad_sat {u}.z, {u}.z, l(6.000000), l(-5.400000)
-mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
-mul {u}.z, {u}.z, {u}.z
-mul {u}.z, {u}.z, {u}.w
-mad_sat {u}.w, {g}.w, l(3.333333), l(-2.333333)
-mul {u}.x, {u}.x, {u}.w
-add {u}.y, {u}.y, {e}.y
-mad {u}.x, {u}.z, {u}.y, {u}.x
-mul {u}.x, {u}.x, {e}.x
-add {u}.x, {u}.x, -{w}.w
-ge {w}.x, {u}.x, l(0.000000)
-add {u}.y, {p}.y, -{u}.x
-div {u}.y, {p}.y, {u}.y
-mad {u}.z, -{u}.y, {w}.y, {w}.z
-and {u}.w, {w}.x, {p}.x
-movc {p}.z, {u}.w, {u}.z, {p}.z
-xor {p}.x, {p}.x, {u}.w
-mov {w}.z, {w}.w
-mov {p}.y, {u}.x
 add {w}.w, {w}.z, -{w}.y
 mul {r}.xy, {d}.xyxx, {w}.wwww
 mad {f}.xyz, {s}.xyzx, {r}.xxxx, {n}.xyzx
@@ -3812,7 +2195,7 @@ and {h}.x, {h}.x, {h}.y
 and {h}.x, {h}.x, {e}.w
 movc {z}.xy, {h}.xxxx, {z}.xyxx, l(0.000000, 0.000000, 0.000000, 0.000000)
 mul {j}.xy, {d}.xyxx, {k}.yyyy
-add {p}.w, l(0.070000), -{k}.y
+add {p}.w, l(0.017500), -{k}.y
 mul {p}.xy, {d}.zwzz, {p}.wwww
 mov {j}.z, l(0.000000)
 mad {r}.xy, {p}.xyxx, l(0.125000), {j}.xyxx
@@ -3849,7 +2232,7 @@ mul {u}.x, {u}.x, {u}.w
 add {u}.y, {u}.y, {e}.y
 mad {u}.x, {u}.z, {u}.y, {u}.x
 mul {u}.x, {u}.x, {e}.x
-mad {u}.y, {k}.y, l(0.875000), l(0.008750)
+mad {u}.y, {k}.y, l(0.875000), l(0.002188)
 add {u}.x, {u}.x, -{u}.y
 mad_sat {u}.x, {u}.x, l(200.000000), l(0.000000)
 add {j}.z, {j}.z, {u}.x
@@ -3887,7 +2270,7 @@ mul {u}.x, {u}.x, {u}.w
 add {u}.y, {u}.y, {e}.y
 mad {u}.x, {u}.z, {u}.y, {u}.x
 mul {u}.x, {u}.x, {e}.x
-mad {u}.y, {k}.y, l(0.750000), l(0.017500)
+mad {u}.y, {k}.y, l(0.750000), l(0.004375)
 add {u}.x, {u}.x, -{u}.y
 mad_sat {u}.x, {u}.x, l(200.000000), l(0.000000)
 add {j}.z, {j}.z, {u}.x
@@ -3925,7 +2308,7 @@ mul {u}.x, {u}.x, {u}.w
 add {u}.y, {u}.y, {e}.y
 mad {u}.x, {u}.z, {u}.y, {u}.x
 mul {u}.x, {u}.x, {e}.x
-mad {u}.y, {k}.y, l(0.625000), l(0.026250)
+mad {u}.y, {k}.y, l(0.625000), l(0.006563)
 add {u}.x, {u}.x, -{u}.y
 mad_sat {u}.x, {u}.x, l(200.000000), l(0.000000)
 add {j}.z, {j}.z, {u}.x
@@ -3963,7 +2346,7 @@ mul {u}.x, {u}.x, {u}.w
 add {u}.y, {u}.y, {e}.y
 mad {u}.x, {u}.z, {u}.y, {u}.x
 mul {u}.x, {u}.x, {e}.x
-mad {u}.y, {k}.y, l(0.500000), l(0.035000)
+mad {u}.y, {k}.y, l(0.500000), l(0.008750)
 add {u}.x, {u}.x, -{u}.y
 mad_sat {u}.x, {u}.x, l(200.000000), l(0.000000)
 add {j}.z, {j}.z, {u}.x
@@ -4001,7 +2384,7 @@ mul {u}.x, {u}.x, {u}.w
 add {u}.y, {u}.y, {e}.y
 mad {u}.x, {u}.z, {u}.y, {u}.x
 mul {u}.x, {u}.x, {e}.x
-mad {u}.y, {k}.y, l(0.375000), l(0.043750)
+mad {u}.y, {k}.y, l(0.375000), l(0.010938)
 add {u}.x, {u}.x, -{u}.y
 mad_sat {u}.x, {u}.x, l(200.000000), l(0.000000)
 add {j}.z, {j}.z, {u}.x
@@ -4039,7 +2422,7 @@ mul {u}.x, {u}.x, {u}.w
 add {u}.y, {u}.y, {e}.y
 mad {u}.x, {u}.z, {u}.y, {u}.x
 mul {u}.x, {u}.x, {e}.x
-mad {u}.y, {k}.y, l(0.250000), l(0.052500)
+mad {u}.y, {k}.y, l(0.250000), l(0.013125)
 add {u}.x, {u}.x, -{u}.y
 mad_sat {u}.x, {u}.x, l(200.000000), l(0.000000)
 add {j}.z, {j}.z, {u}.x
@@ -4077,7 +2460,7 @@ mul {u}.x, {u}.x, {u}.w
 add {u}.y, {u}.y, {e}.y
 mad {u}.x, {u}.z, {u}.y, {u}.x
 mul {u}.x, {u}.x, {e}.x
-mad {u}.y, {k}.y, l(0.125000), l(0.061250)
+mad {u}.y, {k}.y, l(0.125000), l(0.015313)
 add {u}.x, {u}.x, -{u}.y
 mad_sat {u}.x, {u}.x, l(200.000000), l(0.000000)
 add {j}.z, {j}.z, {u}.x
@@ -4115,14 +2498,588 @@ mul {u}.x, {u}.x, {u}.w
 add {u}.y, {u}.y, {e}.y
 mad {u}.x, {u}.z, {u}.y, {u}.x
 mul {u}.x, {u}.x, {e}.x
-mad {u}.y, {k}.y, l(0.000000), l(0.070000)
+mad {u}.y, {k}.y, l(0.000000), l(0.017500)
 add {u}.x, {u}.x, -{u}.y
 mad_sat {u}.x, {u}.x, l(200.000000), l(0.000000)
 add {j}.z, {j}.z, {u}.x
 mul {j}.z, {j}.z, l(0.125000)
 movc {j}.z, {j}.w, {j}.z, l(0.000000)
-add {u}.x, l(0.070000), -{k}.y
-mul {u}.x, {u}.x, l(6.666667)
+add {u}.x, l(0.017500), -{k}.y
+mul {u}.x, {u}.x, l(26.666667)
+eq {u}.y, {c}.y, l(10.000000)
+movc {z}.z, {u}.y, {u}.x, {j}.z
+else
+mov {z}.xyz, l(0.000000, 0.000000, 0.000000, 0.000000)
+endif
+else
+ld_indexable(texture1d)(float,float,float,float) {j}.xyzw, l(532, 0, 0, 0), t120.xyzw
+ge {h}.y, {j}.x, l(0.000000)
+and {e}.w, {h}.x, {h}.y
+mov {g}.z, l(0.400000)
+if_nz {e}.w
+ld_indexable(texture1d)(float,float,float,float) {j}.xyzw, l(517, 0, 0, 0), t120.xyzw
+eq {h}.x, {j}.x, l(0.000000)
+movc {j}.x, {h}.x, l(0.700000), {j}.x
+lt {h}.x, {j}.x, l(0.000000)
+movc {j}.x, {h}.x, l(-10.000000), {j}.x
+max {f}.x, {j}.x, l(0.020000)
+min {f}.x, {f}.x, l(0.980000)
+add {f}.y, -{f}.x, l(1.000000)
+log {f}.x, {f}.x
+log {f}.y, {f}.y
+add {f}.x, {f}.x, -{f}.y
+mad {f}.y, {f}.x, l(0.004422646), l(0.008511348)
+mad {f}.y, {f}.y, {f}.x, l(-0.618192882)
+mad {f}.y, {f}.y, {f}.x, l(0.243088298)
+add {f}.x, {m}.x, -{f}.y
+mad_sat {g}.w, {f}.x, l(0.250000), l(0.500000)
+deriv_rtx_fine {n}.xyz, v3.xyzx
+deriv_rty_fine {o}.xyz, v3.xyzx
+deriv_rtx_fine {p}.xy, v1.xyxx
+deriv_rty_fine {p}.zw, v1.xxxy
+dp3 {r}.x, {n}.xyzx, {n}.xyzx
+dp3 {r}.y, {o}.xyzx, {o}.xyzx
+dp3 {r}.z, {n}.xyzx, {o}.xyzx
+mul {t}.xyz, {n}.yzxx, {o}.zxyx
+mad {t}.xyz, -{n}.zxyx, {o}.yzxx, {t}.xyzx
+dp3 {u}.x, v3.xyzx, {t}.xyzx
+dp3 {u}.y, {t}.xyzx, {t}.xyzx
+dp3 {u}.z, v3.xyzx, v3.xyzx
+dp3 {s}.x, v3.xyzx, {n}.xyzx
+dp3 {s}.y, v3.xyzx, {o}.xyzx
+max {w}.x, {r}.x, {r}.y
+sqrt {w}.x, {w}.x
+lt {w}.y, l(0.000000), {c}.w
+movc {w}.y, {w}.y, {c}.w, l(1.000000)
+div {w}.x, {w}.x, {w}.y
+mad_sat {w}.y, {w}.x, l(-50.000000), l(2.000000)
+mul {w}.y, {w}.y, {g}.z
+mad_sat {w}.z, {g}.w, l(10.000000), l(-0.500000)
+mul {w}.y, {w}.y, {w}.z
+mov {e}.x, {w}.y
+ld_indexable(texture1d)(float,float,float,float) {h}.xyzw, l(514, 0, 0, 0), t120.xyzw
+eq {h}.x, {h}.w, l(0.000000)
+movc {e}.y, {h}.x, l(1.000000), {h}.w
+max {e}.y, {e}.y, l(0.000000)
+mul {e}.y, {e}.y, l(0.025000)
+mul {w}.x, {w}.x, l(512.000000)
+max {w}.x, {w}.x, l(1.000000)
+log {e}.z, {w}.x
+lt {h}.w, l(0.000000), {e}.x
+if_nz {h}.w
+// EDCAS parallax: only where its height has a weight
+mul {u}.w, {r}.x, {r}.y
+mad {u}.w, -{r}.z, {r}.z, {u}.w
+dp3 {w}.x, cb1[4].xyzx, {n}.xyzx
+dp3 {w}.y, cb1[4].xyzx, {o}.xyzx
+dp3 {w}.z, cb1[4].xyzx, {t}.xyzx
+lt {j}.w, {u}.x, l(0.000000)
+movc {w}.z, {j}.w, -{w}.z, {w}.z
+sqrt {t}.x, {u}.y
+mul {t}.y, {t}.x, l(0.001000)
+lt {j}.w, {t}.y, {w}.z
+and {j}.w, {j}.w, {e}.w
+mul {w}.w, {w}.z, {w}.z
+div {w}.w, {u}.y, {w}.w
+add {w}.w, {w}.w, l(-1.000000)
+max {w}.w, {w}.w, l(0.000000)
+rsq {w}.w, {w}.w
+mul {w}.w, {w}.w, l(4.000000)
+min {w}.w, {w}.w, l(1.000000)
+mul {s}.z, {w}.x, {r}.y
+mad {s}.z, -{w}.y, {r}.z, {s}.z
+mul {s}.w, {w}.y, {r}.x
+mad {s}.w, -{w}.x, {r}.z, {s}.w
+sqrt {t}.x, {u}.y
+div {t}.x, {t}.x, {w}.z
+div {t}.x, {t}.x, {u}.w
+mul {t}.x, {t}.x, {w}.w
+mul {g}.x, {s}.z, {p}.x
+mad {g}.x, {s}.w, {p}.z, {g}.x
+mul {g}.y, {s}.z, {p}.y
+mad {g}.y, {s}.w, {p}.w, {g}.y
+mul {g}.xy, {g}.xyxx, -{t}.xxxx
+mul {k}.w, {a}.y, l(0.250000)
+round_ne {k}.w, {k}.w
+max {k}.w, {k}.w, l(1.000000)
+mul {k}.w, {k}.w, {a}.x
+mov {d}.xy, l(0.000000, 0.000000, 0.000000, 0.000000)
+mul {d}.zw, {g}.xxxy, {k}.wwww
+mul {a}.zw, v1.xxxy, {k}.wwww
+ld_indexable(texture1d)(float,float,float,float) {h}.xyzw, l(532, 0, 0, 0), t120.xyzw
+eq {h}.y, {h}.x, l(0.000000)
+movc {h}.x, {h}.y, l(1.000000), {h}.x
+mul {d}.zw, {d}.zzzw, {h}.xxxx
+div {w}.x, {k}.w, {a}.x
+mul {w}.y, {w}.x, l(0.57735027)
+round_ne {w}.y, {w}.y
+max {w}.y, {w}.y, l(1.000000)
+add {w}.y, {w}.y, {w}.y
+mul {w}.z, {w}.y, {a}.x
+div {w}.w, {w}.z, {k}.w
+mul {g}.y, {a}.w, {w}.w
+mad {g}.x, {g}.y, l(-0.500000), {a}.z
+round_ni {h}.xy, {g}.xyxx
+add {g}.xy, {g}.xyxx, -{h}.xyxx
+add {g}.z, {g}.x, {g}.y
+lt {f}.w, l(1.000000), {g}.z
+and {f}.w, {f}.w, l(1065353216)
+mad {w}.w, {f}.w, l(2.000000), l(-1.000000)
+add {g}.z, {g}.z, l(-1.000000)
+mul {u}.x, {w}.w, {g}.z
+mad {u}.y, -{w}.w, {g}.x, {f}.w
+mad {u}.z, -{w}.w, {g}.y, {f}.w
+add {w}.w, -{f}.w, l(1.000000)
+add {n}.x, {h}.x, {f}.w
+add {n}.y, {h}.x, {w}.w
+mov {n}.z, {n}.x
+add {o}.x, {h}.y, {f}.w
+mov {o}.y, {o}.x
+add {o}.z, {h}.y, {w}.w
+div {f}.xyz, {o}.xyzx, {w}.yyyy
+round_ni {f}.xyz, {f}.xyzx
+mad {g}.xyz, -{f}.xyzx, {w}.yyyy, {o}.xyzx
+mul {h}.xyz, {f}.xyzx, {w}.yyyy
+mad {h}.xyz, {h}.xyzx, l(0.500000), {n}.xyzx
+div {f}.xyz, {h}.xyzx, {w}.xxxx
+round_ni {f}.xyz, {f}.xyzx
+mad {h}.xyz, -{f}.xyzx, {w}.xxxx, {h}.xyzx
+mad {p}.xyz, {h}.xyzx, {w}.yyyy, {g}.xyzx
+ftoi {p}.xyz, {p}.xyzx
+iadd {f}.xyz, {p}.xyzx, l(0x00000000, 0x00000000, 0x00000000, 0)
+ushr {h}.xyz, {f}.xyzx, l(16, 16, 16, 0)
+xor {f}.xyz, {f}.xyzx, {h}.xyzx
+imul null, {f}.xyz, {f}.xyzx, l(0x7feb352d, 0x7feb352d, 0x7feb352d, 0)
+ushr {h}.xyz, {f}.xyzx, l(15, 15, 15, 0)
+xor {f}.xyz, {f}.xyzx, {h}.xyzx
+imul null, {f}.xyz, {f}.xyzx, l(0x846ca68b, 0x846ca68b, 0x846ca68b, 0)
+ushr {h}.xyz, {f}.xyzx, l(16, 16, 16, 0)
+xor {f}.xyz, {f}.xyzx, {h}.xyzx
+utof {f}.xyz, {f}.xyzx
+mul {f}.xyz, {f}.xyzx, l(2.328306437E-10, 2.328306437E-10, 2.328306437E-10, 0.000000)
+iadd {g}.xyz, {p}.xyzx, l(0x68e31da4, 0x68e31da4, 0x68e31da4, 0)
+ushr {h}.xyz, {g}.xyzx, l(16, 16, 16, 0)
+xor {g}.xyz, {g}.xyzx, {h}.xyzx
+imul null, {g}.xyz, {g}.xyzx, l(0x7feb352d, 0x7feb352d, 0x7feb352d, 0)
+ushr {h}.xyz, {g}.xyzx, l(15, 15, 15, 0)
+xor {g}.xyz, {g}.xyzx, {h}.xyzx
+imul null, {g}.xyz, {g}.xyzx, l(0x846ca68b, 0x846ca68b, 0x846ca68b, 0)
+ushr {h}.xyz, {g}.xyzx, l(16, 16, 16, 0)
+xor {g}.xyz, {g}.xyzx, {h}.xyzx
+utof {g}.xyz, {g}.xyzx
+mul {g}.xyz, {g}.xyzx, l(2.328306437E-10, 2.328306437E-10, 2.328306437E-10, 0.000000)
+iadd {t}.xyz, {p}.xyzx, l(0xb5297a4d, 0xb5297a4d, 0xb5297a4d, 0)
+ushr {h}.xyz, {t}.xyzx, l(16, 16, 16, 0)
+xor {t}.xyz, {t}.xyzx, {h}.xyzx
+imul null, {t}.xyz, {t}.xyzx, l(0x7feb352d, 0x7feb352d, 0x7feb352d, 0)
+ushr {h}.xyz, {t}.xyzx, l(15, 15, 15, 0)
+xor {t}.xyz, {t}.xyzx, {h}.xyzx
+imul null, {t}.xyz, {t}.xyzx, l(0x846ca68b, 0x846ca68b, 0x846ca68b, 0)
+ushr {h}.xyz, {t}.xyzx, l(16, 16, 16, 0)
+xor {t}.xyz, {t}.xyzx, {h}.xyzx
+utof {t}.xyz, {t}.xyzx
+mul {t}.xyz, {t}.xyzx, l(2.328306437E-10, 2.328306437E-10, 2.328306437E-10, 0.000000)
+div {w}.w, {k}.w, {w}.z
+mad {n}.xyz, {o}.xyzx, l(0.500000), {n}.xyzx
+mul {o}.xyz, {o}.xyzx, {w}.wwww
+add {p}.xyz, {n}.xyzx, {f}.xyzx
+add {r}.xyz, {o}.xyzx, {g}.xyzx
+mul {h}.xyz, {t}.xyzx, l(6.28318531, 6.28318531, 6.28318531, 0.000000)
+mul {g}.xyz, {t}.xyzx, l(2.000000, 2.000000, 2.000000, 0.000000)
+round_ni {g}.xyz, {g}.xyzx
+mul {g}.xyz, {g}.xyzx, l(3.14159265, 3.14159265, 3.14159265, 0.000000)
+eq {w}.x, {q}.z, l(0.000000)
+movc {h}.xyz, {w}.xxxx, {g}.xyzx, {h}.xyzx
+sincos {t}.x, {s}.x, {h}.x
+sincos {t}.y, {s}.y, {h}.y
+sincos {t}.z, {s}.z, {h}.z
+mul {v}.xyz, {u}.xyzx, {u}.xyzx
+mul {v}.xyz, {v}.xyzx, {v}.xyzx
+dp3 {w}.x, {v}.xyzx, l(1.000000, 1.000000, 1.000000, 0.000000)
+div {v}.xyz, {v}.xyzx, {w}.xxxx
+lt {w}.x, {m}.w, l(0.000000)
+movc {s}.xyz, {w}.xxxx, l(1.000000, 1.000000, 1.000000, 0.000000), {s}.xyzx
+movc {t}.xyz, {w}.xxxx, l(0.000000, 0.000000, 0.000000, 0.000000), {t}.xyzx
+movc {p}.xyz, {w}.xxxx, {n}.xyzx, {p}.xyzx
+movc {r}.xyz, {w}.xxxx, {o}.xyzx, {r}.xyzx
+movc {u}.xyz, {w}.xxxx, l(1.000000, 0.000000, 0.000000, 0.000000), {u}.xyzx
+movc {v}.xyz, {w}.xxxx, l(1.000000, 0.000000, 0.000000, 0.000000), {v}.xyzx
+add {h}.xyz, {a}.zzzz, -{n}.xyzx
+add {f}.xyz, {a}.wwww, -{o}.xyzx
+mul {n}.xyz, {s}.xyzx, {h}.xyzx
+mad {n}.xyz, -{t}.xyzx, {f}.xyzx, {n}.xyzx
+add {n}.xyz, {n}.xyzx, {p}.xyzx
+mul {o}.xyz, {t}.xyzx, {h}.xyzx
+mad {o}.xyz, {s}.xyzx, {f}.xyzx, {o}.xyzx
+add {o}.xyz, {o}.xyzx, {r}.xyzx
+mov {r}.xy, l(0.000000, 0.000000, 0.000000, 0.000000)
+mad {f}.xyz, {s}.xyzx, {r}.xxxx, {n}.xyzx
+mad {f}.xyz, -{t}.xyzx, {r}.yyyy, {f}.xyzx
+mad {g}.xyz, {t}.xyzx, {r}.xxxx, {o}.xyzx
+mad {g}.xyz, {s}.xyzx, {r}.yyyy, {g}.xyzx
+frc {f}.xyz, {f}.xyzx
+frc {g}.xyz, {g}.xyzx
+mov {q}.x, {f}.x
+mov {q}.y, {g}.x
+sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
+mul {u}.xy, {h}.xyxx, {v}.xxxx
+mov {q}.x, {f}.y
+mov {q}.y, {g}.y
+sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
+mad {u}.xy, {h}.xyxx, {v}.yyyy, {u}.xyxx
+mov {q}.x, {f}.z
+mov {q}.y, {g}.z
+sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {e}.z
+mad {u}.xy, {h}.xyxx, {v}.zzzz, {u}.xyxx
+mad {u}.xy, {u}.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
+mad_sat {u}.z, {u}.x, l(32.786885), l(0.377049)
+mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
+mul {u}.z, {u}.z, {u}.z
+mul {u}.z, {u}.z, {u}.w
+add {u}.z, {u}.z, {g}.w
+mad_sat {u}.z, {u}.z, l(6.000000), l(-5.400000)
+mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
+mul {u}.z, {u}.z, {u}.z
+mul {u}.z, {u}.z, {u}.w
+mad_sat {u}.w, {g}.w, l(3.333333), l(-2.333333)
+mul {u}.x, {u}.x, {u}.w
+add {u}.y, {u}.y, {e}.y
+mad {u}.x, {u}.z, {u}.y, {u}.x
+mul {u}.x, {u}.x, {e}.x
+mov {k}.y, {u}.x
+mov {z}.xy, l(0.000000, 0.000000, 0.000000, 0.000000)
+mul {j}.xy, {d}.xyxx, {k}.yyyy
+add {p}.w, l(0.028000), -{k}.y
+mul {p}.xy, {d}.zwzz, {p}.wwww
+mov {j}.z, l(0.000000)
+dp2 {w}.x, {p}.xyxx, {p}.xyxx
+mul {w}.x, {w}.x, l(4194304.000000)
+max {w}.x, {w}.x, l(0.000001)
+log {w}.x, {w}.x
+mul {w}.x, {w}.x, l(0.500000)
+mad {r}.xy, {p}.xyxx, l(0.015625), {j}.xyxx
+add {w}.y, {w}.x, l(-6.000000)
+max {w}.y, {w}.y, {e}.z
+mad {f}.xyz, {s}.xyzx, {r}.xxxx, {n}.xyzx
+mad {f}.xyz, -{t}.xyzx, {r}.yyyy, {f}.xyzx
+mad {g}.xyz, {t}.xyzx, {r}.xxxx, {o}.xyzx
+mad {g}.xyz, {s}.xyzx, {r}.yyyy, {g}.xyzx
+frc {f}.xyz, {f}.xyzx
+frc {g}.xyz, {g}.xyzx
+mov {q}.x, {f}.x
+mov {q}.y, {g}.x
+sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {w}.y
+mul {u}.xy, {h}.xyxx, {v}.xxxx
+mov {q}.x, {f}.y
+mov {q}.y, {g}.y
+sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {w}.y
+mad {u}.xy, {h}.xyxx, {v}.yyyy, {u}.xyxx
+mov {q}.x, {f}.z
+mov {q}.y, {g}.z
+sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {w}.y
+mad {u}.xy, {h}.xyxx, {v}.zzzz, {u}.xyxx
+mad {u}.xy, {u}.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
+mad_sat {u}.z, {u}.x, l(32.786885), l(0.377049)
+mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
+mul {u}.z, {u}.z, {u}.z
+mul {u}.z, {u}.z, {u}.w
+add {u}.z, {u}.z, {g}.w
+mad_sat {u}.z, {u}.z, l(6.000000), l(-5.400000)
+mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
+mul {u}.z, {u}.z, {u}.z
+mul {u}.z, {u}.z, {u}.w
+mad_sat {u}.w, {g}.w, l(3.333333), l(-2.333333)
+mul {u}.x, {u}.x, {u}.w
+add {u}.y, {u}.y, {e}.y
+mad {u}.x, {u}.z, {u}.y, {u}.x
+mul {u}.x, {u}.x, {e}.x
+mad {u}.y, {k}.y, l(0.984375), l(0.000438)
+add {u}.x, {u}.x, -{u}.y
+mad_sat {u}.x, {u}.x, l(400.000000), l(0.000000)
+max {j}.z, {j}.z, {u}.x
+mad {r}.xy, {p}.xyxx, l(0.062500), {j}.xyxx
+add {w}.y, {w}.x, l(-4.415037)
+max {w}.y, {w}.y, {e}.z
+mad {f}.xyz, {s}.xyzx, {r}.xxxx, {n}.xyzx
+mad {f}.xyz, -{t}.xyzx, {r}.yyyy, {f}.xyzx
+mad {g}.xyz, {t}.xyzx, {r}.xxxx, {o}.xyzx
+mad {g}.xyz, {s}.xyzx, {r}.yyyy, {g}.xyzx
+frc {f}.xyz, {f}.xyzx
+frc {g}.xyz, {g}.xyzx
+mov {q}.x, {f}.x
+mov {q}.y, {g}.x
+sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {w}.y
+mul {u}.xy, {h}.xyxx, {v}.xxxx
+mov {q}.x, {f}.y
+mov {q}.y, {g}.y
+sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {w}.y
+mad {u}.xy, {h}.xyxx, {v}.yyyy, {u}.xyxx
+mov {q}.x, {f}.z
+mov {q}.y, {g}.z
+sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {w}.y
+mad {u}.xy, {h}.xyxx, {v}.zzzz, {u}.xyxx
+mad {u}.xy, {u}.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
+mad_sat {u}.z, {u}.x, l(32.786885), l(0.377049)
+mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
+mul {u}.z, {u}.z, {u}.z
+mul {u}.z, {u}.z, {u}.w
+add {u}.z, {u}.z, {g}.w
+mad_sat {u}.z, {u}.z, l(6.000000), l(-5.400000)
+mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
+mul {u}.z, {u}.z, {u}.z
+mul {u}.z, {u}.z, {u}.w
+mad_sat {u}.w, {g}.w, l(3.333333), l(-2.333333)
+mul {u}.x, {u}.x, {u}.w
+add {u}.y, {u}.y, {e}.y
+mad {u}.x, {u}.z, {u}.y, {u}.x
+mul {u}.x, {u}.x, {e}.x
+mad {u}.y, {k}.y, l(0.937500), l(0.001750)
+add {u}.x, {u}.x, -{u}.y
+mad_sat {u}.x, {u}.x, l(400.000000), l(0.000000)
+max {j}.z, {j}.z, {u}.x
+mad {r}.xy, {p}.xyxx, l(0.140625), {j}.xyxx
+add {w}.y, {w}.x, l(-3.678072)
+max {w}.y, {w}.y, {e}.z
+mad {f}.xyz, {s}.xyzx, {r}.xxxx, {n}.xyzx
+mad {f}.xyz, -{t}.xyzx, {r}.yyyy, {f}.xyzx
+mad {g}.xyz, {t}.xyzx, {r}.xxxx, {o}.xyzx
+mad {g}.xyz, {s}.xyzx, {r}.yyyy, {g}.xyzx
+frc {f}.xyz, {f}.xyzx
+frc {g}.xyz, {g}.xyzx
+mov {q}.x, {f}.x
+mov {q}.y, {g}.x
+sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {w}.y
+mul {u}.xy, {h}.xyxx, {v}.xxxx
+mov {q}.x, {f}.y
+mov {q}.y, {g}.y
+sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {w}.y
+mad {u}.xy, {h}.xyxx, {v}.yyyy, {u}.xyxx
+mov {q}.x, {f}.z
+mov {q}.y, {g}.z
+sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {w}.y
+mad {u}.xy, {h}.xyxx, {v}.zzzz, {u}.xyxx
+mad {u}.xy, {u}.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
+mad_sat {u}.z, {u}.x, l(32.786885), l(0.377049)
+mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
+mul {u}.z, {u}.z, {u}.z
+mul {u}.z, {u}.z, {u}.w
+add {u}.z, {u}.z, {g}.w
+mad_sat {u}.z, {u}.z, l(6.000000), l(-5.400000)
+mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
+mul {u}.z, {u}.z, {u}.z
+mul {u}.z, {u}.z, {u}.w
+mad_sat {u}.w, {g}.w, l(3.333333), l(-2.333333)
+mul {u}.x, {u}.x, {u}.w
+add {u}.y, {u}.y, {e}.y
+mad {u}.x, {u}.z, {u}.y, {u}.x
+mul {u}.x, {u}.x, {e}.x
+mad {u}.y, {k}.y, l(0.859375), l(0.003938)
+add {u}.x, {u}.x, -{u}.y
+mad_sat {u}.x, {u}.x, l(400.000000), l(0.000000)
+max {j}.z, {j}.z, {u}.x
+mad {r}.xy, {p}.xyxx, l(0.250000), {j}.xyxx
+add {w}.y, {w}.x, l(-3.192645)
+max {w}.y, {w}.y, {e}.z
+mad {f}.xyz, {s}.xyzx, {r}.xxxx, {n}.xyzx
+mad {f}.xyz, -{t}.xyzx, {r}.yyyy, {f}.xyzx
+mad {g}.xyz, {t}.xyzx, {r}.xxxx, {o}.xyzx
+mad {g}.xyz, {s}.xyzx, {r}.yyyy, {g}.xyzx
+frc {f}.xyz, {f}.xyzx
+frc {g}.xyz, {g}.xyzx
+mov {q}.x, {f}.x
+mov {q}.y, {g}.x
+sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {w}.y
+mul {u}.xy, {h}.xyxx, {v}.xxxx
+mov {q}.x, {f}.y
+mov {q}.y, {g}.y
+sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {w}.y
+mad {u}.xy, {h}.xyxx, {v}.yyyy, {u}.xyxx
+mov {q}.x, {f}.z
+mov {q}.y, {g}.z
+sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {w}.y
+mad {u}.xy, {h}.xyxx, {v}.zzzz, {u}.xyxx
+mad {u}.xy, {u}.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
+mad_sat {u}.z, {u}.x, l(32.786885), l(0.377049)
+mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
+mul {u}.z, {u}.z, {u}.z
+mul {u}.z, {u}.z, {u}.w
+add {u}.z, {u}.z, {g}.w
+mad_sat {u}.z, {u}.z, l(6.000000), l(-5.400000)
+mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
+mul {u}.z, {u}.z, {u}.z
+mul {u}.z, {u}.z, {u}.w
+mad_sat {u}.w, {g}.w, l(3.333333), l(-2.333333)
+mul {u}.x, {u}.x, {u}.w
+add {u}.y, {u}.y, {e}.y
+mad {u}.x, {u}.z, {u}.y, {u}.x
+mul {u}.x, {u}.x, {e}.x
+mad {u}.y, {k}.y, l(0.750000), l(0.007000)
+add {u}.x, {u}.x, -{u}.y
+mad_sat {u}.x, {u}.x, l(400.000000), l(0.000000)
+max {j}.z, {j}.z, {u}.x
+mad {r}.xy, {p}.xyxx, l(0.390625), {j}.xyxx
+add {w}.y, {w}.x, l(-2.830075)
+max {w}.y, {w}.y, {e}.z
+mad {f}.xyz, {s}.xyzx, {r}.xxxx, {n}.xyzx
+mad {f}.xyz, -{t}.xyzx, {r}.yyyy, {f}.xyzx
+mad {g}.xyz, {t}.xyzx, {r}.xxxx, {o}.xyzx
+mad {g}.xyz, {s}.xyzx, {r}.yyyy, {g}.xyzx
+frc {f}.xyz, {f}.xyzx
+frc {g}.xyz, {g}.xyzx
+mov {q}.x, {f}.x
+mov {q}.y, {g}.x
+sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {w}.y
+mul {u}.xy, {h}.xyxx, {v}.xxxx
+mov {q}.x, {f}.y
+mov {q}.y, {g}.y
+sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {w}.y
+mad {u}.xy, {h}.xyxx, {v}.yyyy, {u}.xyxx
+mov {q}.x, {f}.z
+mov {q}.y, {g}.z
+sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {w}.y
+mad {u}.xy, {h}.xyxx, {v}.zzzz, {u}.xyxx
+mad {u}.xy, {u}.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
+mad_sat {u}.z, {u}.x, l(32.786885), l(0.377049)
+mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
+mul {u}.z, {u}.z, {u}.z
+mul {u}.z, {u}.z, {u}.w
+add {u}.z, {u}.z, {g}.w
+mad_sat {u}.z, {u}.z, l(6.000000), l(-5.400000)
+mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
+mul {u}.z, {u}.z, {u}.z
+mul {u}.z, {u}.z, {u}.w
+mad_sat {u}.w, {g}.w, l(3.333333), l(-2.333333)
+mul {u}.x, {u}.x, {u}.w
+add {u}.y, {u}.y, {e}.y
+mad {u}.x, {u}.z, {u}.y, {u}.x
+mul {u}.x, {u}.x, {e}.x
+mad {u}.y, {k}.y, l(0.609375), l(0.010938)
+add {u}.x, {u}.x, -{u}.y
+mad_sat {u}.x, {u}.x, l(400.000000), l(0.000000)
+max {j}.z, {j}.z, {u}.x
+mad {r}.xy, {p}.xyxx, l(0.562500), {j}.xyxx
+add {w}.y, {w}.x, l(-2.540568)
+max {w}.y, {w}.y, {e}.z
+mad {f}.xyz, {s}.xyzx, {r}.xxxx, {n}.xyzx
+mad {f}.xyz, -{t}.xyzx, {r}.yyyy, {f}.xyzx
+mad {g}.xyz, {t}.xyzx, {r}.xxxx, {o}.xyzx
+mad {g}.xyz, {s}.xyzx, {r}.yyyy, {g}.xyzx
+frc {f}.xyz, {f}.xyzx
+frc {g}.xyz, {g}.xyzx
+mov {q}.x, {f}.x
+mov {q}.y, {g}.x
+sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {w}.y
+mul {u}.xy, {h}.xyxx, {v}.xxxx
+mov {q}.x, {f}.y
+mov {q}.y, {g}.y
+sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {w}.y
+mad {u}.xy, {h}.xyxx, {v}.yyyy, {u}.xyxx
+mov {q}.x, {f}.z
+mov {q}.y, {g}.z
+sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {w}.y
+mad {u}.xy, {h}.xyxx, {v}.zzzz, {u}.xyxx
+mad {u}.xy, {u}.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
+mad_sat {u}.z, {u}.x, l(32.786885), l(0.377049)
+mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
+mul {u}.z, {u}.z, {u}.z
+mul {u}.z, {u}.z, {u}.w
+add {u}.z, {u}.z, {g}.w
+mad_sat {u}.z, {u}.z, l(6.000000), l(-5.400000)
+mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
+mul {u}.z, {u}.z, {u}.z
+mul {u}.z, {u}.z, {u}.w
+mad_sat {u}.w, {g}.w, l(3.333333), l(-2.333333)
+mul {u}.x, {u}.x, {u}.w
+add {u}.y, {u}.y, {e}.y
+mad {u}.x, {u}.z, {u}.y, {u}.x
+mul {u}.x, {u}.x, {e}.x
+mad {u}.y, {k}.y, l(0.437500), l(0.015750)
+add {u}.x, {u}.x, -{u}.y
+mad_sat {u}.x, {u}.x, l(400.000000), l(0.000000)
+max {j}.z, {j}.z, {u}.x
+mad {r}.xy, {p}.xyxx, l(0.765625), {j}.xyxx
+add {w}.y, {w}.x, l(-2.299560)
+max {w}.y, {w}.y, {e}.z
+mad {f}.xyz, {s}.xyzx, {r}.xxxx, {n}.xyzx
+mad {f}.xyz, -{t}.xyzx, {r}.yyyy, {f}.xyzx
+mad {g}.xyz, {t}.xyzx, {r}.xxxx, {o}.xyzx
+mad {g}.xyz, {s}.xyzx, {r}.yyyy, {g}.xyzx
+frc {f}.xyz, {f}.xyzx
+frc {g}.xyz, {g}.xyzx
+mov {q}.x, {f}.x
+mov {q}.y, {g}.x
+sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {w}.y
+mul {u}.xy, {h}.xyxx, {v}.xxxx
+mov {q}.x, {f}.y
+mov {q}.y, {g}.y
+sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {w}.y
+mad {u}.xy, {h}.xyxx, {v}.yyyy, {u}.xyxx
+mov {q}.x, {f}.z
+mov {q}.y, {g}.z
+sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {w}.y
+mad {u}.xy, {h}.xyxx, {v}.zzzz, {u}.xyxx
+mad {u}.xy, {u}.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
+mad_sat {u}.z, {u}.x, l(32.786885), l(0.377049)
+mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
+mul {u}.z, {u}.z, {u}.z
+mul {u}.z, {u}.z, {u}.w
+add {u}.z, {u}.z, {g}.w
+mad_sat {u}.z, {u}.z, l(6.000000), l(-5.400000)
+mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
+mul {u}.z, {u}.z, {u}.z
+mul {u}.z, {u}.z, {u}.w
+mad_sat {u}.w, {g}.w, l(3.333333), l(-2.333333)
+mul {u}.x, {u}.x, {u}.w
+add {u}.y, {u}.y, {e}.y
+mad {u}.x, {u}.z, {u}.y, {u}.x
+mul {u}.x, {u}.x, {e}.x
+mad {u}.y, {k}.y, l(0.234375), l(0.021438)
+add {u}.x, {u}.x, -{u}.y
+mad_sat {u}.x, {u}.x, l(400.000000), l(0.000000)
+max {j}.z, {j}.z, {u}.x
+mad {r}.xy, {p}.xyxx, l(1.000000), {j}.xyxx
+add {w}.y, {w}.x, l(-2.093109)
+max {w}.y, {w}.y, {e}.z
+mad {f}.xyz, {s}.xyzx, {r}.xxxx, {n}.xyzx
+mad {f}.xyz, -{t}.xyzx, {r}.yyyy, {f}.xyzx
+mad {g}.xyz, {t}.xyzx, {r}.xxxx, {o}.xyzx
+mad {g}.xyz, {s}.xyzx, {r}.yyyy, {g}.xyzx
+frc {f}.xyz, {f}.xyzx
+frc {g}.xyz, {g}.xyzx
+mov {q}.x, {f}.x
+mov {q}.y, {g}.x
+sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {w}.y
+mul {u}.xy, {h}.xyxx, {v}.xxxx
+mov {q}.x, {f}.y
+mov {q}.y, {g}.y
+sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {w}.y
+mad {u}.xy, {h}.xyxx, {v}.yyyy, {u}.xyxx
+mov {q}.x, {f}.z
+mov {q}.y, {g}.z
+sample_l_indexable(texture2darray)(float,float,float,float) {h}.xy, {q}.xyzx, t117.xyzw, s0, {w}.y
+mad {u}.xy, {h}.xyxx, {v}.zzzz, {u}.xyxx
+mad {u}.xy, {u}.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000), l(-0.080000, -0.080000, 0.000000, 0.000000)
+mad_sat {u}.z, {u}.x, l(32.786885), l(0.377049)
+mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
+mul {u}.z, {u}.z, {u}.z
+mul {u}.z, {u}.z, {u}.w
+add {u}.z, {u}.z, {g}.w
+mad_sat {u}.z, {u}.z, l(6.000000), l(-5.400000)
+mad {u}.w, {u}.z, l(-2.000000), l(3.000000)
+mul {u}.z, {u}.z, {u}.z
+mul {u}.z, {u}.z, {u}.w
+mad_sat {u}.w, {g}.w, l(3.333333), l(-2.333333)
+mul {u}.x, {u}.x, {u}.w
+add {u}.y, {u}.y, {e}.y
+mad {u}.x, {u}.z, {u}.y, {u}.x
+mul {u}.x, {u}.x, {e}.x
+mad {u}.y, {k}.y, l(0.000000), l(0.028000)
+add {u}.x, {u}.x, -{u}.y
+mad_sat {u}.x, {u}.x, l(400.000000), l(0.000000)
+max {j}.z, {j}.z, {u}.x
+movc {j}.z, {j}.w, {j}.z, l(0.000000)
+add {u}.x, l(0.017500), -{k}.y
+mul {u}.x, {u}.x, l(26.666667)
 eq {u}.y, {c}.y, l(10.000000)
 movc {z}.z, {u}.y, {u}.x, {j}.z
 else
@@ -4130,6 +3087,7 @@ mov {z}.xyz, l(0.000000, 0.000000, 0.000000, 0.000000)
 endif
 else
 mov {z}.xyz, l(0.000000, 0.000000, 0.000000, 0.000000)
+endif
 endif
 ld_indexable(texture1d)(float,float,float,float) {j}.xyzw, l(514, 0, 0, 0), t120.xyzw
 mov {q}.z, {j}.x
@@ -4672,7 +3630,7 @@ lt {f}.y, {j}.x, l(3.500000)
 and {f}.z, {f}.x, {f}.y
 ld_indexable(texture1d)(float,float,float,float) {j}.xyzw, l(517, 0, 0, 0), t120.xyzw
 eq {f}.x, {j}.x, l(0.000000)
-movc {j}.x, {f}.x, l(0.500000), {j}.x
+movc {j}.x, {f}.x, l(0.700000), {j}.x
 lt {f}.x, {j}.x, l(0.000000)
 movc {j}.x, {f}.x, l(-10.000000), {j}.x
 max {f}.x, {j}.x, l(0.020000)
@@ -4681,11 +3639,11 @@ add {f}.y, -{f}.x, l(1.000000)
 log {f}.x, {f}.x
 log {f}.y, {f}.y
 add {f}.x, {f}.x, -{f}.y
-mad {f}.y, {f}.x, l(-0.002437424), l(-0.018739033)
-mad {f}.y, {f}.y, {f}.x, l(-0.487268350)
-mad {f}.y, {f}.y, {f}.x, l(0.264974522)
+mad {f}.y, {f}.x, l(0.004422646), l(0.008511348)
+mad {f}.y, {f}.y, {f}.x, l(-0.618192882)
+mad {f}.y, {f}.y, {f}.x, l(0.243088298)
 add {f}.x, {m}.x, -{f}.y
-mad_sat {j}.w, {f}.x, l(0.400000), l(0.500000)
+mad_sat {j}.w, {f}.x, l(0.250000), l(0.500000)
 mad_sat {j}.w, {j}.w, l(4.000000), l(-0.200000)
 mul {j}.w, {j}.w, l(1.000000)
 and {j}.w, {j}.w, {f}.z
@@ -5179,7 +4137,7 @@ movc {u}.xyz, {w}.xxxx, l(1.000000, 0.000000, 0.000000, 0.000000), {u}.xyzx
 movc {v}.xyz, {w}.xxxx, l(1.000000, 0.000000, 0.000000, 0.000000), {v}.xyzx
 mov {q}.z, l(0.000000)
 mov {j}.xyz, l(0.000000, 0.000000, 0.000000, 0.000000)
-mov {b}.xy, l(0.000000, 0.000000, 0.000000, 0.000000)
+mov {w}.xy, l(0.000000, 0.000000, 0.000000, 0.000000)
 add {h}.x, {a}.z, -{n}.x
 add {h}.y, {a}.w, -{o}.x
 mul {h}.z, {s}.x, {h}.x
@@ -5197,6 +4155,17 @@ mul {f}.z, {s}.x, {d}.z
 mad {f}.z, -{t}.x, {d}.w, {f}.z
 mul {f}.w, {t}.x, {d}.z
 mad {f}.w, {s}.x, {d}.w, {f}.w
+mul {h}.xy, {h}.zwzz, l(12.000000, 12.000000, 0.000000, 0.000000)
+frc {h}.xy, {h}.xyxx
+mov {h}.z, {q}.z
+mul {g}.xyzw, {f}.xyzw, l(12.000000, 12.000000, 12.000000, 12.000000)
+sample_d_indexable(texture2darray)(float,float,float,float) {w}.zw, {h}.xyzx, t116.xxxy, s0, {g}.xyxx, {g}.zwzz
+mad {w}.zw, {w}.zzzw, l(0.000000, 0.000000, 3.011811, 3.011811), l(0.000000, 0.000000, -1.511811, -1.511811)
+mul {h}.x, {s}.x, {w}.z
+mad {h}.x, {t}.x, {w}.w, {h}.x
+mul {h}.y, {s}.x, {w}.w
+mad {h}.y, -{t}.x, {w}.z, {h}.y
+mad {w}.xy, {h}.xyxx, {u}.xxxx, {w}.xyxx
 sample_d_indexable(texture2darray)(float,float,float,float) {g}.xy, {q}.xyzx, t116.xyxx, s0, {f}.xyxx, {f}.zwzz
 mad {g}.xy, {g}.xyxx, l(3.011811, 3.011811, 0.000000, 0.000000), l(-1.511811, -1.511811, 0.000000, 0.000000)
 mul {h}.x, {s}.x, {g}.x
@@ -5206,27 +4175,6 @@ mad {h}.y, -{t}.x, {g}.x, {h}.y
 mad {j}.xy, {h}.xyxx, {u}.xxxx, {j}.xyxx
 sample_d_indexable(texture2darray)(float,float,float,float) {g}.zw, {q}.xyzx, t117.xxxy, s0, {f}.xyxx, {f}.zwzz
 mad {j}.z, {g}.z, {v}.x, {j}.z
-max {h}.x, |{f}.x|, |{f}.y|
-max {h}.y, |{f}.z|, |{f}.w|
-max {h}.x, {h}.x, {h}.y
-max {b}.z, {h}.x, l(0.000488281)
-add {h}.x, {q}.x, {b}.z
-mov {h}.y, {q}.y
-frc {h}.xy, {h}.xyxx
-mov {h}.z, {q}.z
-sample_d_indexable(texture2darray)(float,float,float,float) {h}.w, {h}.xyzx, t117.xxxy, s0, {f}.xyxx, {f}.zwzz
-add {h}.w, {h}.w, -{g}.w
-mov {h}.x, {q}.x
-add {h}.y, {q}.y, {b}.z
-frc {h}.xy, {h}.xyxx
-sample_d_indexable(texture2darray)(float,float,float,float) {g}.z, {h}.xyzx, t117.xxyx, s0, {f}.xyxx, {f}.zwzz
-add {g}.z, {g}.z, -{g}.w
-mul {h}.x, {h}.w, {f}.x
-mad {h}.x, {g}.z, {f}.y, {h}.x
-mul {h}.y, {h}.w, {f}.z
-mad {h}.y, {g}.z, {f}.w, {h}.y
-div {g}.x, {u}.x, {b}.z
-mad {b}.xy, {h}.xyxx, {g}.xxxx, {b}.xyxx
 add {h}.x, {a}.z, -{n}.y
 add {h}.y, {a}.w, -{o}.y
 mul {h}.z, {s}.y, {h}.x
@@ -5244,6 +4192,17 @@ mul {f}.z, {s}.y, {d}.z
 mad {f}.z, -{t}.y, {d}.w, {f}.z
 mul {f}.w, {t}.y, {d}.z
 mad {f}.w, {s}.y, {d}.w, {f}.w
+mul {h}.xy, {h}.zwzz, l(12.000000, 12.000000, 0.000000, 0.000000)
+frc {h}.xy, {h}.xyxx
+mov {h}.z, {q}.z
+mul {g}.xyzw, {f}.xyzw, l(12.000000, 12.000000, 12.000000, 12.000000)
+sample_d_indexable(texture2darray)(float,float,float,float) {w}.zw, {h}.xyzx, t116.xxxy, s0, {g}.xyxx, {g}.zwzz
+mad {w}.zw, {w}.zzzw, l(0.000000, 0.000000, 3.011811, 3.011811), l(0.000000, 0.000000, -1.511811, -1.511811)
+mul {h}.x, {s}.y, {w}.z
+mad {h}.x, {t}.y, {w}.w, {h}.x
+mul {h}.y, {s}.y, {w}.w
+mad {h}.y, -{t}.y, {w}.z, {h}.y
+mad {w}.xy, {h}.xyxx, {u}.yyyy, {w}.xyxx
 sample_d_indexable(texture2darray)(float,float,float,float) {g}.xy, {q}.xyzx, t116.xyxx, s0, {f}.xyxx, {f}.zwzz
 mad {g}.xy, {g}.xyxx, l(3.011811, 3.011811, 0.000000, 0.000000), l(-1.511811, -1.511811, 0.000000, 0.000000)
 mul {h}.x, {s}.y, {g}.x
@@ -5253,27 +4212,6 @@ mad {h}.y, -{t}.y, {g}.x, {h}.y
 mad {j}.xy, {h}.xyxx, {u}.yyyy, {j}.xyxx
 sample_d_indexable(texture2darray)(float,float,float,float) {g}.zw, {q}.xyzx, t117.xxxy, s0, {f}.xyxx, {f}.zwzz
 mad {j}.z, {g}.z, {v}.y, {j}.z
-max {h}.x, |{f}.x|, |{f}.y|
-max {h}.y, |{f}.z|, |{f}.w|
-max {h}.x, {h}.x, {h}.y
-max {b}.z, {h}.x, l(0.000488281)
-add {h}.x, {q}.x, {b}.z
-mov {h}.y, {q}.y
-frc {h}.xy, {h}.xyxx
-mov {h}.z, {q}.z
-sample_d_indexable(texture2darray)(float,float,float,float) {h}.w, {h}.xyzx, t117.xxxy, s0, {f}.xyxx, {f}.zwzz
-add {h}.w, {h}.w, -{g}.w
-mov {h}.x, {q}.x
-add {h}.y, {q}.y, {b}.z
-frc {h}.xy, {h}.xyxx
-sample_d_indexable(texture2darray)(float,float,float,float) {g}.z, {h}.xyzx, t117.xxyx, s0, {f}.xyxx, {f}.zwzz
-add {g}.z, {g}.z, -{g}.w
-mul {h}.x, {h}.w, {f}.x
-mad {h}.x, {g}.z, {f}.y, {h}.x
-mul {h}.y, {h}.w, {f}.z
-mad {h}.y, {g}.z, {f}.w, {h}.y
-div {g}.x, {u}.y, {b}.z
-mad {b}.xy, {h}.xyxx, {g}.xxxx, {b}.xyxx
 add {h}.x, {a}.z, -{n}.z
 add {h}.y, {a}.w, -{o}.z
 mul {h}.z, {s}.z, {h}.x
@@ -5291,6 +4229,17 @@ mul {f}.z, {s}.z, {d}.z
 mad {f}.z, -{t}.z, {d}.w, {f}.z
 mul {f}.w, {t}.z, {d}.z
 mad {f}.w, {s}.z, {d}.w, {f}.w
+mul {h}.xy, {h}.zwzz, l(12.000000, 12.000000, 0.000000, 0.000000)
+frc {h}.xy, {h}.xyxx
+mov {h}.z, {q}.z
+mul {g}.xyzw, {f}.xyzw, l(12.000000, 12.000000, 12.000000, 12.000000)
+sample_d_indexable(texture2darray)(float,float,float,float) {w}.zw, {h}.xyzx, t116.xxxy, s0, {g}.xyxx, {g}.zwzz
+mad {w}.zw, {w}.zzzw, l(0.000000, 0.000000, 3.011811, 3.011811), l(0.000000, 0.000000, -1.511811, -1.511811)
+mul {h}.x, {s}.z, {w}.z
+mad {h}.x, {t}.z, {w}.w, {h}.x
+mul {h}.y, {s}.z, {w}.w
+mad {h}.y, -{t}.z, {w}.z, {h}.y
+mad {w}.xy, {h}.xyxx, {u}.zzzz, {w}.xyxx
 sample_d_indexable(texture2darray)(float,float,float,float) {g}.xy, {q}.xyzx, t116.xyxx, s0, {f}.xyxx, {f}.zwzz
 mad {g}.xy, {g}.xyxx, l(3.011811, 3.011811, 0.000000, 0.000000), l(-1.511811, -1.511811, 0.000000, 0.000000)
 mul {h}.x, {s}.z, {g}.x
@@ -5300,55 +4249,26 @@ mad {h}.y, -{t}.z, {g}.x, {h}.y
 mad {j}.xy, {h}.xyxx, {u}.zzzz, {j}.xyxx
 sample_d_indexable(texture2darray)(float,float,float,float) {g}.zw, {q}.xyzx, t117.xxxy, s0, {f}.xyxx, {f}.zwzz
 mad {j}.z, {g}.z, {v}.z, {j}.z
-max {h}.x, |{f}.x|, |{f}.y|
-max {h}.y, |{f}.z|, |{f}.w|
-max {h}.x, {h}.x, {h}.y
-max {b}.z, {h}.x, l(0.000488281)
-add {h}.x, {q}.x, {b}.z
-mov {h}.y, {q}.y
-frc {h}.xy, {h}.xyxx
-mov {h}.z, {q}.z
-sample_d_indexable(texture2darray)(float,float,float,float) {h}.w, {h}.xyzx, t117.xxxy, s0, {f}.xyxx, {f}.zwzz
-add {h}.w, {h}.w, -{g}.w
-mov {h}.x, {q}.x
-add {h}.y, {q}.y, {b}.z
-frc {h}.xy, {h}.xyxx
-sample_d_indexable(texture2darray)(float,float,float,float) {g}.z, {h}.xyzx, t117.xxyx, s0, {f}.xyxx, {f}.zwzz
-add {g}.z, {g}.z, -{g}.w
-mul {h}.x, {h}.w, {f}.x
-mad {h}.x, {g}.z, {f}.y, {h}.x
-mul {h}.y, {h}.w, {f}.z
-mad {h}.y, {g}.z, {f}.w, {h}.y
-div {g}.x, {u}.z, {b}.z
-mad {b}.xy, {h}.xyxx, {g}.xxxx, {b}.xyxx
 div {j}.w, cb2[0].x, {k}.w
 mul {j}.xy, {j}.xyxx, {j}.wwww
 mul {i}.z, {j}.x, {d}.x
 mad {i}.z, {j}.y, {d}.y, {i}.z
 mul {i}.w, {j}.x, {d}.z
 mad {i}.w, {j}.y, {d}.w, {i}.w
+mul {w}.xy, {w}.xyxx, {j}.wwww
+mul {w}.z, {w}.x, {d}.x
+mad {w}.z, {w}.y, {d}.y, {w}.z
+mul {w}.w, {w}.x, {d}.z
+mad {w}.w, {w}.y, {d}.w, {w}.w
+ld_indexable(texture1d)(float,float,float,float) {h}.xyzw, l(532, 0, 0, 0), t120.xyzw
+eq {h}.x, {h}.y, l(0.000000)
+movc {h}.y, {h}.x, l(1.000000), {h}.y
+max {h}.y, {h}.y, l(0.000000)
+mul {h}.y, {h}.y, l(0.300000)
+mul {w}.zw, {w}.zzzw, {h}.yyyy
 add {j}.z, {j}.z, l(-0.500000)
 mul {k}.y, {j}.z, l(0.160000)
-ld_indexable(texture1d)(float,float,float,float) {j}.xyzw, l(517, 0, 0, 0), t120.xyzw
-eq {h}.x, {j}.x, l(0.000000)
-movc {j}.x, {h}.x, l(0.500000), {j}.x
-lt {h}.x, {j}.x, l(0.000000)
-movc {j}.x, {h}.x, l(-10.000000), {j}.x
-max {f}.x, {j}.x, l(0.020000)
-min {f}.x, {f}.x, l(0.980000)
-add {f}.y, -{f}.x, l(1.000000)
-log {f}.x, {f}.x
-log {f}.y, {f}.y
-add {f}.x, {f}.x, -{f}.y
-mad {f}.y, {f}.x, l(-0.002437424), l(-0.018739033)
-mad {f}.y, {f}.y, {f}.x, l(-0.487268350)
-mad {f}.y, {f}.y, {f}.x, l(0.264974522)
-add {f}.x, {m}.x, -{f}.y
-mad_sat {g}.w, {f}.x, l(0.400000), l(0.500000)
-mad_sat {g}.w, {g}.w, l(-3.333333), l(3.333333)
-mul {b}.xy, {b}.xyxx, l(0.160000, 0.160000, 0.000000, 0.000000)
-add {h}.xy, {i}.zwzz, -{b}.xyxx
-mad {i}.zw, -{h}.xxxy, {g}.wwww, {i}.xxzw
+add {i}.zw, {i}.zzzw, {w}.zzzw
 ld_indexable(texture1d)(float,float,float,float) {j}.xyzw, l(514, 0, 0, 0), t120.xyzw
 mov {q}.z, {j}.x
 else
@@ -5401,7 +4321,7 @@ movc {d}.w, {d}.w, {c}.w, l(1.000000)
 div {v}.z, {b}.w, {d}.w
 ld_indexable(texture1d)(float,float,float,float) {j}.xyzw, l(517, 0, 0, 0), t120.xyzw
 eq {b}.x, {j}.x, l(0.000000)
-movc {j}.x, {b}.x, l(0.500000), {j}.x
+movc {j}.x, {b}.x, l(0.700000), {j}.x
 lt {b}.x, {j}.x, l(0.000000)
 movc {j}.x, {b}.x, l(-10.000000), {j}.x
 mad {j}.y, {e}.y, l(-0.800000), l(0.800000)
@@ -5417,32 +4337,74 @@ add {b}.y, -{b}.x, l(1.000000)
 log {b}.x, {b}.x
 log {b}.y, {b}.y
 add {b}.x, {b}.x, -{b}.y
-mad {b}.y, {b}.x, l(-0.002437424), l(-0.018739033)
-mad {b}.y, {b}.y, {b}.x, l(-0.487268350)
-mad {b}.y, {b}.y, {b}.x, l(0.264974522)
+mad {b}.y, {b}.x, l(0.004422646), l(0.008511348)
+mad {b}.y, {b}.y, {b}.x, l(-0.618192882)
+mad {b}.y, {b}.y, {b}.x, l(0.243088298)
 add {b}.x, {m}.x, -{b}.y
-mad_sat {a}.y, {b}.x, l(0.400000), l(0.500000)
+mad_sat {a}.y, {b}.x, l(0.250000), l(0.500000)
 add {b}.x, {a}.z, {a}.y
 deriv_rtx_fine {b}.y, {b}.x
 deriv_rty_fine {b}.z, {b}.x
 add {b}.y, |{b}.y|, |{b}.z|
 max {b}.y, {b}.y, l(0.000100)
 rcp {b}.y, {b}.y
-min {b}.y, {b}.y, l(6.000000)
-add {b}.x, {b}.x, l(-0.983333)
+min {b}.y, {b}.y, l(20.000000)
+add {b}.x, {b}.x, l(-0.925000)
 mad_sat {b}.x, {b}.x, {b}.y, l(0.500000)
-dp3 {b}.z, v3.xyzx, v3.xyzx
-sqrt {b}.z, {b}.z
-lt {b}.w, l(0.000000), {c}.w
-movc {b}.w, {b}.w, {c}.w, l(1.000000)
-div {b}.z, {b}.z, {b}.w
-mad_sat {b}.y, {v}.z, l(20.000000000), l(-1.000000)
-mad_sat {b}.z, {b}.z, l(0.001818182), l(-0.272727)
-add {b}.w, {a}.y, -{b}.x
-mad {b}.x, {b}.w, {b}.y, {b}.x
-mad_sat {b}.w, {z}.w, l(1.600000), {j}.x
-add {b}.w, {b}.w, -{b}.x
-mad {b}.x, {b}.w, {b}.z, {b}.x
+add {b}.w, {a}.z, {a}.y
+mad_sat {b}.w, {b}.w, l(5.000000), l(-3.500000)
+mul {b}.w, {b}.w, {b}.w
+ld_indexable(texture1d)(float,float,float,float) {b}.y, l(532, 0, 0, 0), t120.xzxx
+eq {b}.z, {b}.y, l(0.000000)
+movc {b}.y, {b}.z, l(1.000000), {b}.y
+max {b}.y, {b}.y, l(0.000000)
+mul {b}.y, {b}.y, l(0.350000)
+mul {b}.w, {b}.w, {b}.y
+max {b}.x, {b}.x, {b}.w
+mad_sat {b}.y, {v}.z, l(2.500000000), l(-1.000000)
+mov {b}.w, l(0.765700)
+mad_sat {b}.z, {v}.z, l(-0.006153846), l(2.000000)
+mul {b}.z, {b}.z, {b}.z
+mad {b}.w, {b}.z, l(-0.049240), {b}.w
+mad_sat {b}.z, {v}.z, l(-0.023529412), l(2.000000)
+mul {b}.z, {b}.z, {b}.z
+mad {b}.w, {b}.z, l(-0.110290), {b}.w
+mad_sat {b}.z, {v}.z, l(-0.080000000), l(2.000000)
+mul {b}.z, {b}.z, {b}.z
+mad {b}.w, {b}.z, l(-0.067133), {b}.w
+mad_sat {b}.z, {v}.z, l(-0.571428571), l(2.000000)
+mul {b}.z, {b}.z, {b}.z
+mad {b}.w, {b}.z, l(-0.268013), {b}.w
+mad_sat {b}.z, {v}.z, l(-1.600000000), l(2.000000)
+mul {b}.z, {b}.z, {b}.z
+mad {b}.w, {b}.z, l(-0.271024), {b}.w
+max {b}.w, {b}.w, l(0.000001)
+rsq {b}.w, {b}.w
+mul {b}.w, {b}.w, l(0.250000)
+min {b}.w, {b}.w, l(5.000000)
+max {j}.y, {j}.x, l(0.020000)
+min {j}.y, {j}.y, l(0.980000)
+add {j}.z, -{j}.y, l(1.000000)
+log {j}.y, {j}.y
+log {j}.z, {j}.z
+add {j}.y, {j}.y, -{j}.z
+mul {j}.z, {j}.y, {j}.y
+mad {j}.z, {j}.z, l(-0.002131013), l(0.427713124)
+mul {j}.y, {j}.z, {j}.y
+mad {j}.y, {j}.y, l(0.875043), {m}.x
+add {j}.y, {j}.y, l(-0.500000)
+deriv_rtx_fine {j}.z, {j}.y
+deriv_rty_fine {j}.w, {j}.y
+add {j}.z, |{j}.z|, |{j}.w|
+max {j}.z, {j}.z, l(0.000100)
+rcp {j}.z, {j}.z
+min {b}.w, {b}.w, {j}.z
+mad_sat {j}.y, {j}.y, {b}.w, l(0.500000)
+mad {j}.z, {j}.y, l(-2.000000), l(3.000000)
+mul {j}.y, {j}.y, {j}.y
+mul {j}.y, {j}.y, {j}.z
+add {j}.y, {j}.y, -{b}.x
+mad {b}.x, {j}.y, {b}.y, {b}.x
 lt {b}.w, {j}.x, l(0.000000)
 movc {m}.x, {b}.w, l(0.000000), {b}.x
 ld_indexable(texture1d)(float,float,float,float) {j}.xyzw, l(514, 0, 0, 0), t120.xyzw
@@ -5522,7 +4484,7 @@ max {j}.w, {j}.y, l(0.000000)
 mad {b}.x, {b}.w, l(-0.700000), l(1.000000)
 mad {j}.z, {j}.z, {b}.x, {j}.w
 mul {v}.x, {j}.z, {a}.y
-mul {v}.x, {v}.x, l(2.000000)
+mul {v}.x, {v}.x, l(6.000000)
 mad {v}.y, {a}.y, l(-0.950000), l(1.000000)
 mad {j}.w, {b}.w, l(-0.250000), l(1.000000)
 mul {j}.w, {j}.w, {a}.y

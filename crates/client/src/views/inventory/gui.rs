@@ -215,8 +215,9 @@ fn materials_list(ui: &mut Ui, label: &str, items: &[InventoryItem], scroll: &mu
         let item = sorted[i];
         let name = if item.localised.is_empty() { &item.name } else { &item.localised };
         let max = material_cap(&item.name);
-        let count = item.count.min(max);
-        let ratio = count as f32 / max as f32;
+        // The real count, never clamped: a wrong cap must not hide materials.
+        let count = item.count;
+        let ratio = (count as f32 / max as f32).min(1.0);
         let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::hover());
         if i % 2 == 1 {
             ui.painter().rect_filled(row, 0.0, alpha(accent(), 10));
