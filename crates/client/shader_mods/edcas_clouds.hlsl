@@ -1334,6 +1334,9 @@ float chapmanColumn(float X, float h, float c)
 	return 2 * sqrt(x0) * exp(X - x0) - s / (1 - s * c) * exp(-h);
 }
 
+#define HAZE_SPHERE_NEAR_M 10000
+#define HAZE_SPHERE_FAR_M 40000
+
 // A haze mixed through the air, thinning with the height by the scale height, along a pixel's view ray
 // in front of the ground (or out to space), premultiplied. `p`: its vertical optical depth, its scale
 // height (m), the ground's radius (m), how blue it turns in forward scatter; `colour`: its own.
@@ -1351,6 +1354,17 @@ float4 columnHaze(Ray ray, float4 p22, float3 colour)
 	float3 cam = cb1[3].xyz;
 	float r0 = length(cam);
 	float3 up0 = cam / r0;
+	// Far ground is taken as the smooth sphere of rGround, not the depth buffer's hit (HAZE_SPHERE_NEAR_M
+	// to _FAR_M): the column lies within a few scale heights of the ground, so it follows the terrain's
+	// height, and Elite redraws far terrain at another detail from frame to frame. From orbit the haze
+	// over each tile jumped: blotches that shimmered and swept round the point under the ship
+	// (ed_frame814252/3, 2026-11-16, a 0.05 dust haze of 6 km scale height: 892 pixels of the disc
+	// changed between frames, 271 with the sphere, 218 without the haze).
+	if (groundN >= 0) {
+		float b = dot(cam, dir), c = dot(cam, cam) - rGround * rGround, disc = b * b - c;
+		if (c > 0 && disc > 0)
+			groundN = lerp(groundN, -b - sqrt(disc), smoothstep(HAZE_SPHERE_NEAR_M, HAZE_SPHERE_FAR_M, groundN * mPerUnit));
+	}
 	float h0 = max(r0 - rGround, 0) / H;
 	float c0 = dot(dir, up0);
 	float column;
