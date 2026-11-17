@@ -12,8 +12,10 @@
   libxcursor,
   libxrandr,
   libxi,
-
-
+  # File name 3DMigoto is installed under in the game folder. Set it to something
+  # else (e.g. "d3d11_edca.dll") to let another mod, such as ED-UP, own d3d11.dll
+  # and chain to this one.
+  dllName ? "d3d11.dll",
 }:
 
 let
@@ -59,7 +61,18 @@ rustPlatform.buildRustPackage {
             return Ok(Bundle { zip });
         }
     }'
+  ''
+  # Only the game-folder paths change; the zip entry stays d3d11.dll. The tests
+  # hard-code the default name, so they only run with it.
+  + lib.optionalString (dllName != "d3d11.dll") ''
+    sed -i '1,1855{
+      s|dir\.join("d3d11\.dll")|dir.join("${dllName}")|g
+      s|"d3d11\.dll\.off"|"${dllName}.off"|g
+      s|"d3d11\.dll\.official"|"${dllName}.official"|g
+      s|"d3d11\.dll\.edcas"|"${dllName}.edcas"|g
+    }' crates/client/src/shader_mods.rs
   '';
+  doCheck = dllName == "d3d11.dll";
 
   postInstall = ''
     wrapProgram $out/bin/edcas-client \
