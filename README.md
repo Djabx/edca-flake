@@ -45,6 +45,21 @@ Add `edca-flake` to your `flake.nix`:
 
 ---
 
+## Running alongside ED-UP (or another d3d11 mod)
+
+3DMigoto must be a `d3d11.dll` in the game folder, which collides with other mods such as
+[ED-UP](https://github.com/Djabx/ed-unofficial-patch-flake). The `dllName` parameter
+(default `d3d11.dll`) changes the file name EDCAS installs, updates and removes:
+
+```nix
+edcas.packages.${system}.default.override { dllName = "d3d11_3dmigoto.dll"; }
+```
+
+Let the other mod own `d3d11.dll` and chain to this one (ED-UP: `real_dll = d3d11_3dmigoto.dll`,
+done by its `ed-up-install`). The test suite only runs with the default name.
+
+---
+
 ## Development Shell
 
 If you are developing or testing `edcas-client`, enter a complete shell with Rust, rust-analyzer, and all required C libraries:
