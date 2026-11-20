@@ -3,7 +3,7 @@ mod gui;
 use crate::event_shim::{KeyCode, KeyEvent};
 use crate::journal_reader::JournalData;
 use crate::views::ViewEvent;
-use ratatui::style::Color;
+use crate::text::Color;
 
 pub struct ModulesView {
     selected: usize,

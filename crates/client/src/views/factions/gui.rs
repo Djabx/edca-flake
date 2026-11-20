@@ -91,7 +91,7 @@ impl FactionsView {
             if self.loading || self.loading_pins {
                 ui.add(egui::Spinner::new().size(13.0).color(accent()));
             }
-            let col = status_style(&self.status_msg).fg.map(theme::from_ratatui).unwrap_or(GREY);
+            let col = status_style(&self.status_msg).fg.map(theme::hud_color).unwrap_or(GREY);
             ui.add(egui::Label::new(egui::RichText::new(&self.status_msg).color(col).font(theme::body(14.0))).truncate());
         });
         ui.add_space(4.0);
@@ -262,7 +262,7 @@ impl FactionsView {
                 egui::Grid::new("faction-gov-rows").num_columns(2).spacing([14.0, 5.0]).show(ui, |ui| {
                     for (label, value, color) in rows {
                         ui.label(egui::RichText::new(label.trim_end_matches(':')).color(theme::CYAN).font(theme::body(15.0)));
-                        ui.add(egui::Label::new(egui::RichText::new(*value).color(theme::from_ratatui(*color)).font(theme::body_semi(15.0))).wrap());
+                        ui.add(egui::Label::new(egui::RichText::new(*value).color(theme::hud_color(*color)).font(theme::body_semi(15.0))).wrap());
                         ui.end_row();
                     }
                 });
@@ -660,7 +660,7 @@ fn focus_outline(p: &Painter, r: Rect) {
 
 /// Whether `value` differs from what it was on the previous frame (keyed by `key`).
 fn changed(ui: &Ui, key: &str, value: usize) -> bool {
-    let id = egui::Id::new(("factions-prev", key));
+    let id = egui::Id::unique(("factions-prev", key));
     ui.ctx().data_mut(|d| {
         let prev = d.get_temp::<usize>(id);
         d.insert_temp(id, value);
@@ -672,7 +672,7 @@ fn changed(ui: &Ui, key: &str, value: usize) -> bool {
 /// when `line` changed since the last frame (and `jump` allows) it scrolls to `line * step`;
 /// mouse scrolling writes the new position back, so keys continue from where the wheel left.
 fn line_scroll<R>(ui: &mut Ui, salt: &str, line: &mut usize, step: f32, jump: bool, add: impl FnOnce(&mut Ui) -> R) -> R {
-    let id = egui::Id::new(("factions-line", salt));
+    let id = egui::Id::unique(("factions-line", salt));
     let prev = ui.ctx().data(|d| d.get_temp::<usize>(id));
     let mut area = egui::ScrollArea::vertical().id_salt(salt).auto_shrink([false, false]);
     if jump && prev != Some(*line) {
@@ -680,7 +680,7 @@ fn line_scroll<R>(ui: &mut Ui, salt: &str, line: &mut usize, step: f32, jump: bo
     }
     let out = area.show(ui, add);
     let max = (out.content_size.y - out.inner_rect.height()).max(0.0);
-    *line = (out.state.offset.y.clamp(0.0, max) / step).round() as usize;
+    *line = (out.state.clamped_offset().y.clamp(0.0, max) / step).round() as usize;
     ui.ctx().data_mut(|d| d.insert_temp(id, *line));
     out.inner
 }

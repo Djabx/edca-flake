@@ -2,7 +2,7 @@
 //! a hardcoded EDCAS orange in every view; it is now driven by `settings.appearance.color`
 //! through a process-global so views can read it without threading `Settings` everywhere.
 
-use ratatui::style::Color;
+use crate::text::Color;
 use std::sync::RwLock;
 
 /// The historical EDCAS accent (orange). Used as the default whenever no colour is configured

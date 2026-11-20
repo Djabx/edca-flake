@@ -23,9 +23,20 @@
 // shallow on 6 e), z507 brightness (0 = 0.6), w507 the planet's radius in metres (from EDCAS; the fog
 // needs it for its metres).
 
-Texture2D<float4> GroundRef : register(t111);
+// GroundRef (t111), the lowest ground in view: declared in edcas_clouds.hlsl, whose haze takes it too.
 // The sun's direction some seconds ago (edcas_sun_ref.hlsl), for the fog's dawn.
 Texture2D<float4> SunRef : register(t117);
+
+// The air's own light on a droplet, where no sun reaches it, over the sun's: the sky's light from all
+// round, which is the sunlight the air above scatters out of its beam, about half of it downward. For a
+// thin column that is the air's optical depth times the sun's light (the beam loses `tau` of itself
+// per unit of ground whatever the sun's height; half goes down as a flux, which for a droplet, lit
+// from the whole sky, counts twice). Earth's air has 0.097 at 550 nm at sea level (Bodhaine et al.
+// 1999, their fit; 10 330 kg/m2), so times the column x502 (over 10 000 kg/m2): a tenth of the sun's
+// on Earth, a two-hundredth under 5 % of its air. For air-like gases: per kilogram CO2 scatters about
+// 1.7 times as much and helium a tenth (by their refractivity), which x502 does not carry. Not in it:
+// the light of the sunlit land and fog round a shadow (a crater's lit wall), which is not known here.
+#define FOG_SKY_DEPTH 0.097
 
 #define FOG_STEPS 16
 #define FOG_NEAR_M 5000.0
@@ -188,6 +199,22 @@ float4 groundFog(float3 v0, float3 v1, Ray ray, out bool inFront)
 	float3 sunColour = starLightTint() * cb1[8].xyz / max(max(cb1[8].x, cb1[8].y), max(cb1[8].z, 1e-30));
 	float brightness = IniParams.Load(int2(507, 0)).z;
 	brightness = brightness > 0 ? brightness : 0.6;
+	// The sun's share on the fog, by Elite's own shadow (client 0.43.216). The fog worked out its
+	// sunlight from the sun's height alone: in a basin whose wall hides a low sun it glowed in the
+	// sun's colour over ground Elite gives no sun at all (`ed_frame114647.rdc` replayed as a morning,
+	// the sun 2.3 degrees up: the shadow is 0 on all 1.46 million pixels of the basin, and the fog
+	// added 3.6 of 255 to their 18.4 at this body's strength, 42 at a fog body's 0.1). Now it is
+	// lit by as much of the sun as the terrain round the camera is, the land the fog lies on: one
+	// value for the whole picture, kept over 2 s (edcas_ground_ref.hlsl's third texel). Not the
+	// shadow of each pixel's own ray end: tried first, it drew the lit land's outline into the fog,
+	// a bright patch with hard edges where the rays beside it, through the same fog, ended on a
+	// shadowed slope or in the sky (`ed-captures/fog-shadow/new-morning01-baked.png`). With no value
+	// kept (an older edcas.ini, no terrain seen yet) the fog is lit as before.
+	float4 kept = GroundRef.Load(int3(2, 0, 0));
+	float shade = kept.y > 0 ? saturate(kept.x / kept.y) : 1;
+	// The air's own light in shadow (FOG_SKY_DEPTH), as a share of the sun's 0.8 below.
+	float column = IniParams.Load(int2(502, 0)).x;
+	float airLight = 0.8 * (1 - exp(-FOG_SKY_DEPTH * (column > 0 ? column : 1)));
 	// Lit by the sun and the sky only: in the dark the fog is dark and hides the
 	// land behind it. An ambient light like the one Elite keeps the land visible with at night made
 	// it glow grey, as if it shone by itself, even at a fifth (Pro Thaa VV-Z b2 1 d, 2026-10-28).
@@ -208,6 +235,7 @@ float4 groundFog(float3 v0, float3 v1, Ray ray, out bool inFront)
 	float spanA = abs(rA - rM), spanB = abs(rB - rM);
 	int steps = clamp((int)ceil((spanA + spanB) / (0.5 * f.soft)), FOG_STEPS, FOG_STEPS_MAX);
 	int nA = (int)round(steps * spanA / max(spanA + spanB, 1e-30));
+	AirColumn air = loadAirColumn();
 	float3 col = 0;
 	float T = 1;
 	float tPrev = t0;
@@ -229,8 +257,11 @@ float4 groundFog(float3 v0, float3 v1, Ray ray, out bool inFront)
 		float day = dot(p / r, sun);
 		float sky;
 		float light = sunlight(day, f.rPlanet / r, sky);
-		float3 tint = lowSunTint(day, float3(1.0, 0.6, 0.45));
-		float3 radiance = sunColour * brightness * (0.8 * light + 0.25 * sky) * tint;
+		// The fog lies on the ground: the whole air is over it (airTint at height 0).
+		float3 tint = airTintOf(air, day, 0, float3(1.0, 0.6, 0.45));
+		// In the sun as before; in shadow the air's light alone, without the low sun's red (that is
+		// the beam's colour).
+		float3 radiance = sunColour * brightness * lerp(airLight * sky, (0.8 * light + 0.25 * sky) * tint, shade);
 		float a = 1 - exp(-sigma * density * dt);
 		col += T * a * radiance;
 		T *= 1 - a;

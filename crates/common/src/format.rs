@@ -79,6 +79,23 @@ pub fn fmt_ts_opt(t: Option<DateTime<Utc>>) -> String {
     t.map(fmt_ts).unwrap_or_else(|| "—".into())
 }
 
+/// Whole minutes from `t` until now (0 for a time in the future).
+pub fn minutes_since(t: DateTime<Utc>) -> i64 {
+    (Utc::now() - t).num_minutes().max(0)
+}
+
+/// An age in minutes as "35m" / "5h" / "3d" (`short`) or "35 min ago" / "5 h ago" /
+/// "3 days ago". Hours run up to two days, days after that.
+pub fn fmt_age(mins: i64, short: bool) -> String {
+    let mins = mins.max(0);
+    let (n, unit_short, unit_long) = match mins {
+        0..=59 => (mins, "m", " min"),
+        60..=2879 => (mins / 60, "h", " h"),
+        _ => (mins / 1440, "d", " days"),
+    };
+    if short { format!("{n}{unit_short}") } else { format!("{n}{unit_long} ago") }
+}
+
 /// Body name with the leading system name stripped (`"Sol A 1 a" → "A 1 a"`);
 /// falls back to the full name (e.g. the main star whose name equals the system).
 pub fn short_name(name: &str, system: &str) -> String {
@@ -87,4 +104,20 @@ pub fn short_name(name: &str, system: &str) -> String {
         .filter(|s| !s.is_empty())
         .unwrap_or(name)
         .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fmt_age_buckets() {
+        assert_eq!(fmt_age(35, true), "35m");
+        assert_eq!(fmt_age(35, false), "35 min ago");
+        assert_eq!(fmt_age(5 * 60, true), "5h");
+        assert_eq!(fmt_age(47 * 60, false), "47 h ago");
+        assert_eq!(fmt_age(3 * 1440, true), "3d");
+        assert_eq!(fmt_age(3 * 1440, false), "3 days ago");
+        assert_eq!(fmt_age(-5, true), "0m");
+    }
 }

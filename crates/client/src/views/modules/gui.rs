@@ -43,7 +43,7 @@ impl ModulesView {
     }
 
     fn table(&mut self, ui: &mut Ui, journal: &JournalData) {
-        let id = ui.id().with("modules-prev-selected");
+        let id = ui.scope_id().with("modules-prev-selected");
         let prev: Option<usize> = ui.data(|d| d.get_temp(id));
         let follow = prev != Some(self.selected);
 
@@ -190,7 +190,7 @@ impl ModulesView {
             widgets::kv(ui, "Priority", widgets::value(prio));
             label(ui, "Condition");
             match m.health {
-                Some(h) => bar_value(ui, h, theme::from_ratatui(condition_color(m.health)), &format!("{:.1}%", h * 100.0)),
+                Some(h) => bar_value(ui, h, theme::hud_color(condition_color(m.health)), &format!("{:.1}%", h * 100.0)),
                 None => {
                     ui.label(widgets::value("—").color(GREY));
                 }
@@ -251,7 +251,7 @@ fn engineering(ui: &mut Ui, eng: &EngineeringData) {
 fn condition_cell(ui: &mut Ui, m: &ShipModule, selected: bool) {
     match m.health {
         Some(h) => {
-            let col = theme::from_ratatui(condition_color(m.health));
+            let col = theme::hud_color(condition_color(m.health));
             widgets::bar(ui, 52.0, h, col);
             let text_col = if selected { TEXT } else { col };
             ui.label(egui::RichText::new(format!("{:.1}%", h * 100.0)).font(theme::body(15.0)).color(text_col));

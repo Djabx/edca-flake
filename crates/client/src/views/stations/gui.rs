@@ -139,7 +139,7 @@ impl StationsView {
         if !self.embedded {
             self.search_box(ui, acts);
         }
-        let status_col = status_style(&self.status_msg).fg.map(theme::from_ratatui).unwrap_or(TEXT_DIM);
+        let status_col = status_style(&self.status_msg).fg.map(theme::hud_color).unwrap_or(TEXT_DIM);
         ui.add(egui::Label::new(egui::RichText::new(&self.status_msg).color(status_col).font(theme::body(14.5))).truncate())
             .on_hover_text(&self.status_msg);
         ui.add_space(2.0);
@@ -150,7 +150,7 @@ impl StationsView {
             return;
         }
 
-        let id = ui.id().with("stations-list-scroll");
+        let id = ui.scope_id().with("stations-list-scroll");
         let (prev_sel, prev_off, view_h): (Option<usize>, f32, f32) = ui.data(|d| d.get_temp(id)).unwrap_or((None, 0.0, 0.0));
         let mut area = egui::ScrollArea::vertical().id_salt("stations-list").auto_shrink([false, false]);
         if prev_sel != Some(self.selected_idx) {
@@ -175,7 +175,7 @@ impl StationsView {
                 }
             }
         });
-        ui.data_mut(|d| d.insert_temp(id, (Some(self.selected_idx), out.state.offset.y, out.inner_rect.height())));
+        ui.data_mut(|d| d.insert_temp(id, (Some(self.selected_idx), out.state.clamped_offset().y, out.inner_rect.height())));
     }
 
     /// The search field and button. Typing mode (`/` or `f`) focuses the field; Enter searches,
@@ -415,7 +415,7 @@ impl StationsView {
 
     /// A vertical scroll area per station and tab that follows the keyboard's `detail_scroll`.
     fn scrolled(&self, ui: &mut Ui, mid: i64, tab: &str, add: impl FnOnce(&mut Ui)) {
-        let id = ui.id().with(("detail-scroll", mid, tab));
+        let id = ui.scope_id().with(("detail-scroll", mid, tab));
         let prev: Option<usize> = ui.data(|d| d.get_temp(id));
         let mut area = egui::ScrollArea::vertical().id_salt(("station-detail", mid, tab)).auto_shrink([false, false]);
         if prev.is_some_and(|p| p != self.detail_scroll) {
@@ -520,7 +520,7 @@ impl StationsView {
             }
         });
         ui.add_space(4.0);
-        let id = ui.id().with(("resource-sel", mid));
+        let id = ui.scope_id().with(("resource-sel", mid));
         let prev: Option<Option<usize>> = ui.data(|d| d.get_temp(id));
         let moved = prev.is_some_and(|p| p != selected);
         ui.data_mut(|d| d.insert_temp(id, selected));
@@ -642,7 +642,7 @@ impl StationsView {
         let need_w = 120.0;
         let min_w = 150.0 + widths.iter().sum::<f32>() + if show_need { need_w } else { 0.0 } + 9.0 * 8.0;
 
-        let id = ui.id().with(("market-sel", mid));
+        let id = ui.scope_id().with(("market-sel", mid));
         let prev: Option<Option<usize>> = ui.data(|d| d.get_temp(id));
         let scroll_to = sel_row.filter(|_| prev.is_some_and(|p| p != sel_row));
         ui.data_mut(|d| d.insert_temp(id, sel_row));

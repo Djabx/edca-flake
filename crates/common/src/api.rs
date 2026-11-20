@@ -261,8 +261,8 @@ pub struct ConstructionQuery {
     pub limit: Option<i64>,
 }
 
-/// GET /api/v1/trade-routes
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+/// GET /api/v1/trade-routes, and the routes of GET /api/v1/trade-search
+#[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize)]
 pub struct TradeRouteResponse {
     pub from_market_id: i64,
     pub to_market_id: i64,
@@ -282,10 +282,25 @@ pub struct TradeRouteResponse {
     pub from_allegiance: Option<String>,
     pub to_allegiance: Option<String>,
     pub cached_at: Option<DateTime<Utc>>,
+    // Filled by /api/v1/trade-search only; absent from older servers.
+    #[serde(default)]
+    pub from_station_type: Option<String>,
+    #[serde(default)]
+    pub to_station_type: Option<String>,
+    /// Distance from the arrival star, in light seconds.
+    #[serde(default)]
+    pub from_arrival_ls: Option<f32>,
+    #[serde(default)]
+    pub to_arrival_ls: Option<f32>,
+    /// When the buy / sell price was last reported.
+    #[serde(default)]
+    pub from_updated_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub to_updated_at: Option<DateTime<Utc>>,
 }
 
-/// GET /api/v1/trade-loops
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+/// GET /api/v1/trade-loops, and the loops of GET /api/v1/trade-search
+#[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize)]
 pub struct TradeLoopResponse {
     pub market_id_a: i64,
     pub market_id_b: i64,
@@ -311,6 +326,89 @@ pub struct TradeLoopResponse {
     pub demand_out: i32,
     pub demand_back: i32,
     pub cached_at: Option<DateTime<Utc>>,
+    // Filled by /api/v1/trade-search only; absent from older servers.
+    #[serde(default)]
+    pub station_type_a: Option<String>,
+    #[serde(default)]
+    pub station_type_b: Option<String>,
+    #[serde(default)]
+    pub arrival_ls_a: Option<f32>,
+    #[serde(default)]
+    pub arrival_ls_b: Option<f32>,
+    /// The oldest of the loop's four prices.
+    #[serde(default)]
+    pub updated_at: Option<DateTime<Utc>>,
+}
+
+/// GET /api/v1/trade-search: the best routes and loops near one system.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize)]
+pub struct TradeSearchQuery {
+    /// The system to search around.
+    pub system: String,
+    /// Its coordinates, used when the server does not know the system yet.
+    pub x: Option<f32>,
+    pub y: Option<f32>,
+    pub z: Option<f32>,
+    /// Search radius in Ly (server clamps it; default 50).
+    pub radius: Option<f32>,
+    /// Smallest pad the ship needs: "S", "M" or "L" (default "L").
+    pub pad: Option<String>,
+    /// Include fleet carriers (default false).
+    pub carriers: Option<bool>,
+    /// Include Odyssey settlements (default true).
+    pub settlements: Option<bool>,
+    /// Include planetary ports and outposts (default true).
+    pub planetary: Option<bool>,
+    /// Skip stations farther than this from their arrival star, in Ls.
+    pub max_arrival_ls: Option<f32>,
+    /// Skip prices older than this many days (default 30; carriers at most 7).
+    pub max_age_days: Option<i32>,
+    /// Minimum stock at the buy station (default 1,000 t).
+    pub min_supply: Option<i32>,
+    /// Minimum demand at the sell station (default 0).
+    pub min_demand: Option<i32>,
+}
+
+impl TradeSearchQuery {
+    /// The query as URL parameters, leaving out unset ones.
+    pub fn to_params(&self) -> Vec<(&'static str, String)> {
+        let mut p = vec![("system", self.system.clone())];
+        let mut opt = |k: &'static str, v: Option<String>| {
+            if let Some(v) = v {
+                p.push((k, v));
+            }
+        };
+        opt("x", self.x.map(|v| v.to_string()));
+        opt("y", self.y.map(|v| v.to_string()));
+        opt("z", self.z.map(|v| v.to_string()));
+        opt("radius", self.radius.map(|v| v.to_string()));
+        opt("pad", self.pad.clone());
+        opt("carriers", self.carriers.map(|v| v.to_string()));
+        opt("settlements", self.settlements.map(|v| v.to_string()));
+        opt("planetary", self.planetary.map(|v| v.to_string()));
+        opt("max_arrival_ls", self.max_arrival_ls.map(|v| v.to_string()));
+        opt("max_age_days", self.max_age_days.map(|v| v.to_string()));
+        opt("min_supply", self.min_supply.map(|v| v.to_string()));
+        opt("min_demand", self.min_demand.map(|v| v.to_string()));
+        p
+    }
+}
+
+/// GET /api/v1/trade-search response.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize)]
+pub struct TradeSearchResponse {
+    /// The system searched around, as the server knows it.
+    pub center_system: String,
+    /// The radius actually covered: smaller than asked when the nearest
+    /// stations already reached the server's station cap.
+    pub radius_ly: f32,
+    /// Stations searched.
+    pub stations: i64,
+    /// True when the station cap cut the radius short.
+    pub capped: bool,
+    pub routes: Vec<TradeRouteResponse>,
+    pub loops: Vec<TradeLoopResponse>,
+    pub computed_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize)]

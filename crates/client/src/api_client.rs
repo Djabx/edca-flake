@@ -1,5 +1,5 @@
 use edcas_common::api::{
-    BodyResponse, CarrierQuery, CarrierResponse, ClientVersionResponse, FactionInfluencePoint, SystemTickPrediction, SystemTickResponse, CommodityPricePoint, ConstructionDepotResponse,
+    BodyResponse, TradeSearchQuery, TradeSearchResponse, CarrierQuery, CarrierResponse, ClientVersionResponse, FactionInfluencePoint, SystemTickPrediction, SystemTickResponse, CommodityPricePoint, ConstructionDepotResponse,
     ConstructionDepotSubmission, ConstructionQuery, FactionQuery, FactionResponse, GalaxyDensity,
     GalaxySample, GalaxySystem, InfluencePoint, MultiCommodityQuery, MultiCommodityResult, NearestCommodityQuery,
     NearestCommodityResult, StationQuery, StationResponse, StationSearchResult, SystemResponse,
@@ -148,8 +148,9 @@ impl ApiClient {
         Ok(())
     }
 
-    pub async fn fetch_trade_routes(&self) -> anyhow::Result<Vec<TradeRouteResponse>> {
-        let url = format!("{}/api/v1/trade-routes", self.base_url);
+    /// `carriers` picks the server's cached variant with or without fleet carriers.
+    pub async fn fetch_trade_routes(&self, carriers: bool) -> anyhow::Result<Vec<TradeRouteResponse>> {
+        let url = format!("{}/api/v1/trade-routes?carriers={carriers}", self.base_url);
         debug!(url, "API call: fetch_trade_routes");
         let resp = self.client.get(&url).send().await?;
         let status = resp.status();
@@ -163,8 +164,9 @@ impl ApiClient {
         }
     }
 
-    pub async fn fetch_trade_loops(&self) -> anyhow::Result<Vec<TradeLoopResponse>> {
-        let url = format!("{}/api/v1/trade-loops", self.base_url);
+    /// `carriers` picks the server's cached variant with or without fleet carriers.
+    pub async fn fetch_trade_loops(&self, carriers: bool) -> anyhow::Result<Vec<TradeLoopResponse>> {
+        let url = format!("{}/api/v1/trade-loops?carriers={carriers}", self.base_url);
         debug!(url, "API call: fetch_trade_loops");
         let resp = self.client.get(&url).send().await?;
         let status = resp.status();
@@ -416,6 +418,25 @@ impl ApiClient {
         if !status.is_success() {
             warn!(url, %status, "API response: get_system_stations failed");
             anyhow::bail!("system stations request failed: {status}");
+        }
+        Ok(resp.json().await?)
+    }
+
+    /// The best routes and loops near `query.system`, with the commander's filters.
+    pub async fn trade_search(&self, query: &TradeSearchQuery) -> anyhow::Result<TradeSearchResponse> {
+        let url = format!("{}/api/v1/trade-search", self.base_url);
+        debug!(url, ?query, "API call: trade_search");
+        let resp = self.client.get(&url).query(&query.to_params()).send().await?;
+        let status = resp.status();
+        if status == reqwest::StatusCode::NOT_FOUND {
+            anyhow::bail!("{} is not known to the server yet", query.system);
+        }
+        if status == reqwest::StatusCode::SERVICE_UNAVAILABLE {
+            anyhow::bail!("the server is busy with other searches, try again in a minute");
+        }
+        if !status.is_success() {
+            warn!(url, %status, "API response: trade_search failed");
+            anyhow::bail!("{status}");
         }
         Ok(resp.json().await?)
     }

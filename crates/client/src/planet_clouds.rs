@@ -279,6 +279,77 @@ pub(crate) fn molar_mass(gas: &str) -> f64 {
     }
 }
 
+/// How strongly a molecule of the gas scatters light (Rayleigh) against one of Earth's air, at 550 nm:
+/// 4.51e-27 cm² for air (Bodhaine et al. 1999, "On Rayleigh optical depth calculations", table 3). The
+/// gases' cross-sections from their refractive index and King factor: nitrogen 4.63, oxygen 4.07,
+/// carbon dioxide 11.6, methane 9.92, argon 3.99, helium 0.061 (dispersion formulas in He et al. 2021,
+/// ACP 21, 14927, table 1, which give their table 2 at 532 nm), hydrogen 0.97 (Cox 2000), and from one
+/// index at 589 nm with a King factor of 1 neon 0.23, ammonia 7.1, sulphur dioxide 23.6, water 3.3
+/// (within some percent). Another gas counts as air. Methane also absorbs in the red (its overtone
+/// bands are as strong as its scattering from 475 nm on, He et al. 2021): not in here.
+pub(crate) fn rayleigh(gas: &str) -> f64 {
+    let cross_section = match gas {
+        "CarbonDioxide" => 11.6,
+        "SulphurDioxide" => 23.6,
+        "Nitrogen" => 4.63,
+        "Oxygen" => 4.07,
+        "Argon" => 3.99,
+        "Neon" => 0.23,
+        "Helium" => 0.061,
+        "Hydrogen" => 0.97,
+        "Methane" => 9.92,
+        "Ammonia" => 7.1,
+        "Water" => 3.3,
+        _ => AIR_CROSS_SECTION,
+    };
+    cross_section / AIR_CROSS_SECTION
+}
+
+/// Earth's air: a molecule's Rayleigh cross-section at 550 nm (1e-27 cm²), the optical depth of the
+/// whole of it straight up from sea level at 610, 550 and 465 nm (Bodhaine et al. 1999, table 3; 465
+/// from 450 by the table's own slope), its column (kg/m², 101 325 Pa over 9.80665 m/s²) and its
+/// mean molar mass (kg/mol).
+const AIR_CROSS_SECTION: f64 = 4.5105;
+const EARTH_RAYLEIGH_DEPTH: [f64; 3] = [0.06366, 0.09707, 0.1934];
+const EARTH_COLUMN: f64 = 10_332.0;
+const EARTH_MOLAR_MASS: f64 = 0.028_964_9;
+
+/// The Rayleigh optical depth of the whole air straight up from the ground, in red, green and blue
+/// (`x550`, `y550`, `z550`: the shader filters the sunlight by it, `airTint` in `edcas_clouds.hlsl`):
+/// Earth's times the count of molecules over a square metre against Earth's (the column `p / g` over
+/// the mean molar mass) and the gases' scattering against air's. Zeroes where the gravity is unknown.
+/// Earth gets (0.064, 0.097, 0.193); Mars (610 Pa of carbon dioxide at 3.71 m/s²) 0.0026 in green,
+/// as worked out for Gale crater (Lemmon et al. 2024: "almost 0.01 at 440 nm").
+pub(crate) fn rayleigh_depth(gases: &[(&str, f32)], pressure: f64, gravity_ms2: f32) -> [f32; 3] {
+    if gravity_ms2 <= 0.0 || pressure <= 0.0 {
+        return [0.0; 3];
+    }
+    let total: f64 = gases.iter().map(|(_, p)| f64::from(*p)).sum();
+    let scattering = if total > 0.0 { gases.iter().map(|(g, p)| rayleigh(g) * f64::from(*p)).sum::<f64>() / total } else { 1.0 };
+    let molecules = pressure / f64::from(gravity_ms2) / EARTH_COLUMN * (EARTH_MOLAR_MASS / mean_molar_mass(gases));
+    EARTH_RAYLEIGH_DEPTH.map(|depth| (depth * molecules * scattering) as f32)
+}
+
+/// The methane over the ground in km-amagat (`w550`: the shader's `methaneTint` takes the red, then the
+/// green, as on Titan, Uranus and Neptune): its molecules over a square metre, the column `p / g` over the
+/// mean molar mass times its share, over the 2.687e28 of one km-amagat (a kilometre of gas at 0 °C and
+/// 1 atm). Mixed evenly through the air, as the scattering is. Titan (146.7 kPa, 1.352 m/s², 5.7 % near the
+/// ground) comes out at 5.1; its own methane thins with height, measured 2.86 (Tokano et al. 2006). 0
+/// without methane or where the gravity is unknown.
+pub(crate) fn methane_column(gases: &[(&str, f32)], pressure: f64, gravity_ms2: f32) -> f32 {
+    let total: f64 = gases.iter().map(|(_, p)| f64::from(*p)).sum();
+    let share: f64 = gases.iter().filter(|(g, _)| *g == "Methane").map(|(_, p)| f64::from(*p)).sum::<f64>();
+    if gravity_ms2 <= 0.0 || pressure <= 0.0 || total <= 0.0 || share <= 0.0 {
+        return 0.0;
+    }
+    let molecules = pressure / f64::from(gravity_ms2) / mean_molar_mass(gases) * AVOGADRO * share / total;
+    (molecules / KM_AMAGAT) as f32
+}
+
+const AVOGADRO: f64 = 6.022_140_76e23;
+/// Molecules over a square metre in a column of one km-amagat.
+const KM_AMAGAT: f64 = 2.686_78e28;
+
 /// The air's mean molar mass (kg/mol), the gases weighed by their share; 30 g/mol without any.
 pub(crate) fn mean_molar_mass(gases: &[(&str, f32)]) -> f64 {
     let total: f64 = gases.iter().map(|(_, p)| f64::from(*p)).sum();
@@ -381,6 +452,16 @@ pub struct Clouds {
     pub reddening: f32,
     /// `y502`: the air's scale height, metres; 0 where unknown.
     pub scale_height_m: f32,
+    /// `z502`: the slab's shadow on the ground (`edcas_cloud_shade.hlsl`): 1 = drawn, 0 = not (the
+    /// pass does not run). The player's setting: the forecast starts out with it on and
+    /// [`crate::ground_tint`] sets it from the settings, off without the slab.
+    pub shadows: bool,
+    /// `x550`, `y550`, `z550`: the air's Rayleigh optical depth straight up from the ground in red,
+    /// green and blue ([`rayleigh_depth`]); zeroes where the gravity is unknown (the shader then
+    /// reddens a low sun by `x502` as before).
+    pub air_depth: [f32; 3],
+    /// `w550`: the methane over the ground, km-amagat ([`methane_column`]); 0 = none.
+    pub methane_kmam: f32,
     /// `x521` to `w521`: the main gas's high clouds over a trace gas's layer ([`Forecast::high`]),
     /// drawn as a thin shell above the slab: their cover, height over the ground (m), the alpha of a
     /// vertical path through a dense patch, and their wind (m/s). Cover 0 = none (also where the
@@ -438,7 +519,7 @@ pub struct Clouds {
 
 impl Clouds {
     /// No clouds. Only `x503` matters then; the writer leaves the others as they are.
-    pub const NONE: Clouds = Clouds { coverage: 0.0, size: 0.0, height: 0.0, brightness: 0.0, opacity: 0.0, slab_opacity: 0.0, thickness: 0.0, base_m: 0.0, thickness_m: 0.0, wind_ms: 0.0, local_time: 0.0, reddening: 0.0, scale_height_m: 0.0, high: [0.0; 4], haze: Haze::NONE, waves: [0.0; 2], deck: [0.0; 2], virga: 0.0, smooth: 0.0, halo: 0.0, droplet_edges: 0.0, volumetric: false, streaks: 0.0, glow: 0.0, iridescence: 0.0, fog: 0.0, radius_m: 0.0, fog_depth_m: 0.0, softness: 0.0, frost: 0.0, lamp_glow: 0.0 };
+    pub const NONE: Clouds = Clouds { coverage: 0.0, size: 0.0, height: 0.0, brightness: 0.0, opacity: 0.0, slab_opacity: 0.0, thickness: 0.0, base_m: 0.0, thickness_m: 0.0, wind_ms: 0.0, local_time: 0.0, reddening: 0.0, scale_height_m: 0.0, shadows: false, air_depth: [0.0; 3], methane_kmam: 0.0, high: [0.0; 4], haze: Haze::NONE, waves: [0.0; 2], deck: [0.0; 2], virga: 0.0, smooth: 0.0, halo: 0.0, droplet_edges: 0.0, volumetric: false, streaks: 0.0, glow: 0.0, iridescence: 0.0, fog: 0.0, radius_m: 0.0, fog_depth_m: 0.0, softness: 0.0, frost: 0.0, lamp_glow: 0.0 };
 
     /// The values file's lines. Without clouds that is `x503 = 0`, `x507 = 0` and `x521 = 0` alone: the other
     /// values are left as they were, so the file keeps the last clouds' look (or the defaults of
@@ -475,6 +556,11 @@ impl Clouds {
             ("w501", format!("{:.2}", self.local_time)),
             ("x502", format!("{:.3}", self.reddening)),
             ("y502", format!("{:.0}", self.scale_height_m)),
+            ("z502", if self.shadows && self.volumetric { "1" } else { "0" }.to_string()),
+            ("x550", format!("{:.4}", self.air_depth[0])),
+            ("y550", format!("{:.4}", self.air_depth[1])),
+            ("z550", format!("{:.4}", self.air_depth[2])),
+            ("w550", format!("{:.4}", self.methane_kmam)),
             ("x507", format!("{:.3}", self.fog)),
             ("w507", format!("{:.0}", self.radius_m)),
             ("y507", format!("{:.0}", self.fog_depth_m)),
@@ -877,6 +963,9 @@ pub fn forecast(air: &Air, strength: f32) -> Forecast {
         local_time: if c.regime == Regime::High { HIGH_LOCAL_TIME } else { LOCAL_TIME },
         reddening: if air.gravity_ms2 > 0.0 { (pressure / f64::from(air.gravity_ms2) / DENSE_COLUMN).clamp(0.01, 1.0) as f32 } else { 0.0 },
         scale_height_m: scale_height as f32,
+        shadows: true,
+        air_depth: rayleigh_depth(air.gases, pressure, air.gravity_ms2),
+        methane_kmam: methane_column(air.gases, pressure, air.gravity_ms2),
         high: high_row,
         haze,
         // The waves need the layer's height in scale heights, so the gravity (none where unknown).
@@ -1363,7 +1452,7 @@ mod tests {
         let none = vec![("x503", "0.000".to_string()), ("x507", "0.000".to_string()), ("x521", "0.000".to_string()), ("x522", "0.000".to_string())];
         assert_eq!(Clouds::NONE.assignments(), none);
         let names: Vec<_> = sky(&[("Nitrogen", 100.0)], 3000.0, 70.0, 1.0).clouds.assignments().iter().map(|(n, _)| *n).collect();
-        assert_eq!(names, ["x503", "y503", "z503", "w503", "x504", "y504", "w504", "z505", "x501", "y501", "z501", "w501", "x502", "y502", "x507", "w507", "y507", "x508", "x509", "w509", "x521", "y521", "z521", "w521", "x529", "y529", "z529", "w529", "x530", "y530", "z530", "w530", "x522"]);
+        assert_eq!(names, ["x503", "y503", "z503", "w503", "x504", "y504", "w504", "z505", "x501", "y501", "z501", "w501", "x502", "y502", "z502", "x550", "y550", "z550", "w550", "x507", "w507", "y507", "x508", "x509", "w509", "x521", "y521", "z521", "w521", "x529", "y529", "z529", "w529", "x530", "y530", "z530", "w530", "x522"]);
     }
 
     #[test]
@@ -1572,6 +1661,33 @@ mod tests {
         assert_eq!(get(&deck, "w501"), "1.00");
         let mars = sky_g(&[("CarbonDioxide", 100.0)], 608.0, 210.0, 0.38, 0.7).clouds;
         assert_eq!(get(&mars, "w501"), "1.50");
+    }
+
+    #[test]
+    fn the_airs_rayleigh_depth_is_earths_on_earth_and_marss_on_mars() {
+        // Earth: 78.08 % nitrogen, 20.95 % oxygen, 0.93 % argon at 101 325 Pa: Bodhaine's table to 1 %.
+        let earth = rayleigh_depth(&[("Nitrogen", 78.08), ("Oxygen", 20.95), ("Argon", 0.93)], 101_325.0, 9.806_65);
+        for (got, want) in earth.iter().zip([0.06366, 0.09707, 0.1934]) {
+            assert!((got / want - 1.0).abs() < 0.01, "{earth:?}");
+        }
+        // Mars: 610 Pa of carbon dioxide at 3.71 m/s²: 0.0026 in green, a 37th of Earth's.
+        let mars = rayleigh_depth(&[("CarbonDioxide", 100.0)], 610.0, 3.71);
+        assert!((mars[1] - 0.0026).abs() < 0.0001, "{mars:?}");
+        // Sulphur dioxide scatters 5.2 times as strongly as air a molecule, and a molecule weighs 2.2 times as
+        // much: 2.4 times nitrogen's depth at the same pressure and gravity. Helium: next to nothing.
+        let (so2, n2, he) = (rayleigh_depth(&[("SulphurDioxide", 100.0)], 1000.0, 1.0)[1], rayleigh_depth(&[("Nitrogen", 100.0)], 1000.0, 1.0)[1], rayleigh_depth(&[("Helium", 100.0)], 1000.0, 1.0)[1]);
+        assert!((so2 / n2 - 2.23).abs() < 0.02 && he / n2 < 0.1, "{so2} {n2} {he}");
+        // Unknown gravity: zeroes, the shader's reddening of before.
+        assert_eq!(rayleigh_depth(&[("Nitrogen", 100.0)], 1000.0, 0.0), [0.0; 3]);
+        // Methane: Titan's air mixed evenly, 5.1 km-amagat; none without methane or gravity.
+        let titan = methane_column(&[("Nitrogen", 94.3), ("Methane", 5.7)], 146_700.0, 1.352);
+        assert!((titan - 5.07).abs() < 0.05, "{titan}");
+        assert_eq!(methane_column(&[("Nitrogen", 100.0)], 146_700.0, 1.352), 0.0);
+        assert_eq!(methane_column(&[("Methane", 100.0)], 146_700.0, 0.0), 0.0);
+        // And the row is written.
+        let c = forecast(&Air::new(&[("CarbonDioxide", 100.0)], 610.0, 210.0).with_gravity(3.71), 0.7).clouds;
+        let get = |name: &str| c.assignments().into_iter().find(|(n, _)| *n == name).unwrap().1;
+        assert_eq!((get("x550").as_str(), get("y550").as_str(), get("z550").as_str()), ("0.0017", "0.0026", "0.0052"), "{c:?}");
     }
 
     #[test]

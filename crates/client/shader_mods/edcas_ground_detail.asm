@@ -46,7 +46,22 @@ ge {f}.x, {j}.x, l(1.500000)
 lt {f}.y, {j}.x, l(3.500000)
 and {f}.x, {f}.x, {f}.y
 if_nz {f}.x
-add {g}.xyz, v3.xyzx, -cb2[12].xyzx
+mul {d}.xyz, cb2[14].xyzx, l(-0.0009765625, -0.0009765625, -0.0009765625, 0.000000)
+round_ne {d}.xyz, {d}.xyzx
+mul {d}.xyz, {d}.xyzx, l(1024.000000, 1024.000000, 1024.000000, 0.000000)
+add {w}.xyz, -cb2[14].xyzx, -{d}.xyzx
+add {d}.xyz, {d}.xyzx, -cb2[13].xyzx
+mul {o}.xyz, cb2[12].xyzx, l(-0.0009765625, -0.0009765625, -0.0009765625, 0.000000)
+round_ne {o}.xyz, {o}.xyzx
+mul {o}.xyz, {o}.xyzx, l(1024.000000, 1024.000000, 1024.000000, 0.000000)
+add {p}.xyz, -cb2[12].xyzx, -{o}.xyzx
+add {n}.xyz, cb2[13].xyzx, cb2[14].xyzx
+add {n}.xyz, {n}.xyzx, -cb2[12].xyzx
+dp3 {n}.x, {n}.xyzx, {n}.xyzx
+lt {n}.x, {n}.x, l(4.000000)
+movc {d}.xyz, {n}.xxxx, {d}.xyzx, {o}.xyzx
+movc {w}.xyz, {n}.xxxx, {w}.xyzx, {p}.xyzx
+add {w}.xyz, {w}.xyzx, v3.xyzx
 mov {m}.x, l(0.500000)
 deriv_rtx_fine {n}.xyz, v3.xyzx
 deriv_rty_fine {o}.xyz, v3.xyzx
@@ -57,11 +72,18 @@ sqrt {n}.w, {n}.w
 lt {o}.w, l(0.000000), {c}.w
 movc {o}.w, {o}.w, {c}.w, l(1.000000)
 div {m}.y, {n}.w, {o}.w
-dp3 {n}.x, {g}.xyzx, l(-0.000242190, -0.000660840, 0.001368027, 0.000000)
-dp3 {n}.y, {g}.xyzx, l(-0.000872392, 0.001194643, 0.000422640, 0.000000)
-dp3 {n}.z, {g}.xyzx, l(-0.001243841, -0.000709213, -0.000562797, 0.000000)
+dp3 {n}.x, {w}.xyzx, l(-0.000242190, -0.000660840, 0.001368027, 0.000000)
+dp3 {n}.y, {w}.xyzx, l(-0.000872392, 0.001194643, 0.000422640, 0.000000)
+dp3 {n}.z, {w}.xyzx, l(-0.001243841, -0.000709213, -0.000562797, 0.000000)
+dp3 {o}.x, {d}.xyzx, l(-0.000242190, -0.000660840, 0.001368027, 0.000000)
+dp3 {o}.y, {d}.xyzx, l(-0.000872392, 0.001194643, 0.000422640, 0.000000)
+dp3 {o}.z, {d}.xyzx, l(-0.001243841, -0.000709213, -0.000562797, 0.000000)
+round_ni {p}.xyz, {o}.xyzx
+add {o}.xyz, {o}.xyzx, -{p}.xyzx
+add {n}.xyz, {n}.xyzx, {o}.xyzx
 round_ni {o}.xyz, {n}.xyzx
 add {n}.xyz, {n}.xyzx, -{o}.xyzx
+add {o}.xyz, {o}.xyzx, {p}.xyzx
 mad {p}.xyz, {n}.xyzx, l(-2.000000, -2.000000, -2.000000, 0.000000), l(3.000000, 3.000000, 3.000000, 0.000000)
 mul {r}.xyz, {n}.xyzx, {n}.xyzx
 mul {p}.xyz, {p}.xyzx, {r}.xyzx
@@ -107,11 +129,18 @@ add {j}.w, {j}.w, l(-0.500000)
 mad_sat {n}.x, {m}.y, l(-0.006153846), l(2.000000)
 mul {n}.x, {n}.x, l(1.200000)
 mad {m}.x, {j}.w, {n}.x, {m}.x
-dp3 {n}.x, {g}.xyzx, l(0.002040761, -0.001928961, 0.005168798, 0.000000)
-dp3 {n}.y, {g}.xyzx, l(0.001718910, 0.005459080, 0.001358627, 0.000000)
-dp3 {n}.z, {g}.xyzx, l(-0.005242396, 0.001039051, 0.002457586, 0.000000)
+dp3 {n}.x, {w}.xyzx, l(0.002040761, -0.001928961, 0.005168798, 0.000000)
+dp3 {n}.y, {w}.xyzx, l(0.001718910, 0.005459080, 0.001358627, 0.000000)
+dp3 {n}.z, {w}.xyzx, l(-0.005242396, 0.001039051, 0.002457586, 0.000000)
+dp3 {o}.x, {d}.xyzx, l(0.002040761, -0.001928961, 0.005168798, 0.000000)
+dp3 {o}.y, {d}.xyzx, l(0.001718910, 0.005459080, 0.001358627, 0.000000)
+dp3 {o}.z, {d}.xyzx, l(-0.005242396, 0.001039051, 0.002457586, 0.000000)
+round_ni {p}.xyz, {o}.xyzx
+add {o}.xyz, {o}.xyzx, -{p}.xyzx
+add {n}.xyz, {n}.xyzx, {o}.xyzx
 round_ni {o}.xyz, {n}.xyzx
 add {n}.xyz, {n}.xyzx, -{o}.xyzx
+add {o}.xyz, {o}.xyzx, {p}.xyzx
 mad {p}.xyz, {n}.xyzx, l(-2.000000, -2.000000, -2.000000, 0.000000), l(3.000000, 3.000000, 3.000000, 0.000000)
 mul {r}.xyz, {n}.xyzx, {n}.xyzx
 mul {p}.xyz, {p}.xyzx, {r}.xyzx
@@ -154,12 +183,19 @@ mad {u}.xy, {u}.xyxx, {p}.xxxx, {v}.xzxx
 add {u}.y, {u}.y, -{u}.x
 mad {j}.x, {u}.y, {p}.y, {u}.x
 add {j}.z, {j}.x, l(-0.500000)
-dp3 {n}.x, {g}.xyzx, l(-0.008860883, -0.009282467, 0.015340161, 0.000000)
-dp3 {n}.y, {g}.xyzx, l(0.015150750, 0.005274353, 0.011943031, 0.000000)
-dp3 {n}.z, {g}.xyzx, l(-0.009588511, 0.016912037, 0.004695046, 0.000000)
+dp3 {n}.x, {w}.xyzx, l(-0.008860883, -0.009282467, 0.015340161, 0.000000)
+dp3 {n}.y, {w}.xyzx, l(0.015150750, 0.005274353, 0.011943031, 0.000000)
+dp3 {n}.z, {w}.xyzx, l(-0.009588511, 0.016912037, 0.004695046, 0.000000)
+dp3 {o}.x, {d}.xyzx, l(-0.008860883, -0.009282467, 0.015340161, 0.000000)
+dp3 {o}.y, {d}.xyzx, l(0.015150750, 0.005274353, 0.011943031, 0.000000)
+dp3 {o}.z, {d}.xyzx, l(-0.009588511, 0.016912037, 0.004695046, 0.000000)
+round_ni {p}.xyz, {o}.xyzx
+add {o}.xyz, {o}.xyzx, -{p}.xyzx
+add {n}.xyz, {n}.xyzx, {o}.xyzx
 mad {n}.xyz, {j}.zzzz, l(1.200000, -0.800000, 0.600000, 0.000000), {n}.xyzx
 round_ni {o}.xyz, {n}.xyzx
 add {n}.xyz, {n}.xyzx, -{o}.xyzx
+add {o}.xyz, {o}.xyzx, {p}.xyzx
 mad {p}.xyz, {n}.xyzx, l(-2.000000, -2.000000, -2.000000, 0.000000), l(3.000000, 3.000000, 3.000000, 0.000000)
 mul {r}.xyz, {n}.xyzx, {n}.xyzx
 mul {p}.xyz, {p}.xyzx, {r}.xyzx
@@ -208,11 +244,6 @@ mad {m}.x, {j}.z, {n}.x, {m}.x
 mad_sat {n}.x, {m}.y, l(-0.080000000), l(2.000000)
 mul {n}.x, {n}.x, l(1.400000)
 mad {m}.x, {j}.y, {n}.x, {m}.x
-mul {d}.xyz, cb2[12].xyzx, l(-0.0009765625, -0.0009765625, -0.0009765625, 0.000000)
-round_ne {d}.xyz, {d}.xyzx
-mul {d}.xyz, {d}.xyzx, l(1024.000000, 1024.000000, 1024.000000, 0.000000)
-add {w}.xyz, -cb2[12].xyzx, -{d}.xyzx
-add {w}.xyz, {w}.xyzx, v3.xyzx
 dp3 {n}.x, {w}.xyzx, l(0.081791528, -0.008318472, 0.116829415, 0.000000)
 dp3 {n}.y, {w}.xyzx, l(0.103070266, 0.072793734, -0.066975786, 0.000000)
 dp3 {n}.z, {w}.xyzx, l(-0.009735459, 0.021461621, 0.008343840, 0.000000)
@@ -222,6 +253,7 @@ dp3 {o}.z, {d}.xyzx, l(-0.009735459, 0.021461621, 0.008343840, 0.000000)
 round_ni {p}.xyz, {o}.xyzx
 add {o}.xyz, {o}.xyzx, -{p}.xyzx
 add {n}.xyz, {n}.xyzx, {o}.xyzx
+mad {n}.xyz, {j}.yyyy, l(1.600000, -1.200000, 0.250000, 0.000000), {n}.xyzx
 round_ni {o}.xyz, {n}.xyzx
 add {n}.xyz, {n}.xyzx, -{o}.xyzx
 add {o}.xyz, {o}.xyzx, {p}.xyzx
@@ -266,6 +298,7 @@ add {u}.xy, {v}.ywyy, -{v}.xzxx
 mad {u}.xy, {u}.xyxx, {p}.xxxx, {v}.xzxx
 add {u}.y, {u}.y, -{u}.x
 mad {j}.x, {u}.y, {p}.y, {u}.x
+add {j}.x, {j}.x, l(-0.500000)
 dp3 {n}.x, {w}.xyzx, l(0.229016278, -0.023291722, 0.327122362, 0.000000)
 dp3 {n}.y, {w}.xyzx, l(0.288596745, 0.203822454, -0.187532200, 0.000000)
 dp3 {n}.z, {w}.xyzx, l(-0.027815596, 0.061318918, 0.023839542, 0.000000)
@@ -275,6 +308,7 @@ dp3 {o}.z, {d}.xyzx, l(-0.027815596, 0.061318918, 0.023839542, 0.000000)
 round_ni {p}.xyz, {o}.xyzx
 add {o}.xyz, {o}.xyzx, -{p}.xyzx
 add {n}.xyz, {n}.xyzx, {o}.xyzx
+mad {n}.xyz, {j}.xxxx, l(1.600000, -1.200000, 0.250000, 0.000000), {n}.xyzx
 round_ni {o}.xyz, {n}.xyzx
 add {n}.xyz, {n}.xyzx, -{o}.xyzx
 add {o}.xyz, {o}.xyzx, {p}.xyzx
@@ -319,7 +353,7 @@ add {u}.xy, {v}.ywyy, -{v}.xzxx
 mad {u}.xy, {u}.xyxx, {p}.xxxx, {v}.xzxx
 add {u}.y, {u}.y, -{u}.x
 mad {j}.y, {u}.y, {p}.y, {u}.x
-add {j}.xy, {j}.xyxx, l(-0.500000, -0.500000, 0.000000, 0.000000)
+add {j}.y, {j}.y, l(-0.500000)
 mad_sat {n}.x, {m}.y, l(-0.571428571), l(2.000000)
 mul {n}.x, {n}.x, l(2.800000)
 mad {m}.x, {j}.x, {n}.x, {m}.x
@@ -416,9 +450,17 @@ mad {f}.x, {w}.w, {p}.z, {f}.x
 mul {f}.y, {w}.z, {p}.y
 mad {f}.y, {w}.w, {p}.w, {f}.y
 mul {f}.xy, {f}.xyxx, -{w}.xxxx
-dp3 {w}.x, cb1[4].xyzx, {n}.xyzx
-dp3 {w}.y, cb1[4].xyzx, {o}.xyzx
-dp3 {w}.z, cb1[4].xyzx, {t}.xyzx
+dp3 {j}.w, cb11[42].xyzx, cb11[42].xyzx
+lt {j}.w, l(0.500000), {j}.w
+if_nz {j}.w
+  dp3 {w}.x, cb11[42].xyzx, {n}.xyzx
+  dp3 {w}.y, cb11[42].xyzx, {o}.xyzx
+  dp3 {w}.z, cb11[42].xyzx, {t}.xyzx
+else
+  dp3 {w}.x, cb1[4].xyzx, {n}.xyzx
+  dp3 {w}.y, cb1[4].xyzx, {o}.xyzx
+  dp3 {w}.z, cb1[4].xyzx, {t}.xyzx
+endif
 lt {j}.w, {u}.x, l(0.000000)
 movc {w}.z, {j}.w, -{w}.z, {w}.z
 sqrt {t}.x, {u}.y
@@ -2570,9 +2612,17 @@ if_nz {h}.w
 // EDCAS parallax: only where its height has a weight
 mul {u}.w, {r}.x, {r}.y
 mad {u}.w, -{r}.z, {r}.z, {u}.w
-dp3 {w}.x, cb1[4].xyzx, {n}.xyzx
-dp3 {w}.y, cb1[4].xyzx, {o}.xyzx
-dp3 {w}.z, cb1[4].xyzx, {t}.xyzx
+dp3 {j}.w, cb11[42].xyzx, cb11[42].xyzx
+lt {j}.w, l(0.500000), {j}.w
+if_nz {j}.w
+  dp3 {w}.x, cb11[42].xyzx, {n}.xyzx
+  dp3 {w}.y, cb11[42].xyzx, {o}.xyzx
+  dp3 {w}.z, cb11[42].xyzx, {t}.xyzx
+else
+  dp3 {w}.x, cb1[4].xyzx, {n}.xyzx
+  dp3 {w}.y, cb1[4].xyzx, {o}.xyzx
+  dp3 {w}.z, cb1[4].xyzx, {t}.xyzx
+endif
 lt {j}.w, {u}.x, l(0.000000)
 movc {w}.z, {j}.w, -{w}.z, {w}.z
 sqrt {t}.x, {u}.y
@@ -4166,14 +4216,26 @@ mad {h}.x, {t}.x, {w}.w, {h}.x
 mul {h}.y, {s}.x, {w}.w
 mad {h}.y, -{t}.x, {w}.z, {h}.y
 mad {w}.xy, {h}.xyxx, {u}.xxxx, {w}.xyxx
-sample_d_indexable(texture2darray)(float,float,float,float) {g}.xy, {q}.xyzx, t116.xyxx, s0, {f}.xyxx, {f}.zwzz
+dp2 {w}.z, {f}.xyxx, {f}.xyxx
+dp2 {w}.w, {f}.zwzz, {f}.zwzz
+max {w}.z, {w}.z, {w}.w
+sqrt {w}.z, {w}.z
+mul {w}.z, {w}.z, l(2.000000)
+mov {w}.w, l(0.000000)
+sample_d_indexable(texture2darray)(float,float,float,float) {g}.xy, {q}.xyzx, t116.xyxx, s0, {w}.zwzz, {w}.wzww
 mad {g}.xy, {g}.xyxx, l(3.011811, 3.011811, 0.000000, 0.000000), l(-1.511811, -1.511811, 0.000000, 0.000000)
 mul {h}.x, {s}.x, {g}.x
 mad {h}.x, {t}.x, {g}.y, {h}.x
 mul {h}.y, {s}.x, {g}.y
 mad {h}.y, -{t}.x, {g}.x, {h}.y
 mad {j}.xy, {h}.xyxx, {u}.xxxx, {j}.xyxx
-sample_d_indexable(texture2darray)(float,float,float,float) {g}.zw, {q}.xyzx, t117.xxxy, s0, {f}.xyxx, {f}.zwzz
+dp2 {g}.x, {f}.xyxx, {f}.xyxx
+dp2 {g}.y, {f}.zwzz, {f}.zwzz
+max {g}.x, {g}.x, {g}.y
+sqrt {g}.x, {g}.x
+mul {g}.x, {g}.x, l(2.000000)
+mov {g}.y, l(0.000000)
+sample_d_indexable(texture2darray)(float,float,float,float) {g}.zw, {q}.xyzx, t117.xxxy, s0, {g}.xyxx, {g}.yxyy
 mad {j}.z, {g}.z, {v}.x, {j}.z
 add {h}.x, {a}.z, -{n}.y
 add {h}.y, {a}.w, -{o}.y
@@ -4203,14 +4265,26 @@ mad {h}.x, {t}.y, {w}.w, {h}.x
 mul {h}.y, {s}.y, {w}.w
 mad {h}.y, -{t}.y, {w}.z, {h}.y
 mad {w}.xy, {h}.xyxx, {u}.yyyy, {w}.xyxx
-sample_d_indexable(texture2darray)(float,float,float,float) {g}.xy, {q}.xyzx, t116.xyxx, s0, {f}.xyxx, {f}.zwzz
+dp2 {w}.z, {f}.xyxx, {f}.xyxx
+dp2 {w}.w, {f}.zwzz, {f}.zwzz
+max {w}.z, {w}.z, {w}.w
+sqrt {w}.z, {w}.z
+mul {w}.z, {w}.z, l(2.000000)
+mov {w}.w, l(0.000000)
+sample_d_indexable(texture2darray)(float,float,float,float) {g}.xy, {q}.xyzx, t116.xyxx, s0, {w}.zwzz, {w}.wzww
 mad {g}.xy, {g}.xyxx, l(3.011811, 3.011811, 0.000000, 0.000000), l(-1.511811, -1.511811, 0.000000, 0.000000)
 mul {h}.x, {s}.y, {g}.x
 mad {h}.x, {t}.y, {g}.y, {h}.x
 mul {h}.y, {s}.y, {g}.y
 mad {h}.y, -{t}.y, {g}.x, {h}.y
 mad {j}.xy, {h}.xyxx, {u}.yyyy, {j}.xyxx
-sample_d_indexable(texture2darray)(float,float,float,float) {g}.zw, {q}.xyzx, t117.xxxy, s0, {f}.xyxx, {f}.zwzz
+dp2 {g}.x, {f}.xyxx, {f}.xyxx
+dp2 {g}.y, {f}.zwzz, {f}.zwzz
+max {g}.x, {g}.x, {g}.y
+sqrt {g}.x, {g}.x
+mul {g}.x, {g}.x, l(2.000000)
+mov {g}.y, l(0.000000)
+sample_d_indexable(texture2darray)(float,float,float,float) {g}.zw, {q}.xyzx, t117.xxxy, s0, {g}.xyxx, {g}.yxyy
 mad {j}.z, {g}.z, {v}.y, {j}.z
 add {h}.x, {a}.z, -{n}.z
 add {h}.y, {a}.w, -{o}.z
@@ -4240,14 +4314,26 @@ mad {h}.x, {t}.z, {w}.w, {h}.x
 mul {h}.y, {s}.z, {w}.w
 mad {h}.y, -{t}.z, {w}.z, {h}.y
 mad {w}.xy, {h}.xyxx, {u}.zzzz, {w}.xyxx
-sample_d_indexable(texture2darray)(float,float,float,float) {g}.xy, {q}.xyzx, t116.xyxx, s0, {f}.xyxx, {f}.zwzz
+dp2 {w}.z, {f}.xyxx, {f}.xyxx
+dp2 {w}.w, {f}.zwzz, {f}.zwzz
+max {w}.z, {w}.z, {w}.w
+sqrt {w}.z, {w}.z
+mul {w}.z, {w}.z, l(2.000000)
+mov {w}.w, l(0.000000)
+sample_d_indexable(texture2darray)(float,float,float,float) {g}.xy, {q}.xyzx, t116.xyxx, s0, {w}.zwzz, {w}.wzww
 mad {g}.xy, {g}.xyxx, l(3.011811, 3.011811, 0.000000, 0.000000), l(-1.511811, -1.511811, 0.000000, 0.000000)
 mul {h}.x, {s}.z, {g}.x
 mad {h}.x, {t}.z, {g}.y, {h}.x
 mul {h}.y, {s}.z, {g}.y
 mad {h}.y, -{t}.z, {g}.x, {h}.y
 mad {j}.xy, {h}.xyxx, {u}.zzzz, {j}.xyxx
-sample_d_indexable(texture2darray)(float,float,float,float) {g}.zw, {q}.xyzx, t117.xxxy, s0, {f}.xyxx, {f}.zwzz
+dp2 {g}.x, {f}.xyxx, {f}.xyxx
+dp2 {g}.y, {f}.zwzz, {f}.zwzz
+max {g}.x, {g}.x, {g}.y
+sqrt {g}.x, {g}.x
+mul {g}.x, {g}.x, l(2.000000)
+mov {g}.y, l(0.000000)
+sample_d_indexable(texture2darray)(float,float,float,float) {g}.zw, {q}.xyzx, t117.xxxy, s0, {g}.xyxx, {g}.yxyy
 mad {j}.z, {g}.z, {v}.z, {j}.z
 div {j}.w, cb2[0].x, {k}.w
 mul {j}.xy, {j}.xyxx, {j}.wwww
@@ -4346,6 +4432,7 @@ add {b}.x, {a}.z, {a}.y
 deriv_rtx_fine {b}.y, {b}.x
 deriv_rty_fine {b}.z, {b}.x
 add {b}.y, |{b}.y|, |{b}.z|
+mul {b}.y, {b}.y, l(2.000000)
 max {b}.y, {b}.y, l(0.000100)
 rcp {b}.y, {b}.y
 min {b}.y, {b}.y, l(20.000000)
@@ -4396,6 +4483,7 @@ add {j}.y, {j}.y, l(-0.500000)
 deriv_rtx_fine {j}.z, {j}.y
 deriv_rty_fine {j}.w, {j}.y
 add {j}.z, |{j}.z|, |{j}.w|
+mul {j}.z, {j}.z, l(2.000000)
 max {j}.z, {j}.z, l(0.000100)
 rcp {j}.z, {j}.z
 min {b}.w, {b}.w, {j}.z
@@ -4430,12 +4518,102 @@ mul {i}.zw, {i}.xyzw, {b}.xxxx
 mad_sat {b}.x, {v}.z, l(-2.500000000), l(2.000000)
 exp {w}.z, cb2[32].w
 div {w}.w, cb2[0].x, {w}.z
+mul {w}.xy, {w}.wwww, l(0.270270, 0.270270, 0.000000, 0.000000)
+round_ne {w}.xy, {w}.xyxx
+max {w}.xy, {w}.xyxx, l(1.000000, 1.000000, 0.000000, 0.000000)
+mul {n}.xy, {w}.xyxx, {w}.zzzz
+mov {o}.xy, v1.xyxx
+mul {n}.xy, {o}.xyxx, {n}.xyxx
+round_ni {o}.xy, {n}.xyxx
+add {n}.xy, {n}.xyxx, -{o}.xyxx
+div {u}.xy, {o}.xyxx, {w}.xyxx
+round_ni {u}.xy, {u}.xyxx
+mad {p}.xy, -{u}.xyxx, {w}.xyxx, {o}.xyxx
+add {r}.xy, {o}.xyxx, l(1.000000, 1.000000, 0.000000, 0.000000)
+div {u}.xy, {r}.xyxx, {w}.xyxx
+round_ni {u}.xy, {u}.xyxx
+mad {r}.xy, -{u}.xyxx, {w}.xyxx, {r}.xyxx
+ftoi {p}.xy, {p}.xyxx
+ftoi {r}.xy, {r}.xyxx
+mov {s}.xz, {p}.xxxx
+mov {s}.yw, {r}.xxxx
+mov {t}.xy, {p}.yyyy
+mov {t}.zw, {r}.yyyy
+imul null, {s}.xyzw, {s}.xyzw, l(0x8da6b343, 0x8da6b343, 0x8da6b343, 0x8da6b343)
+imul null, {t}.xyzw, {t}.xyzw, l(0xd8163841, 0xd8163841, 0xd8163841, 0xd8163841)
+xor {s}.xyzw, {s}.xyzw, {t}.xyzw
+iadd {s}.xyzw, {s}.xyzw, l(0x51a7c3e9, 0x51a7c3e9, 0x51a7c3e9, 0x51a7c3e9)
+ushr {h}.xyzw, {s}.xyzw, l(16, 16, 16, 16)
+xor {s}.xyzw, {s}.xyzw, {h}.xyzw
+imul null, {s}.xyzw, {s}.xyzw, l(0x7feb352d, 0x7feb352d, 0x7feb352d, 0x7feb352d)
+ushr {h}.xyzw, {s}.xyzw, l(15, 15, 15, 15)
+xor {s}.xyzw, {s}.xyzw, {h}.xyzw
+imul null, {s}.xyzw, {s}.xyzw, l(0x846ca68b, 0x846ca68b, 0x846ca68b, 0x846ca68b)
+ushr {h}.xyzw, {s}.xyzw, l(16, 16, 16, 16)
+xor {s}.xyzw, {s}.xyzw, {h}.xyzw
+utof {s}.xyzw, {s}.xyzw
+mul {s}.xyzw, {s}.xyzw, l(2.328306437E-10, 2.328306437E-10, 2.328306437E-10, 2.328306437E-10)
+mad {u}.xy, {n}.xyxx, l(-2.000000, -2.000000, 0.000000, 0.000000), l(3.000000, 3.000000, 0.000000, 0.000000)
+mul {t}.xy, {n}.xyxx, {n}.xyxx
+mul {u}.xy, {u}.xyxx, {t}.xyxx
+add {t}.xy, {s}.ywyy, -{s}.xzxx
+mad {t}.xy, {t}.xyxx, {u}.xxxx, {s}.xzxx
+add {t}.y, {t}.y, -{t}.x
+mad {j}.z, {t}.y, {u}.y, {t}.x
+exp {w}.z, cb2[32].w
+div {w}.w, cb2[0].x, {w}.z
+mul {w}.xy, {w}.wwww, l(0.270270, 0.270270, 0.000000, 0.000000)
+round_ne {w}.xy, {w}.xyxx
+max {w}.xy, {w}.xyxx, l(1.000000, 1.000000, 0.000000, 0.000000)
+mul {n}.xy, {w}.xyxx, {w}.zzzz
+mov {o}.xy, v1.xyxx
+mul {n}.xy, {o}.xyxx, {n}.xyxx
+round_ni {o}.xy, {n}.xyxx
+add {n}.xy, {n}.xyxx, -{o}.xyxx
+div {u}.xy, {o}.xyxx, {w}.xyxx
+round_ni {u}.xy, {u}.xyxx
+mad {p}.xy, -{u}.xyxx, {w}.xyxx, {o}.xyxx
+add {r}.xy, {o}.xyxx, l(1.000000, 1.000000, 0.000000, 0.000000)
+div {u}.xy, {r}.xyxx, {w}.xyxx
+round_ni {u}.xy, {u}.xyxx
+mad {r}.xy, -{u}.xyxx, {w}.xyxx, {r}.xyxx
+ftoi {p}.xy, {p}.xyxx
+ftoi {r}.xy, {r}.xyxx
+mov {s}.xz, {p}.xxxx
+mov {s}.yw, {r}.xxxx
+mov {t}.xy, {p}.yyyy
+mov {t}.zw, {r}.yyyy
+imul null, {s}.xyzw, {s}.xyzw, l(0x8da6b343, 0x8da6b343, 0x8da6b343, 0x8da6b343)
+imul null, {t}.xyzw, {t}.xyzw, l(0xd8163841, 0xd8163841, 0xd8163841, 0xd8163841)
+xor {s}.xyzw, {s}.xyzw, {t}.xyzw
+iadd {s}.xyzw, {s}.xyzw, l(0x2f6b8d15, 0x2f6b8d15, 0x2f6b8d15, 0x2f6b8d15)
+ushr {h}.xyzw, {s}.xyzw, l(16, 16, 16, 16)
+xor {s}.xyzw, {s}.xyzw, {h}.xyzw
+imul null, {s}.xyzw, {s}.xyzw, l(0x7feb352d, 0x7feb352d, 0x7feb352d, 0x7feb352d)
+ushr {h}.xyzw, {s}.xyzw, l(15, 15, 15, 15)
+xor {s}.xyzw, {s}.xyzw, {h}.xyzw
+imul null, {s}.xyzw, {s}.xyzw, l(0x846ca68b, 0x846ca68b, 0x846ca68b, 0x846ca68b)
+ushr {h}.xyzw, {s}.xyzw, l(16, 16, 16, 16)
+xor {s}.xyzw, {s}.xyzw, {h}.xyzw
+utof {s}.xyzw, {s}.xyzw
+mul {s}.xyzw, {s}.xyzw, l(2.328306437E-10, 2.328306437E-10, 2.328306437E-10, 2.328306437E-10)
+mad {u}.xy, {n}.xyxx, l(-2.000000, -2.000000, 0.000000, 0.000000), l(3.000000, 3.000000, 0.000000, 0.000000)
+mul {t}.xy, {n}.xyxx, {n}.xyxx
+mul {u}.xy, {u}.xyxx, {t}.xyxx
+add {t}.xy, {s}.ywyy, -{s}.xzxx
+mad {t}.xy, {t}.xyxx, {u}.xxxx, {s}.xzxx
+add {t}.y, {t}.y, -{t}.x
+mad {j}.w, {t}.y, {u}.y, {t}.x
+mad {j}.zw, {j}.zzzw, l(0.000000, 0.000000, 1.200000, 1.200000), l(0.000000, 0.000000, -0.600000, -0.600000)
+exp {w}.z, cb2[32].w
+div {w}.w, cb2[0].x, {w}.z
 mul {w}.xy, {w}.wwww, l(0.625000, 0.625000, 0.000000, 0.000000)
 round_ne {w}.xy, {w}.xyxx
 max {w}.xy, {w}.xyxx, l(1.000000, 1.000000, 0.000000, 0.000000)
 mul {n}.xy, {w}.xyxx, {w}.zzzz
 mov {o}.xy, v1.xyxx
 mul {n}.xy, {o}.xyxx, {n}.xyxx
+add {n}.xy, {n}.xyxx, {j}.zwzz
 round_ni {o}.xy, {n}.xyxx
 add {n}.xy, {n}.xyxx, -{o}.xyxx
 div {u}.xy, {o}.xyxx, {w}.xyxx

@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 
 use edcas_common::api::CommodityResponse;
-use ratatui::style::{Color, Modifier, Style};
+use crate::text::{Color, Style};
 
 use crate::journal_reader::JournalData;
 use crate::todo::ModKind;
@@ -13,11 +13,11 @@ use crate::todo::ModKind;
 pub(super) fn status_style(msg: &str) -> Style {
     let lower = msg.to_lowercase();
     if lower.starts_with("loading") || lower.starts_with("searching") {
-        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+        Style::default().fg(Color::Cyan).bold()
     } else if lower.contains("error") || lower.contains("unavailable") || lower.contains("no results")
         || lower.contains("not found") || lower.contains("no ") && lower.contains("data yet")
     {
-        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
+        Style::default().fg(Color::Red).bold()
     } else {
         Style::default().fg(Color::DarkGray)
     }

@@ -34,7 +34,11 @@
 //   x501, y501 the layer's base over the ground (the radius w507) and the slab's thickness, metres
 //        (EDCAS works them out in scale heights; 0 = placed by z503 and z505 in the shell as before)
 //   z501 the wind the clouds drift with, m/s (0 = still, as before 0.43.124); z515 is the clock
-//   x502 how strongly the air reddens a low sun, by its column mass (0 = 1, Earth's (1, 0.55, 0.35))
+//   x502 how strongly the air reddens a low sun, by its column mass (0 = 1, Earth's (1, 0.55, 0.35)):
+//        only without row 550
+//   x550 y550 z550 the air's Rayleigh optical depth straight up from the ground in red, green and blue
+//        (airTint: the sunlight's filter by the height of the point and the sun over it; 0 = lowSunTint)
+//   w550 the methane over the ground, km-amagat (methaneTint, its absorption in the red; 0 = none)
 //   y502 the air's scale height in metres (0 = unknown: every layer darkens after sunset as a low one)
 //   w501 how strongly the cover follows the local time (0 = not at all, as before 0.43.125; 1 = 1.43
 //        times x503 at the terminator and on the night side, 0.57 times under the sun)
@@ -60,15 +64,30 @@
 #define MAX_STEPS 32
 #endif
 
-cbuffer cb1 : register(b1)
+// The sky pass's constants and its depth buffer are where that pass has them. A pass of ours that runs
+// on another of Elite's draws, whose own textures and constants must stay as they are, names slots of
+// its own before it includes this file (edcas_cloud_shade.hlsl: the sun pass).
+#ifndef EDCAS_CB1_SLOT
+#define EDCAS_CB1_SLOT b1
+#endif
+#ifndef EDCAS_DEPTH_SLOT
+#define EDCAS_DEPTH_SLOT t0
+#endif
+
+cbuffer cb1 : register(EDCAS_CB1_SLOT)
 {
 	float4 cb1[334];
 }
 
 
-Texture2D<float4> Depth : register(t0);
+Texture2D<float4> Depth : register(EDCAS_DEPTH_SLOT);
 Texture2D<float4> DepthAlt : register(t4);
 Texture1D<float4> IniParams : register(t120);
+// Elite's own shadow of the sun, a copy of the sun pass's t3 (edcas.ini [CommandListEdcasSunset]): 1 where
+// the sun reaches what a pixel shows, 0 where Elite's shadow maps keep it off, the edges soft between.
+// The sun pass multiplies the sun's colour by it and by nothing else (README-ELITE.md, "Constants of the
+// sun pass"). For the ground probe (edcas_ground_grid.hlsl), and through it the fog's light (edcas_fog.hlsl).
+Texture2D<float> SunShade : register(t113);
 
 // Elite draws the atmosphere pass several times a frame, each draw over a band of view directions
 // with a soft edge (cb1[25].w == 3; the weight below is the pass's own, from its first lines):
@@ -216,6 +235,109 @@ float3 lowSunTint(float day, float3 red)
 	float strength = IniParams.Load(int2(502, 0)).x;
 	strength = strength > 0 ? saturate(strength) : 1;
 	return lerp(lerp(float3(1, 1, 1), red, strength), float3(1, 1, 1), saturate(day * 3));
+}
+
+// ---- The sunlight through the air (client 0.43.224) ----
+//
+// What the air leaves of the star's light on its way to a point, per colour: exp(-tau), tau the air's
+// Rayleigh optical depth along the way to the sun. It replaces lowSunTint wherever EDCAS has the numbers
+// (row 550, the scale height y502, the radius w507): that one blended towards a fixed orange under 19
+// degrees, whatever the height of the point.
+//
+// Row 550 x y z: the optical depth of the whole air straight up from the ground, in red (610 nm), green
+// (550 nm) and blue (465 nm), from EDCAS: Earth's (0.0637, 0.0971, 0.193; Bodhaine et al. 1999, "On
+// Rayleigh optical depth calculations", table 3) times the planet's count of molecules over a square
+// metre against Earth's and each gas's scattering against air's (planet_clouds.rs `rayleigh`). At a
+// height h there is exp(-h / H) of it overhead (H the scale height y502).
+//
+// The slant: chapmanColumn, the air along the ray to the sun over the air straight up from the ground
+// (Chapman's function times exp(-h / H)), as the haze has it: 1 at the zenith from the ground,
+// sqrt(pi x / 2) at the horizon (x the point's radius in scale heights: 26 on a 3 578 km planet with
+// H = 8 km, 34 on Earth), within 2 % of the integral. With the sun under the point's horizontal, as a
+// high cloud sees it after the ground's sunset, the ray dips towards the ground and comes back up:
+// twice the horizon's air of its lowest point less the stretch behind the point, which is exact (Ch(x,
+// chi) = 2 exp(x - x sin chi) Ch(x sin chi, 90) - Ch(x, 180 - chi)). That is the red of the last light on
+// a high cloud, by the air's own numbers. The planet's own shadow is sunlightAt's.
+
+// exp(z^2) erfc(z) for z >= 0: a rational fit with the function's value, slope and curvature at 0
+// (1, -2 / sqrt(pi), 2) and its fall as 1 / (sqrt(pi) z) far out, within 2.5 % between. The slope and
+// the curvature at 0 are what make the column run smoothly through a level ray and through a ray that
+// only just touches the haze's ground level.
+float erfcx(float z)
+{
+	return (1 + 0.42424 * z) / (1 + 1.55262 * z + 0.75195 * z * z);
+}
+
+// The column from a point at height h (scale heights) over a ground of radius X (scale heights) to
+// infinity along a ray at the cosine c to the point's zenith, in vertical columns from the ground.
+float chapmanColumn(float X, float h, float c)
+{
+	float x = X + h;
+	if (c >= 0)
+		return sqrt(1.5707963 * x) * erfcx(c * sqrt(0.5 * x)) * exp(-h);
+	// Falling: twice the column from the ray's lowest point (level there), less the column upwards
+	// behind the point.
+	float x0 = sqrt(max(1 - c * c, 0)) * x;
+	// (Held under a float's largest: far under the horizon the difference is past any light anyway.)
+	return 2 * sqrt(1.5707963 * x0) * exp(min(X - x0, 80)) - sqrt(1.5707963 * x) * erfcx(-c * sqrt(0.5 * x)) * exp(-h);
+}
+
+// Methane's absorption (client 0.43.225): its bands at 543, 576, 619, 666 and 727 nm take red first, then
+// green; blue stays (Karkoschka 1998, Icarus 133, 134: the coefficients of PDS ESO-J/S/N/U-SPECTROPHOTOMETER-4-V2.0,
+// 1995low.tab, 1 nm resolution, the giant planets' temperature). A colour channel's share of a sun-like star's
+// light (5778 K, through the CIE 1931 observer to linear sRGB) left after a column of u km-amagat is not
+// exp(-k u) for any one k: the narrow bands saturate while the light between them passes. So it is a sum of
+// exponentials fitted to the spectrum's own sum over u from 0.01 to 1000 km-am, within 0.4 % in red, 0.13 % in
+// green and 1.5 % in blue (`ed-captures/cloud-shadow/methane_fit.py`); the last weight never goes. 3000 K and
+// 9000 K stars differ from it by under 3 % at 10 km-am. Titan's column, 2.86 km-am (Tokano et al. 2006),
+// leaves (0.80, 0.96, 1) of the light straight down and (0.21, 0.54, 0.91) along its horizon.
+float3 methaneTint(float u)
+{
+	float r = 0.29670 * exp(-0.00883 * u) + 0.46629 * exp(-0.03761 * u) + 0.21383 * exp(-0.40863 * u) + 0.02318;
+	float g = 0.49346 * exp(-0.00273 * u) + 0.32284 * exp(-0.01307 * u) + 0.16721 * exp(-0.06431 * u) + 0.01649;
+	float b = 0.55061 * exp(-0.00129 * u) + 0.44939;
+	return float3(r, g, b);
+}
+
+// The air's numbers for airTintOf, read once (a march reads them before its loop).
+struct AirColumn {
+	float3 depth;      // row 550: the vertical optical depth at the ground, red, green, blue
+	float methane;     // w550: the methane over the ground, km-amagat
+	float scaleHeight; // y502, metres
+	float radiusM;     // w507
+};
+
+AirColumn loadAirColumn()
+{
+	AirColumn a;
+	float4 row = IniParams.Load(int2(550, 0));
+	a.depth = row.xyz;
+	a.methane = max(row.w, 0);
+	a.scaleHeight = IniParams.Load(int2(502, 0)).y;
+	a.radiusM = IniParams.Load(int2(507, 0)).w;
+	return a;
+}
+
+// The sunlight's colour and strength at a point heightM over the ground's radius where the sun stands
+// at `day` (the sine of its height there): the air's own filter, or, without the numbers (a client
+// before 0.43.224, an unknown gravity), lowSunTint towards `red` as before.
+float3 airTintOf(AirColumn a, float day, float heightM, float3 red)
+{
+	float3 tint = lowSunTint(day, red);
+	if (a.depth.x + a.depth.y + a.depth.z + a.methane > 0 && a.scaleHeight > 0 && a.radiusM > 0) {
+		// The air on the way to the sun over the air straight up from the ground: the same for every gas
+		// mixed through it, so the methane's column goes the same way as the scattering's.
+		float column = max(chapmanColumn(a.radiusM / a.scaleHeight, max(heightM, 0) / a.scaleHeight, day), 0);
+		tint = exp(-a.depth * column);
+		if (a.methane > 0)
+			tint *= methaneTint(a.methane * column);
+	}
+	return tint;
+}
+
+float3 airTint(float day, float heightM, float3 red)
+{
+	return airTintOf(loadAirColumn(), day, heightM, red);
 }
 
 // The sunlight at a point with the sun at day (the sine of its height there) and the planet's
@@ -709,6 +831,78 @@ float slabAt(float3 p, out float sigma)
 	return density;
 }
 
+// ---- The slab's shadow on what lies under it (client 0.43.224) ----
+//
+// The share of the direct sunlight the slab takes from a point p (the planet's frame, atmosphere radii)
+// with the sun towards `sun`: 1 - exp(-tau'), tau' the slab's optical depth along the way to the sun.
+// 0 above the slab's top, with no slab and with no cloud on that way.
+//
+// tau is summed over SHADOW_TAPS samples of the march's own extinction (x504 is the alpha of a vertical
+// path at density 1) along the ray's stretch between the slab's two spheres: with the sun 12 degrees up
+// that stretch is 4.7 times the slab's thickness, so a cloud the camera sees through from above shades
+// the ground under it well. The density is the cheap one of the march's own sun taps (slabDensityShadow:
+// two octaves at most, by what the taps' spacing resolves; no erosion): a shadow is soft anyway, the
+// sun's half degree alone blurs it over 175 m from 20 km up.
+//
+// tau' = (1 - SHADOW_FORWARD) tau: light a crystal scatters by a few degrees still falls on the ground
+// under the cloud, as good as unscattered (the delta scaling of the two-stream methods: Joseph, Wiscombe
+// and Weinman 1976, "The delta-Eddington approximation for radiative flux transfer", f = the phase
+// function's second moment). For the march's two lobes (0.7 at g 0.75, 0.3 at g -0.2) that is
+// 0.7 * 0.75^2 + 0.3 * 0.2^2 = 0.41. Without it a thin veil's shadow came out as dark as a thundercloud's:
+// 31 % of the sun left under a cloud of optical depth 0.25 with the sun 12 degrees up, where 50 % is.
+#define SHADOW_TAPS 4
+#define SHADOW_FORWARD 0.41
+float slabShadow(float3 p, float3 sun)
+{
+	float4 params = IniParams.Load(int2(503, 0));
+	float opacity = IniParams.Load(int2(504, 0)).x;
+	if (params.x <= 0 || opacity <= 0 || IniParams.Load(int2(505, 0)).z <= 0)
+		return 0;
+	Slab slab = loadSlab();
+	float cb = dot(p, sun), cc = dot(p, p);
+	if (cc >= slab.top * slab.top)
+		return 0;
+	// From inside the top sphere the ray leaves it once, at t1; from under the slab it enters the slab
+	// where it leaves the bottom sphere.
+	float t1 = -cb + sqrt(max(cb * cb - (cc - slab.top * slab.top), 0));
+	float t0 = 0;
+	if (cc < slab.bottom * slab.bottom)
+		t0 = -cb + sqrt(max(cb * cb - (cc - slab.bottom * slab.bottom), 0));
+	float len = t1 - t0;
+	if (len <= 0)
+		return 0;
+	float sigma = -log(1 - min(opacity, 0.999)) / slab.span;
+	if (slab.smooth > 0)
+		sigma /= pow(SMOOTH_THIN, slab.smooth);
+	float lod = clamp(1 + log2(1 / max(2 * len / SHADOW_TAPS * slab.k, 1e-6)), 1, 2);
+	float tau = 0;
+	[unroll] for (int i = 0; i < SHADOW_TAPS; i++) {
+		float3 ps = p + sun * (t0 + len * (i + 0.5) / SHADOW_TAPS);
+		float r = length(ps);
+		float h = (r - slab.bottom) / slab.span;
+		// A ray that starts inside the slab and dips under its base (a low sun seen from a mountain in
+		// the cloud) has samples under it: empty.
+		if (h <= 0 || h >= 1)
+			continue;
+		float3 up = ps / r;
+		float3 atPlain = cloudCoord(ps, slab.k, slab.shellN, slab.squeeze, 0);
+		float3 warp = slabWarp(atPlain, up);
+		float day = dot(up, sun);
+		float threshold = slabThreshold(slab, day);
+		if (slab.wave > 0)
+			threshold -= waveLift(slab.wave, ps.x / r * slab.shellN * slab.k, slab.driftU, warp.x * 0.375, 0, threshold, WAVE_KEEP_SLAB);
+		if (slab.cells > 0 || slab.rows > 0)
+			threshold -= deckLift(slab, up, warp, day, 0, threshold);
+		if (slab.smooth > 0)
+			threshold -= 0.3 * smoothSpread(slab, day);
+		tau += slabDensityShadow(atPlain + warp, h, threshold, lod);
+	}
+	if (slab.droplets > 0)
+		tau *= 1 - DROPLET_KEEP * slab.droplets;
+	tau *= sigma * len / SHADOW_TAPS * (1 - SHADOW_FORWARD);
+	return 1 - exp(-tau);
+}
+
 // The view ray of a pixel in the planet's frame (atmosphere radii, the camera at cb1[3]) and how
 // far along it the depth buffer has something drawn (the ground, a ship): -1 for nothing. As
 // main works it out; for the fog and the ground probe (edcas_fog.hlsl, edcas_ground_grid.hlsl).
@@ -721,7 +915,14 @@ float viewRay(float3 v0, float3 v1, out float3 dir, out int2 pixel)
 		DepthAlt.GetDimensions(width, height);
 	else
 		Depth.GetDimensions(width, height);
-	pixel = int2(min(uv * float2(width, height), float2(width - 1, height - 1)));
+	// A quarter of a pixel on: the pass's buffer is half the depth's size, so a texel's middle lies on
+	// the line between two of the depth's pixels, and which of the two a float's rounding gave changed
+	// from texel to texel along winding lines all over the picture (12 % of the texels of
+	// `ed_frame60273.rdc`). The pixel itself was as good either way, but the step from one texel's
+	// pixel to the next (the dust's `pixelsPerTexel`) was 1 or 3 there, not 2, and every pixel the dust
+	// reads round its own (the light on the ground, the terrain's plane) was looked for along a ray
+	// half or half again as far out as it lies.
+	pixel = int2(min(uv * float2(width, height) + 0.25, float2(width - 1, height - 1)));
 	float depth = alt ? DepthAlt.Load(int3(pixel, 0)).x : Depth.Load(int3(pixel, 0)).x;
 	dir = normalize(float3(dot(cb1[19].xyz, v1), dot(cb1[20].xyz, v1), dot(cb1[21].xyz, v1)));
 	// The pass's own surface, the atmosphere's shell: the clip w of the dome's vertex, or, run over
@@ -739,14 +940,36 @@ float viewRay(float3 v0, float3 v1, out float3 dir, out int2 pixel)
 	}
 	if (depth >= own)
 		return -1;
-	float4 view = float4(v1 / dot(v1, cb1[279].xyz) * depth, 1);
-	float3 hit = float3(dot(cb1[19], view), dot(cb1[20], view), dot(cb1[21], view));
-	return length(hit - cb1[3].xyz);
+	// The ray's own length, by the rows' scale: not the hit turned into the planet's frame minus the
+	// camera's place there. Both are numbers near 1 in atmosphere radii, which a float holds to 0.2 m
+	// on a 3,578 km planet, so that distance was off by up to as much, in blocks over the picture
+	// that shift as the camera moves: the dust's streamers, some centimetres wide, were drawn as
+	// chains of offset blocks (the owner's clip of 2026-11-17, 16:03: "pixelated stripes which move
+	// with the camera"; `ed_frame29156.rdc`: beaded streamers, smooth lines with this).
+	return length(v1 / dot(v1, cb1[279].xyz) * depth) * length(cb1[19].xyz);
 }
 
 // A pixel's view ray as viewRay gives it. The frame's one cloud pass (edcas_clouds_final.hlsl) works it out
 // once and hands it to each of its layers: each used to call viewRay itself, six copies in the compiled
 // pass, 0.013 ms apiece on ed_frame66376 (2026-11-12, client 0.43.145).
+// The sun's share on what the depth buffer's `pixel` shows, by Elite's shadow (SunShade): 1 in the sun,
+// 0 in shadow; -1 where there is none to be had (the texture not bound: an older edcas.ini, a frame
+// without the sun pass). The texture is the picture's size, as the depth buffer; were it not, the
+// pixel is taken at the same place of it.
+float sunShade(int2 pixel)
+{
+	uint width, height, depthWidth, depthHeight;
+	SunShade.GetDimensions(width, height);
+	if (width == 0)
+		return -1;
+	if (asint(cb1[25].w) == 1)
+		DepthAlt.GetDimensions(depthWidth, depthHeight);
+	else
+		Depth.GetDimensions(depthWidth, depthHeight);
+	float2 at = (float2(pixel) + 0.5) * float2(width, height) / float2(depthWidth, depthHeight);
+	return SunShade.Load(int3(clamp(int2(at), 0, int2(width, height) - 1), 0));
+}
+
 struct Ray
 {
 	float3 dir;    // in the planet's frame
@@ -871,10 +1094,28 @@ void CLOUDS_MAIN(float3 v0, float3 v1, float3 v2, float3 v3, Ray ray, out float4
 		float cameraR = sqrt(cc);
 		float elevation5 = dot(dir, p0 / cameraR);
 		float fade5 = 1;
-		if (cameraR < bottom)
-			fade5 = smoothstep(-0.05, 0.15, elevation5);
-		else if (cameraR > slabTop)
-			fade5 = smoothstep(0.02, 0.2, -dot(dir, normalize(p0 + dir * t0)));
+		if (cameraR < bottom) {
+			// From below, by the ray's elevation, but only where the way up to the slab's base is long,
+			// as from above (client 0.43.226). By the elevation alone the clouds over the horizon came
+			// on all at once as the camera rose into the slab: a metre under its base those rays are
+			// faded, a metre over it they are inside, unfaded (`ed_frame62725.rdc` with the base moved
+			// to 2 m over the camera and to 2 m under it: up to 41 of 255 on 7.4 % of the picture, the
+			// band over the horizon). Near the base every ray reaches it within a few kilometres.
+			float far = smoothstep(1, 3, t0 / max(1 - rPlanet, 1e-6));
+			fade5 = lerp(1, smoothstep(-0.05, 0.15, elevation5), far);
+		} else if (cameraR > slabTop) {
+			// Only where that stretch is long: by the way to the slab's top in atmosphere depths
+			// (cb1[31]'s shell, 102 to 125 km on the bodies measured), none within one, in full from
+			// three (client 0.43.223). By the angle alone the clouds went out as the camera rose
+			// through the slab's top: a metre above it every ray towards the horizon grazes the top,
+			// a metre below it the same rays are inside and not faded (`ed_frame52891.rdc`, the
+			// camera at 0.9799999 atmosphere radii, the top at 0.98: a bright bank over the horizon;
+			// `ed_frame62725.rdc`, at 0.9800002: none; in a replay of the second with the top 2 m
+			// higher the bank is back, and so it is with this fade off). The one and three are not
+			// measured: Elite's own haze, which this stands for, is not known here.
+			float far = smoothstep(1, 3, t0 / max(1 - rPlanet, 1e-6));
+			fade5 = lerp(1, smoothstep(0.02, 0.2, -dot(dir, normalize(p0 + dir * t0))), far);
+		}
 		if (fade5 <= 0)
 			DISCARD;
 
@@ -937,6 +1178,7 @@ void CLOUDS_MAIN(float3 v0, float3 v1, float3 v2, float3 v3, Ray ray, out float4
 		float jitter = bayerJitter(uint2(pixel.xy));
 #endif
 
+		AirColumn air = loadAirColumn();
 		float3 col = 0;
 		float T = 1;
 		float dayWeighed = 0;  // the sun's height where the cloud is seen, weighed as the colour (iridescence)
@@ -1002,7 +1244,7 @@ void CLOUDS_MAIN(float3 v0, float3 v1, float3 v2, float3 v3, Ray ray, out float4
 			// The same day / horizon logic as the shell, at this sample's own up and radius.
 			float sky;
 			float light = sunlightAt(day, rPlanet / r, twilightPower((r - slab.groundN) * cb1[31].w * 1000), sky);
-			float3 tint = lowSunTint(day, float3(1.0, 0.55, 0.35));
+			float3 tint = airTintOf(air, day, (r - slab.groundN) * cb1[31].w * 1000, float3(1.0, 0.55, 0.35));
 
 			// Sunlight left after the cloud between this sample and the sun: a few steps, longer
 			// and longer, with a cheaper density.
@@ -1084,7 +1326,7 @@ void CLOUDS_MAIN(float3 v0, float3 v1, float3 v2, float3 v3, Ray ray, out float4
 					float skyT;
 					float lightT = sunlightAt(dayT, rPlanet / r, twilightPower((r - slab.groundN) * cb1[31].w * 1000), skyT);
 					float sunlitT = exp(-sigma * head * span * 0.5);
-					float3 radianceT = sunColour * (0.5 * brightness) * (sunlitT * lightT * phase + 0.25 * skyT * 0.4) * lowSunTint(dayT, float3(1.0, 0.55, 0.35));
+					float3 radianceT = sunColour * (0.5 * brightness) * (sunlitT * lightT * phase + 0.25 * skyT * 0.4) * airTintOf(air, dayT, (r - slab.groundN) * cb1[31].w * 1000, float3(1.0, 0.55, 0.35));
 					float alphaT = 1 - exp(-sigma * tailDensity * dtT);
 					colTail += tTail * alphaT * radianceT;
 					tTail *= 1 - alphaT;
@@ -1186,7 +1428,7 @@ void CLOUDS_MAIN(float3 v0, float3 v1, float3 v2, float3 v3, Ray ray, out float4
 	float day = dot(up, sun);
 	float sky;
 	float light = sunlightAt(day, planet / shell, twilightPower(shell * 1000 - IniParams.Load(int2(507, 0)).w), sky);
-	float3 tint = lowSunTint(day, float3(1.0, 0.55, 0.35));
+	float3 tint = airTint(day, shell * 1000 - IniParams.Load(int2(507, 0)).w, float3(1.0, 0.55, 0.35));
 	// A second sample a little towards the sun darkens the sides facing away from it.
 	float shade = 1 - 0.6 * saturate(fbmD(at + sun * 0.4, 5, 1) - f + 0.1);
 
@@ -1292,7 +1534,7 @@ float4 highClouds(float3 v0, float3 v1, Ray ray, out bool inFront)
 
 	float sky;
 	float light = sunlightAt(day, rPlanet / shellN, twilightPower(max(p21.y, 0)), sky);
-	float3 tint = lowSunTint(day, float3(1.0, 0.55, 0.35));
+	float3 tint = airTint(day, p21.y, float3(1.0, 0.55, 0.35));
 	float cosSun = dot(dir, sun);
 	float hg = 0.7 * (1 - 0.75 * 0.75) / pow(max(1 + 0.75 * 0.75 - 2 * 0.75 * cosSun, 1e-4), 1.5)
 	         + 0.3 * (1 - 0.04) / pow(max(1 + 0.04 + 2 * 0.2 * cosSun, 1e-4), 1.5);
@@ -1318,24 +1560,81 @@ float4 highClouds(float3 v0, float3 v1, Ray ray, out bool inFront)
 // ground (0 = none), y522 the scale height (m), z522 the ground's radius (m), w522 how blue it turns
 // in forward scatter (tholins at the limb, §5.2); x528 y528 z528 its colour. The optical depth along
 // a view ray is closed-form (no march): an exponential atmosphere's column from a point to infinity is
-// its vertical column there times the Chapman function, here Schüler's approximation (GPU Pro 3,
-// 2012), exact to a few per cent above some 5 scale heights of radius. A ray that ends on the ground
-// is taken from the ground back to the camera, upwards, where the approximation is stable (downwards
-// it is a difference of two terms of exp(R / H)).
+// its vertical column there times the Chapman function, here in its form for a radius of many scale
+// heights, sqrt(pi x / 2) erfcx(cos sqrt(x / 2)) (x the point's radius in scale heights, erfcx(z) =
+// exp(z^2) erfc(z)): within 2 % of a numeric integral from the zenith to the horizon on a body of 400
+// scale heights of radius. A ray that ends on the ground is taken from the ground back to the camera,
+// upwards, where the function is stable (downwards it is a difference of two terms of exp(R / H)).
+// Until client 0.43.200 it was sqrt(x) / (sqrt(x) cos + 1), after Schüler (GPU Pro 3, 2012): a
+// fifth too little along the horizon, where the haze shows most, and so not of a piece with the
+// stretches taken by their length (hazeColumn).
 
-// The column from a point at height h (scale heights) over a ground of radius X (scale heights) to
-// infinity along a ray at the cosine c to the point's zenith, in vertical columns from the ground.
-float chapmanColumn(float X, float h, float c)
-{
-	float s = sqrt(X + h);
-	if (c >= 0)
-		return s / (s * c + 1) * exp(-h);
-	float x0 = sqrt(max(1 - c * c, 0)) * (X + h);
-	return 2 * sqrt(x0) * exp(X - x0) - s / (1 - s * c) * exp(-h);
-}
+// (erfcx and chapmanColumn stand further up, with the sunlight's filter, which uses them too.)
 
 #define HAZE_SPHERE_NEAR_M 10000
 #define HAZE_SPHERE_FAR_M 40000
+// The smooth sphere stands in for far ground only from high up (the camera's height over the haze's
+// ground level, metres): near the ground the land in view rises far over that level (a basin's wall),
+// and the sphere's hit lay behind it.
+#define HAZE_SPHERE_LOW_M 20000
+#define HAZE_SPHERE_HIGH_M 50000
+// The haze's ground level is the land's own near the ground and the planet's radius from high up (the
+// camera's height over the land's level, metres).
+#define HAZE_LOCAL_NEAR_M 15000
+#define HAZE_LOCAL_FAR_M 40000
+
+// The lowest ground in view, smoothed (edcas_ground_ref.hlsl): the haze's ground level here, the
+// fog's and the dust's in edcas_fog.hlsl and edcas_dust.hlsl.
+Texture2D<float4> GroundRef : register(t111);
+
+// The haze's column along the ray from `cam` in `dir` between `s0` and `s1` (atmosphere radii along
+// it; `s1` over 1e29 for out to space), a stretch that lies outside the sphere of the haze's ground
+// level `rG`: in vertical columns from that level. `H` the scale height. The Chapman function gives
+// the column from a point upwards, so a stretch that climbs all the way is the lower end's less the
+// upper end's, one that falls all the way the same taken from its far end back, and one that passes
+// the ray's lowest point both halves upwards from that point.
+float hazeOutside(float3 cam, float3 dir, float s0, float s1, float rG, float H)
+{
+	if (s1 <= s0)
+		return 0;
+	float X = rG / H;
+	float3 p0 = cam + dir * s0;
+	float r0 = length(p0);
+	float h0 = max(r0 - rG, 0) / H, c0 = dot(dir, p0) / r0;
+	if (s1 > 1e29)
+		return chapmanColumn(X, h0, c0);
+	float3 p1 = cam + dir * s1;
+	float r1 = length(p1);
+	float h1 = max(r1 - rG, 0) / H, c1 = dot(dir, p1) / r1;
+	if (c0 >= 0)
+		return max(chapmanColumn(X, h0, c0) - chapmanColumn(X, h1, c1), 0);
+	if (c1 <= 0)
+		return max(chapmanColumn(X, h1, -c1) - chapmanColumn(X, h0, -c0), 0);
+	float hLow = max(length(cam - dir * dot(cam, dir)) - rG, 0) / H;
+	return max(2 * chapmanColumn(X, hLow, 0) - chapmanColumn(X, h0, -c0) - chapmanColumn(X, h1, c1), 0);
+}
+
+// The haze's column along the ray from `cam` in `dir`, `end` long (atmosphere radii; negative for out
+// to space), in vertical columns from its ground level `rG`: the haze thins with the height over that
+// level by the scale height `H`, and under it it is as thick as at it (the land below the level, a
+// basin under the planet's radius, is filled evenly, not by exp(depth / H): 10 times the dust 19 km
+// down). So the ray is taken in stretches: outside the level's sphere by the Chapman function
+// (hazeOutside), inside it by its length.
+float hazeColumn(float3 cam, float3 dir, float end, float rG, float H)
+{
+	float far = end >= 0 ? end : 1e30;
+	float b = dot(cam, dir), c = dot(cam, cam) - rG * rG, disc = b * b - c;
+	// The stretch inside the sphere: none where the ray misses it or it lies behind the camera.
+	float sIn = far, sOut = far;
+	if (disc > 0) {
+		float root = sqrt(disc);
+		if (-b + root > 0) {
+			sIn = min(max(-b - root, 0), far);
+			sOut = min(-b + root, far);
+		}
+	}
+	return hazeOutside(cam, dir, 0, sIn, rG, H) + (sOut - sIn) / H + hazeOutside(cam, dir, sOut, far, rG, H);
+}
 
 // A haze mixed through the air, thinning with the height by the scale height, along a pixel's view ray
 // in front of the ground (or out to space), premultiplied. `p`: its vertical optical depth, its scale
@@ -1349,43 +1648,44 @@ float4 columnHaze(Ray ray, float4 p22, float3 colour)
 	float groundN = ray.ground;
 	float mPerUnit = cb1[31].w * 1000;
 	float H = p22.y / mPerUnit;              // the scale height, atmosphere radii
-	float rGround = p22.z / mPerUnit;
-	float X = rGround / H;
 	float3 cam = cb1[3].xyz;
 	float r0 = length(cam);
-	float3 up0 = cam / r0;
+	// The haze's ground level. The planet's radius (the journal's) is the mean of its land: a basin's
+	// floor lies far under it, and with the heights taken from that radius and held at 0 below it the
+	// columns of a camera in the basin did not fit together. Over a floor 19 km under the radius, the
+	// camera 8 km up and the wall 70 km off, a ray just over eye level got an optical depth of 0.37
+	// and one just under it 0.58: a hard line across the wall at eye level, the wall's foot gone under
+	// it and its top nearly clear, and the line climbed the wall as the ship did (ed_frame347774,
+	// Plooe Thoi EP-R d4-9 C 4, 2026-11-17). So near the ground the level is the land's own, the
+	// lowest ground in view (edcas_ground_ref.hlsl; the camera's own height where none is kept), no
+	// higher than the radius: the haze lies in the basin and the wall rises out of it. From high up it
+	// is the planet's radius, as it was: the land kept is the place the ship left.
+	float rJournal = p22.z / mPerUnit;
+	float rBase = cb1[31].z / cb1[31].w;
+	float4 ref = GroundRef.Load(int3(0, 0, 0));
+	float rLocal = min(rJournal, r0);
+	if (ref.y > 0)
+		rLocal = min(rLocal, rBase + ref.x / ref.y * (1 - rBase));
+	float rGround = lerp(rLocal, rJournal, smoothstep(HAZE_LOCAL_NEAR_M, HAZE_LOCAL_FAR_M, (r0 - rLocal) * mPerUnit));
 	// Far ground is taken as the smooth sphere of rGround, not the depth buffer's hit (HAZE_SPHERE_NEAR_M
 	// to _FAR_M): the column lies within a few scale heights of the ground, so it follows the terrain's
 	// height, and Elite redraws far terrain at another detail from frame to frame. From orbit the haze
 	// over each tile jumped: blotches that shimmered and swept round the point under the ship
 	// (ed_frame814252/3, 2026-11-16, a 0.05 dust haze of 6 km scale height: 892 pixels of the disc
-	// changed between frames, 271 with the sphere, 218 without the haze).
+	// changed between frames, 271 with the sphere, 218 without the haze). Only from high up
+	// (HAZE_SPHERE_LOW_M), and only where the ray comes down on the sphere ahead.
 	if (groundN >= 0) {
 		float b = dot(cam, dir), c = dot(cam, cam) - rGround * rGround, disc = b * b - c;
-		if (c > 0 && disc > 0)
-			groundN = lerp(groundN, -b - sqrt(disc), smoothstep(HAZE_SPHERE_NEAR_M, HAZE_SPHERE_FAR_M, groundN * mPerUnit));
+		if (c > 0 && disc > 0 && b < 0)
+			groundN = lerp(groundN, -b - sqrt(disc), smoothstep(HAZE_SPHERE_NEAR_M, HAZE_SPHERE_FAR_M, groundN * mPerUnit) * smoothstep(HAZE_SPHERE_LOW_M, HAZE_SPHERE_HIGH_M, (r0 - rGround) * mPerUnit));
 	}
-	float h0 = max(r0 - rGround, 0) / H;
-	float c0 = dot(dir, up0);
-	float column;
-	float3 mid;  // where the haze along the ray is densest: the ray's lowest point on it
-	if (groundN >= 0) {
-		float3 hit = cam + dir * groundN;
-		float r1 = length(hit);
-		float h1 = max(r1 - rGround, 0) / H;
-		// Taken upwards: from the camera on where the ray climbs (ground above eye level), else from the
-		// ground back to the camera, both cosines against the reversed ray.
-		if (c0 >= 0)
-			column = chapmanColumn(X, h0, c0) - chapmanColumn(X, h1, dot(dir, hit / r1));
-		else
-			column = chapmanColumn(X, h1, dot(-dir, hit / r1)) - chapmanColumn(X, h0, -c0);
-		column = max(column, 0);
-		mid = c0 < 0 ? hit : cam;
-	} else {
-		column = chapmanColumn(X, h0, c0);
-		float tLow = max(-dot(cam, dir), 0);
-		mid = cam + dir * tLow;
-	}
+	float column = hazeColumn(cam, dir, groundN, rGround, H);
+	// Where the haze along the ray is densest, which is where its light is taken: the ray's lowest
+	// point on it, the camera for a ray that climbs and the ground for one that falls all the way. Until
+	// client 0.43.200 a ray that ended on the ground took the camera from eye level up and the ground
+	// under it: the light stepped at eye level (the ground 120 km off has another sun height and lies
+	// 8 km lower), a faint straight line across the far wall (ed_frame347774).
+	float3 mid = cam + dir * clamp(-dot(cam, dir), 0, groundN >= 0 ? groundN : 1e30);
 	float tau = p22.x * column;
 	float a = 1 - exp(-tau);
 	// Faded out from far off, as the clouds (y505).
@@ -1410,7 +1710,7 @@ float4 columnHaze(Ray ray, float4 p22, float3 colour)
 	float3 sunColour = starLightTint() * cb1[8].xyz / max(max(cb1[8].x, cb1[8].y), max(cb1[8].z, 1e-30));
 	// A thin layer's single scattering: omega P tau / 4 of a sunlit white surface (P averaging 1 over
 	// all directions, omega near 1 for haze): 0.25 on the pass's scale, where 1 is white.
-	float3 radiance = sunColour * 0.25 * colour * (light * hg + 0.25 * sky) * lowSunTint(day, float3(1.0, 0.55, 0.35));
+	float3 radiance = sunColour * 0.25 * colour * (light * hg + 0.25 * sky) * airTint(day, max(rm - rGround, 0) * mPerUnit, float3(1.0, 0.55, 0.35));
 	return float4(radiance * a, a);
 }
 

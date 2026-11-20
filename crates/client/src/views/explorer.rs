@@ -13,7 +13,7 @@ use edcas_common::exobiology::BodyFacts;
 use edcas_common::api::{FactionInfluencePoint, SystemTickPrediction};
 
 use crate::event_shim::{KeyCode, KeyEvent};
-use ratatui::style::{Color, Modifier, Style};
+use crate::text::{Color, Style};
 use tracing::debug;
 
 use crate::journal_reader::{
@@ -1090,7 +1090,7 @@ fn node_style(node: &FlatNode, settings: &Settings) -> Style {
         let color = settings.stars.get(&node.star_type).filter(|i| i.enabled)
             .map(|i| parse_color(&i.color))
             .unwrap_or(crate::theme::accent());
-        Style::default().fg(color).add_modifier(Modifier::BOLD)
+        Style::default().fg(color).bold()
     } else {
         body_class_style(&node.planet_class, settings)
     }
@@ -1115,7 +1115,7 @@ fn body_class_style(planet_class: &str, settings: &Settings) -> Style {
             else                                                                    { (Color::White, false) }
         });
 
-    if bold { Style::default().fg(color).add_modifier(Modifier::BOLD) } else { Style::default().fg(color) }
+    if bold { Style::default().fg(color).bold() } else { Style::default().fg(color) }
 }
 
 /// Icon and colour for a bio/geo/other signal on a body, from the icon settings.

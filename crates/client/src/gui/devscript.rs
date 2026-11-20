@@ -27,7 +27,8 @@ pub struct DevScript {
     steps: Vec<String>,
     next: usize,
     due: Instant,
-    pending_shot: Option<String>,
+    /// A requested screenshot: where it goes, and where the picture arrives.
+    pending_shot: Option<(String, std::sync::mpsc::Receiver<std::sync::Arc<egui::ColorImage>>)>,
     /// Input still to come, one entry per frame (a drag spans several).
     queued: std::collections::VecDeque<Vec<Event>>,
 }
@@ -66,8 +67,11 @@ impl DevScript {
         if let Some(ms) = step.strip_prefix("wait:") {
             self.due = Instant::now() + Duration::from_millis(ms.parse().unwrap_or(500));
         } else if let Some(path) = step.strip_prefix("shot:") {
-            self.pending_shot = Some(path.to_owned());
-            ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
+            let (tx, rx) = std::sync::mpsc::channel();
+            ctx.request_screenshot(move |image| {
+                let _ = tx.send(image);
+            });
+            self.pending_shot = Some((path.to_owned(), rx));
         } else if step == "quit" {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         } else if let Some(t) = step.strip_prefix("type:") {
@@ -100,7 +104,7 @@ impl DevScript {
             let parts: Vec<f32> = args.split(',').filter_map(|v| v.parse().ok()).collect();
             if let [x, y, dy] = parts[..] {
                 raw.events.push(Event::PointerMoved(egui::pos2(x, y)));
-                raw.events.push(Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: egui::vec2(0.0, dy), phase: egui::TouchPhase::Move, modifiers: Modifiers::NONE });
+                raw.events.push(Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: egui::vec2(0.0, dy), phase: egui::TouchPhase::Move, source: egui::MouseWheelSource::Wheel, modifiers: Modifiers::NONE });
             }
         } else if let Some((name, pressed)) = step.strip_prefix("down:").map(|k| (k, true)).or_else(|| step.strip_prefix("up:").map(|k| (k, false))) {
             match Key::from_name(name) {
@@ -120,15 +124,10 @@ impl DevScript {
     }
 
     /// Writes a requested screenshot once it arrives.
-    pub fn collect_screenshot(&mut self, ctx: &egui::Context) {
-        let Some(path) = self.pending_shot.clone() else { return };
-        let image = ctx.input(|i| {
-            i.events.iter().find_map(|e| match e {
-                Event::Screenshot { image, .. } => Some(image.clone()),
-                _ => None,
-            })
-        });
-        if let Some(img) = image {
+    pub fn collect_screenshot(&mut self) {
+        let Some((path, arrived)) = &self.pending_shot else { return };
+        let path = path.clone();
+        if let Ok(img) = arrived.try_recv() {
             use eframe::icon_data::IconDataExt;
             let [w, h] = img.size;
             let icon = egui::IconData { rgba: img.as_raw().to_vec(), width: w as u32, height: h as u32 };

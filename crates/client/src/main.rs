@@ -30,6 +30,7 @@ mod planet_dust;
 mod settings;
 mod shader_mods;
 mod star_light;
+mod text;
 mod theme;
 mod todo;
 mod tts;

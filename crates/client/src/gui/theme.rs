@@ -65,12 +65,12 @@ pub fn mix(a: Color32, b: Color32, t: f32) -> Color32 {
     Color32::from_rgb(l(a.r(), b.r()), l(a.g(), b.g()), l(a.b(), b.b()))
 }
 
-/// Maps a named text colour (the `ratatui` styles the views build lines and colours with)
-/// onto the HUD palette, so styled text (help pages, status lines) keeps its meaning.
-pub fn from_ratatui(c: ratatui::style::Color) -> Color32 {
-    use ratatui::style::Color as C;
+/// Maps a text colour (the names the views build lines and colours with) onto the HUD
+/// palette, so styled text (help pages, status lines) keeps its meaning.
+pub fn hud_color(c: crate::text::Color) -> Color32 {
+    use crate::text::Color as C;
     match c {
-        C::Reset | C::White => TEXT,
+        C::White => TEXT,
         C::Black => BG,
         C::Gray => TEXT_DIM,
         C::DarkGray => GREY,
@@ -87,7 +87,6 @@ pub fn from_ratatui(c: ratatui::style::Color) -> Color32 {
         C::Magenta => MAGENTA,
         C::LightMagenta => mix(MAGENTA, Color32::WHITE, 0.3),
         C::Rgb(r, g, b) => Color32::from_rgb(r, g, b),
-        C::Indexed(i) => Color32::from_gray(i),
     }
 }
 

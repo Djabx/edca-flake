@@ -1,23 +1,23 @@
-use ratatui::{
-    style::{Color, Modifier, Style},
-    text::{Line, Span},
-};
+//! The help text: what EDCAS is and the keys of every view, as styled lines. The About page
+//! and the help window (`?`) both draw it, each under the logo.
 
-fn heading(text: &str) -> Line<'static> {
+use crate::text::{Color, Line, Span, Style};
+
+fn heading(text: &str) -> Line {
     Line::from(Span::styled(
         text.to_owned(),
-        Style::default().fg(crate::theme::accent()).add_modifier(Modifier::BOLD),
+        Style::default().fg(crate::theme::accent()).bold(),
     ))
 }
 
-fn subheading(text: &str) -> Line<'static> {
+fn subheading(text: &str) -> Line {
     Line::from(Span::styled(
         format!("  {text}"),
-        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+        Style::default().fg(Color::Cyan).bold(),
     ))
 }
 
-fn ctrl(key: &str, desc: &str) -> Line<'static> {
+fn ctrl(key: &str, desc: &str) -> Line {
     Line::from(vec![
         Span::styled(
             format!("    {:<20}", key),
@@ -27,27 +27,19 @@ fn ctrl(key: &str, desc: &str) -> Line<'static> {
     ])
 }
 
-fn note(text: &str) -> Line<'static> {
+fn note(text: &str) -> Line {
     Line::from(Span::styled(
         format!("  {text}"),
         Style::default().fg(Color::DarkGray),
     ))
 }
 
-fn blank() -> Line<'static> {
+fn blank() -> Line {
     Line::from("")
 }
 
-include!("logo_lines.rs");
-
-pub(crate) fn build_lines() -> Vec<Line<'static>> {
-    let mut lines = logo_lines();
-    lines.push(blank());
-    lines.extend(vec![
-        Line::from(Span::styled(
-            "EDCAS — Elite Dangerous Commander Assistant System",
-            Style::default().fg(crate::theme::accent()).add_modifier(Modifier::BOLD),
-        )),
+pub(crate) fn build_lines() -> Vec<Line> {
+    vec![
         Line::from(Span::styled(
             format!("Build {}", crate::build_info::BUILD),
             Style::default().fg(Color::DarkGray),
@@ -168,6 +160,5 @@ pub(crate) fn build_lines() -> Vec<Line<'static>> {
         // ── Closing the help ──────────────────────────────────────
         heading("This window"),
         ctrl("Esc / ? / q",       "Close this help"),
-    ]);
-    lines
+    ]
 }

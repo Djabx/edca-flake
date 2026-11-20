@@ -13,7 +13,7 @@ use crate::settings::Settings;
 use crate::settings::icons::Icon;
 use crate::game_graphics;
 use crate::shader_mods;
-use crate::settings::game_graphics::{OverrideChoice, TintMode, DUST_REACH_RANGE, FOG_DEPTH_RANGE, MAX_LOOK_PERCENT};
+use crate::settings::game_graphics::{FadeWay, GaugeLook, OverrideChoice, PartLook, TintMode, DUST_REACH_RANGE, FOG_DEPTH_RANGE, HUD_BRIGHTNESS_RANGE, MAX_LOOK_PERCENT};
 use crate::settings::journal_reader::ActionAtShutdownSignal;
 use crate::views::ViewEvent;
 
@@ -114,7 +114,7 @@ fn ground_tint_status(settings: &Settings) -> CellType {
         None => CellType::Info("⚠ The game folder wasn't found next to the journal folder — set it above".to_string(), true),
         Some(dir) if !dir.is_dir() => CellType::Info("⚠ That folder doesn't exist".to_string(), true),
         Some(dir) if !ground_tint::installed(&dir) => CellType::Info(
-            "⚠ The shader mods aren't installed in this game folder yet — Install them under Shader Mods below".to_string(),
+            "⚠ The shader mods aren't installed in this game folder yet — Install them under Shader Mods above".to_string(),
             true,
         ),
         Some(_) if settings.game_graphics.ground_tint && settings.game_graphics.ground_tint_mode == TintMode::Fixed => CellType::Info(
@@ -127,6 +127,89 @@ fn ground_tint_status(settings: &Settings) -> CellType {
         ),
         Some(_) => CellType::Info("Off — 3DMigoto shows the game's own ground colours".to_string(), false),
     }
+}
+
+/// The looks of a HUD gauge as the settings show them.
+pub(crate) const GAUGE_LOOKS: [&str; 3] = ["Elite", "Spectrum", "Colour"];
+
+fn gauge_look_name(look: GaugeLook) -> &'static str {
+    match look {
+        GaugeLook::Elite => GAUGE_LOOKS[0],
+        GaugeLook::Spectrum => GAUGE_LOOKS[1],
+        GaugeLook::Colour => GAUGE_LOOKS[2],
+    }
+}
+
+/// The HUD gauges with a look of their own: the row's label, the label of its colour row, and
+/// the gauge's name in the settings ([`crate::settings::game_graphics::HudGauges`]).
+pub(crate) const GAUGE_ROWS: [(&str, &str, &str); 6] = [
+    ("Fuel Bar", "  Fuel Bar Colour", "fuel"),
+    ("Heat Gauge", "  Heat Gauge Colour", "heat"),
+    ("Speed Gauge", "  Speed Gauge Colour", "speed"),
+    ("Shield Rings", "  Shield Rings Colour", "shields"),
+    ("Hull Blocks", "  Hull Blocks Colour", "hull"),
+    ("Power Distributor", "  Power Distributor Colour", "distributor"),
+];
+
+/// The parts of the HUD that take the HUD's colour, each with a look of its own under HUD
+/// Colour: the panels (the gauges and the side panels), the head-up lines, the radar (its disc
+/// and its rings). The look's label, the label of the colour row shown with the look Colour
+/// (one colour, or `first > second` for a fade), and the label of the fade's way shown with a
+/// second colour, in the order of [`crate::settings::game_graphics::HudParts::list`].
+pub(crate) const HUD_PART_ROWS: [(&str, &str, &str); 3] =
+    [("  Panels and Gauges", "  Panels Colour", "  Panels Fade"), ("  Head-up Lines", "  Lines Colour", "  Lines Fade"), ("  Radar", "  Radar Colour", "  Radar Fade")];
+
+/// The ways a part's colour fades into its second one, as the settings show them.
+pub(crate) const FADE_WAYS: [&str; 2] = ["Across", "Up"];
+
+/// A part's colour as typed: one colour, or two with `>` between them for a fade. `None` when
+/// a colour is not one.
+pub(crate) fn parse_fade(value: &str) -> Option<(String, String)> {
+    let (first, second) = value.split_once('>').map_or((value, ""), |(a, b)| (a, b));
+    let (first, second) = (first.trim(), second.trim());
+    crate::theme::parse_rgb(first)?;
+    if !second.is_empty() {
+        crate::theme::parse_rgb(second)?;
+    }
+    Some((first.to_string(), second.to_string()))
+}
+
+/// The looks a part of the HUD can have, as the settings show them.
+pub(crate) const PART_LOOKS: [&str; 3] = ["Elite", "Turned", "Colour"];
+
+fn part_look_name(look: PartLook) -> &'static str {
+    match look {
+        PartLook::Elite => PART_LOOKS[0],
+        PartLook::Turned => PART_LOOKS[1],
+        PartLook::Colour => PART_LOOKS[2],
+    }
+}
+
+/// The holograms with a colour of their own, the ship's and the target's: the switch's label and
+/// the label of its colour row.
+pub(crate) const HOLOGRAM_ROWS: [(&str, &str); 2] = [("Ship Hologram Colour", "  Ship Colour"), ("Target Hologram Colour", "  Target Colour")];
+
+/// How the HUD's shader copies stand, shown under the HUD's rows while one of them is on and the
+/// shader mods are installed (without them the Shader Mods row says what to do).
+fn hud_status(settings: &Settings) -> Option<CellType> {
+    use crate::shader_mods::{self, Hud, HudWanted};
+    let want = shader_mods::Wanted::of(&settings.game_graphics).hud;
+    if want == HudWanted::NOTHING {
+        return None;
+    }
+    let dir = crate::ground_tint::game_dir(settings).filter(|d| crate::ground_tint::installed(d))?;
+    Some(match shader_mods::hud_state(&dir, want) {
+        Hud::Done => CellType::Info("✓ Changes show while the game runs; what is switched on for the first time needs a game restart".to_string(), false),
+        Hud::NeedsExport => CellType::Info(
+            "Start the game and sit in a cockpit once; after the game closes, the colours show from its next start".to_string(),
+            false,
+        ),
+        Hud::OtherMod => CellType::Info(
+            "⚠ Another mod (EDHM) replaces the game's HUD shaders; EDCAS leaves its files alone, the HUD keeps that mod's colours".to_string(),
+            true,
+        ),
+        Hud::Failed(why) => CellType::Info(format!("⚠ {why}"), true),
+    })
 }
 
 /// What the planet clouds do, shown under their settings.
@@ -173,8 +256,38 @@ fn star_class_rank(key: &str) -> usize {
     ORDER.iter().position(|&c| c == key).unwrap_or(usize::MAX)
 }
 
+/// The Game Graphics page's topics, in their order on the page: each a header there and an entry
+/// under Game Graphics in the sidebar that scrolls the page to it (2026-11-19). The override file's
+/// groups (Galaxy Map, Sun Shadows ...) are headers under [`GRAPHICS_OVERRIDES`], not topics.
+pub(super) const GRAPHICS_TOPICS: [&str; 7] = ["Shader Mods (3DMigoto)", "Planet Surface", "Weather", "Lighting", "Cockpit", "HUD", GRAPHICS_OVERRIDES];
+
+/// The last topic of the Game Graphics page: the game's own override file.
+const GRAPHICS_OVERRIDES: &str = "Graphics Overrides";
+
+/// The Game Graphics topics that act only through the shader mods: greyed out and locked while the
+/// mods are not in the game folder (the owner, 2026-11-19). Shader Mods itself (Install) and the
+/// game's own override file stay usable.
+pub(super) const MOD_TOPICS: [&str; 5] = ["Planet Surface", "Weather", "Lighting", "Cockpit", "HUD"];
+
+/// Whether the shader mods are in the game folder (installed, or by another client version): the
+/// topics of [`MOD_TOPICS`] can be changed only then.
+pub(super) fn mods_installed(settings: &Settings) -> bool {
+    crate::ground_tint::game_dir(settings).filter(|d| d.is_dir()).is_some_and(|d| !matches!(shader_mods::status(&d, shader_mods::VERSION), shader_mods::Status::NotInstalled))
+}
+
+/// The Game Graphics topic row `idx` of `grid` stands under: the last of [`GRAPHICS_TOPICS`] whose
+/// header comes before it.
+fn topic_of(grid: &[GridRow], idx: usize) -> Option<&'static str> {
+    grid.iter().take(idx + 1).filter_map(|r| match r.cells.first() {
+        Some(CellType::Header(title)) => GRAPHICS_TOPICS.iter().find(|t| *t == title).copied(),
+        _ => None,
+    }).last()
+}
+
 pub struct SettingsView {
     section: SettingsSection,
+    /// A Game Graphics topic the sidebar asked to scroll to; the page clears it once it has.
+    pub(super) jump_to: Option<&'static str>,
     sidebar_focus: usize,
     row: usize,
     col: usize,
@@ -214,6 +327,7 @@ impl SettingsView {
     pub fn new() -> Self {
         Self {
             section: SettingsSection::default(),
+            jump_to: None,
             sidebar_focus: 0,
             row: 0,
             col: 0,
@@ -393,10 +507,12 @@ impl SettingsView {
     /// A row is selectable unless its first cell is a [`CellType::Header`] (a group heading).
     fn row_selectable(&self, idx: usize, settings: &Settings) -> bool {
         let grid = self.build_grid(settings);
-        !matches!(
-            grid.get(idx).and_then(|r| r.cells.first()),
-            Some(CellType::Header(_)) | Some(CellType::Info(_, _))
-        )
+        if matches!(grid.get(idx).and_then(|r| r.cells.first()), Some(CellType::Header(_)) | Some(CellType::Info(_, _))) {
+            return false;
+        }
+        // The keyboard skips what the shader mods would do while they are not installed, as the
+        // window greys it out.
+        !(self.section == SettingsSection::GameGraphics && topic_of(&grid, idx).is_some_and(|t| MOD_TOPICS.contains(&t)) && !mods_installed(settings))
     }
 
     /// Moves the cursor up to the nearest selectable row, skipping headers.
@@ -584,40 +700,11 @@ impl SettingsView {
             SettingsSection::GameGraphics => {
                 let g = &settings.game_graphics;
                 let (status, warning) = self.graphics_status.clone().unwrap_or_default();
-                let mut rows = vec![
-                    GridRow { cells: vec![CellType::Header("Graphics Override File")] },
-                    GridRow {
-                        cells: vec![CellType::Label("Manage Override File".to_string()), CellType::BoolValue(g.manage)],
-                    },
-                    GridRow {
-                        cells: vec![CellType::Label("Graphics Folder".to_string()), CellType::StringValue(g.folder.clone())],
-                    },
-                    GridRow { cells: vec![CellType::Info(status, warning)] },
-                    GridRow {
-                        cells: vec![
-                            CellType::Label("Original File".to_string()),
-                            CellType::Button("[ Restore Original File ]"),
-                        ],
-                    },
-                ];
-                let mut group = "";
-                for o in game_graphics::OPTIONS {
-                    if o.group != group {
-                        group = o.group;
-                        rows.push(GridRow { cells: vec![CellType::Header(o.group)] });
-                    }
-                    let choice = g.options.get(o.id);
-                    rows.push(GridRow {
-                        cells: vec![
-                            CellType::Label(o.label.to_string()),
-                            CellType::BoolValue(choice.is_some_and(|c| c.enabled)),
-                            CellType::StringValue(choice.map(|c| c.value.clone()).unwrap_or_default()),
-                        ],
-                    });
-                }
-                // The mods' own rows, by what they change: the install block first (Game Folder is its
-                // gate), then the planet's surface, its weather, the light, the cockpit (2026-11-09).
-                rows.extend(self.shader_mod_rows(settings));
+                // The topics of the page, in the order of GRAPHICS_TOPICS: the mods' own rows by what they
+                // change, the install block first (Game Folder is its gate), then the planet's surface, its
+                // weather, the light, the cockpit, the HUD (2026-11-16); the game's override file last, its
+                // groups under it (2026-11-19: the sidebar jumps to each topic).
+                let mut rows = self.shader_mod_rows(settings);
                 rows.extend([
                     GridRow { cells: vec![CellType::Header("Planet Surface")] },
                     GridRow {
@@ -645,6 +732,7 @@ impl SettingsView {
                     switch("Planet Clouds", g.planet_clouds),
                     percent("  Cloud Strength %", u16::from(g.planet_clouds_strength)),
                     switch("  Volumetric Clouds (costs FPS)", g.planet_clouds_volumetric),
+                    switch("  Cloud Shadows (costs FPS)", g.planet_cloud_shadows),
                     percent("  Cloud Thickness (%)", g.planet_cloud_thickness),
                     percent("  Cloud Edge Softness (%)", g.planet_cloud_softness),
                     switch("Ground Fog", g.planet_fog),
@@ -666,7 +754,67 @@ impl SettingsView {
                     GridRow { cells: vec![CellType::Header("Cockpit")] },
                     switch("Canopy Frost", g.planet_canopy_frost),
                     percent("  Canopy Frost Strength (%)", g.planet_canopy_frost_strength),
+                    GridRow { cells: vec![CellType::Header("HUD")] },
+                    switch("HUD Colour", g.hud_colour),
                 ]);
+                for ((label, colour_label, fade_label), (_, part)) in HUD_PART_ROWS.iter().zip(g.hud_parts.list()) {
+                    rows.push(GridRow { cells: vec![CellType::Label(label.to_string()), CellType::StringValue(part_look_name(part.look).to_string())] });
+                    if part.look == PartLook::Colour {
+                        rows.push(GridRow { cells: vec![CellType::Label(colour_label.to_string()), CellType::StringValue(part.colour_text())] });
+                        if part.fades() {
+                            let way = FADE_WAYS[usize::from(part.fade_way == FadeWay::Up)];
+                            rows.push(GridRow { cells: vec![CellType::Label(fade_label.to_string()), CellType::StringValue(way.to_string())] });
+                        }
+                    }
+                }
+                rows.extend([
+                    GridRow { cells: vec![CellType::Label("  Hue Shift (°)".to_string()), CellType::StringValue(g.hud_hue_shift.to_string())] },
+                    percent("  HUD Brightness (%)", g.hud_brightness),
+                ]);
+                for ((label, colour_label, _), (_, gauge)) in GAUGE_ROWS.iter().zip(g.hud_gauges.list()) {
+                    rows.push(GridRow { cells: vec![CellType::Label(label.to_string()), CellType::StringValue(gauge_look_name(gauge.look).to_string())] });
+                    if gauge.look == GaugeLook::Colour {
+                        rows.push(GridRow { cells: vec![CellType::Label(colour_label.to_string()), CellType::StringValue(gauge.colour.clone())] });
+                    }
+                }
+                for (label, colour_label, on, colour) in [(HOLOGRAM_ROWS[0].0, HOLOGRAM_ROWS[0].1, g.hud_hologram, &g.hud_hologram_colour), (HOLOGRAM_ROWS[1].0, HOLOGRAM_ROWS[1].1, g.hud_target_hologram, &g.hud_target_hologram_colour)] {
+                    rows.push(switch(label, on));
+                    if on {
+                        rows.push(GridRow { cells: vec![CellType::Label(colour_label.to_string()), CellType::StringValue(colour.clone())] });
+                    }
+                }
+                rows.extend(hud_status(settings).map(|cell| GridRow { cells: vec![cell] }));
+                rows.extend([
+                    GridRow { cells: vec![CellType::Header(GRAPHICS_OVERRIDES)] },
+                    GridRow {
+                        cells: vec![CellType::Label("Manage Override File".to_string()), CellType::BoolValue(g.manage)],
+                    },
+                    GridRow {
+                        cells: vec![CellType::Label("Graphics Folder".to_string()), CellType::StringValue(g.folder.clone())],
+                    },
+                    GridRow { cells: vec![CellType::Info(status, warning)] },
+                    GridRow {
+                        cells: vec![
+                            CellType::Label("Original File".to_string()),
+                            CellType::Button("[ Restore Original File ]"),
+                        ],
+                    },
+                ]);
+                let mut group = "";
+                for o in game_graphics::OPTIONS {
+                    if o.group != group {
+                        group = o.group;
+                        rows.push(GridRow { cells: vec![CellType::Header(o.group)] });
+                    }
+                    let choice = g.options.get(o.id);
+                    rows.push(GridRow {
+                        cells: vec![
+                            CellType::Label(o.label.to_string()),
+                            CellType::BoolValue(choice.is_some_and(|c| c.enabled)),
+                            CellType::StringValue(choice.map(|c| c.value.clone()).unwrap_or_default()),
+                        ],
+                    });
+                }
                 rows
             }
             SettingsSection::Alerts => {
@@ -896,6 +1044,81 @@ impl SettingsView {
                         }
                         _ => self.feedback = Some(format!("Must be a whole number {}-{} (metres)", FOG_DEPTH_RANGE.start(), FOG_DEPTH_RANGE.end())),
                     },
+                    Some("  Hue Shift (°)") => match value.trim().trim_end_matches('°').trim().parse::<u16>() {
+                        Ok(n) if n < 360 => {
+                            settings.game_graphics.hud_hue_shift = n;
+                            info!("Updated HUD hue shift: {n}°");
+                        }
+                        _ => self.feedback = Some("Must be a whole number 0-359 (degrees)".to_string()),
+                    },
+                    Some("  HUD Brightness (%)") => match value.trim().trim_end_matches('%').trim().parse::<u16>() {
+                        Ok(n) if HUD_BRIGHTNESS_RANGE.contains(&n) => {
+                            settings.game_graphics.hud_brightness = n;
+                            info!("Updated HUD brightness: {n} %");
+                        }
+                        _ => self.feedback = Some(format!("Must be a whole number {}-{} (percent)", HUD_BRIGHTNESS_RANGE.start(), HUD_BRIGHTNESS_RANGE.end())),
+                    },
+                    Some(label) if GAUGE_ROWS.iter().any(|(look, colour, _)| *look == label || *colour == label) => {
+                        let row = GAUGE_ROWS.iter().find(|(look, colour, _)| *look == label || *colour == label);
+                        if let Some((&(look_label, _, _), gauge)) = row.and_then(|row| settings.game_graphics.hud_gauges.get_mut(row.2).map(|gauge| (row, gauge))) {
+                            if look_label == label {
+                                match GAUGE_LOOKS.iter().position(|l| l.eq_ignore_ascii_case(value.trim())) {
+                                    Some(i) => {
+                                        gauge.look = [GaugeLook::Elite, GaugeLook::Spectrum, GaugeLook::Colour][i];
+                                        info!("Updated {label}: {}", GAUGE_LOOKS[i]);
+                                    }
+                                    None => self.feedback = Some("Expected: Elite, Spectrum or Colour".to_string()),
+                                }
+                            } else {
+                                match crate::theme::parse_rgb(&value) {
+                                    Some(_) => {
+                                        gauge.colour = value.trim().to_string();
+                                        info!("Updated {}: {}", label.trim(), value.trim());
+                                    }
+                                    None => self.feedback = Some("Use #rrggbb, r,g,b or a colour name".to_string()),
+                                }
+                            }
+                        }
+                    }
+                    Some(label) if HUD_PART_ROWS.iter().any(|(look, colour, fade)| [*look, *colour, *fade].contains(&label)) => {
+                        let i = HUD_PART_ROWS.iter().position(|(look, colour, fade)| [*look, *colour, *fade].contains(&label)).unwrap_or(0);
+                        let name = settings.game_graphics.hud_parts.list()[i].0;
+                        if let Some(part) = settings.game_graphics.hud_parts.get_mut(name) {
+                            if label == HUD_PART_ROWS[i].0 {
+                                match PART_LOOKS.iter().position(|l| l.eq_ignore_ascii_case(value.trim())) {
+                                    Some(l) => {
+                                        part.look = [PartLook::Elite, PartLook::Turned, PartLook::Colour][l];
+                                        info!("Updated the HUD's {name}: {}", PART_LOOKS[l]);
+                                    }
+                                    None => self.feedback = Some("Expected: Elite, Turned or Colour".to_string()),
+                                }
+                            } else if label == HUD_PART_ROWS[i].2 {
+                                match FADE_WAYS.iter().position(|w| w.eq_ignore_ascii_case(value.trim())) {
+                                    Some(w) => {
+                                        part.fade_way = [FadeWay::Across, FadeWay::Up][w];
+                                        info!("Updated the fade of the HUD's {name}: {}", FADE_WAYS[w]);
+                                    }
+                                    None => self.feedback = Some("Expected: Across or Up".to_string()),
+                                }
+                            } else {
+                                match parse_fade(&value) {
+                                    Some((colour, fade_to)) => {
+                                        (part.colour, part.fade_to) = (colour, fade_to);
+                                        info!("Updated {}: {}", label.trim(), part.colour_text());
+                                    }
+                                    None => self.feedback = Some("Use #rrggbb, r,g,b or a colour name; two with > between them fade".to_string()),
+                                }
+                            }
+                        }
+                    }
+                    Some(label) if HOLOGRAM_ROWS.iter().any(|(_, colour)| *colour == label) => match crate::theme::parse_rgb(&value) {
+                        Some(_) => {
+                            let g = &mut settings.game_graphics;
+                            *(if label == HOLOGRAM_ROWS[0].1 { &mut g.hud_hologram_colour } else { &mut g.hud_target_hologram_colour }) = value.trim().to_string();
+                            info!("Updated {}: {}", label.trim(), value.trim());
+                        }
+                        None => self.feedback = Some("Use #rrggbb, r,g,b or a colour name".to_string()),
+                    },
                     Some("  Tint Mode") => match TINT_MODES.iter().position(|m| m.eq_ignore_ascii_case(value.trim())) {
                         Some(i) => {
                             settings.game_graphics.ground_tint_mode = if i == 0 { TintMode::PerPlanet } else { TintMode::Fixed };
@@ -1038,9 +1261,25 @@ impl SettingsView {
                         ),
                     ),
                 };
+                // While a job of EDCAS's runs, the folder is half done (the version file comes last, so an
+                // install in progress reads as one "by hand or unknown"): no buttons, which would only be
+                // ignored, but what the job is doing (2026-11-19: "I neither can Update or Remove").
+                let (buttons, text): (&[&'static str], String) = if self.shader_rx.is_some() {
+                    (&[], format!("⏳ Working: {}", self.shader_step))
+                } else if let Some(step) = shader_mods::auto_step() {
+                    // The update the client runs by itself after a version change.
+                    (&[], format!("⏳ Working: {step}…"))
+                } else {
+                    (buttons, text)
+                };
                 let damage = {
                     let mut cached = self.damage.borrow_mut();
                     match &*cached {
+                        // Not while EDCAS's own job changes the folder: an install writes edcas.ini
+                        // first and d3dx.ini's lines last, after the ground textures, and a check
+                        // between them found "d3dx.ini no longer includes ShaderFixes\edcas.ini"
+                        // (the owner, 2026-11-19: "the client complains that files have been moved").
+                        _ if self.shader_rx.is_some() => Vec::new(),
                         Some((at, found)) if at.elapsed() < std::time::Duration::from_secs(5) => found.clone(),
                         _ => {
                             let found = shader_mods::damage(&dir);
@@ -1064,7 +1303,7 @@ impl SettingsView {
                 rows.push(GridRow { cells });
                 rows.push(info(text, false));
                 if !damage.is_empty() {
-                    rows.push(info("⚠ Another 3DMigoto install changed the game folder: EDHM's, or what EDHM left behind (uninstalling EDHM keeps its d3d11.dll). Press Repair (close the game first on Windows); EDCAS also repairs it by itself when the game closes.".to_string(), true));
+                    rows.push(info("⚠ Another installer changed the game folder (most often EDHM's, or what EDHM left behind: uninstalling EDHM keeps its d3d11.dll). Press Repair (close the game first on Windows); EDCAS also repairs it by itself when the game closes.".to_string(), true));
                     rows.extend(damage.iter().map(|d| info(format!("   • {d}"), true)));
                 }
             }
@@ -1139,6 +1378,8 @@ impl SettingsView {
                 }
             });
             self.shader_rx = None;
+            // The folder is as the job left it: check it afresh, not by a result from before or during it.
+            *self.damage.borrow_mut() = None;
         }
     }
 
@@ -1252,6 +1493,11 @@ impl SettingsView {
                     g.planet_clouds_volumetric = !g.planet_clouds_volumetric;
                     info!("Toggled volumetric planet clouds: {}", g.planet_clouds_volumetric);
                 }
+                Some("  Cloud Shadows (costs FPS)") => {
+                    let g = &mut settings.game_graphics;
+                    g.planet_cloud_shadows = !g.planet_cloud_shadows;
+                    info!("Toggled planet cloud shadows: {}", g.planet_cloud_shadows);
+                }
                 Some("Ground Fog") => {
                     let g = &mut settings.game_graphics;
                     g.planet_fog = !g.planet_fog;
@@ -1266,6 +1512,21 @@ impl SettingsView {
                     let g = &mut settings.game_graphics;
                     g.planet_canopy_frost = !g.planet_canopy_frost;
                     info!("Toggled canopy frost: {}", g.planet_canopy_frost);
+                }
+                Some("HUD Colour") => {
+                    let g = &mut settings.game_graphics;
+                    g.hud_colour = !g.hud_colour;
+                    info!("Toggled HUD colour: {}", g.hud_colour);
+                }
+                Some("Ship Hologram Colour") => {
+                    let g = &mut settings.game_graphics;
+                    g.hud_hologram = !g.hud_hologram;
+                    info!("Toggled ship hologram colour: {}", g.hud_hologram);
+                }
+                Some("Target Hologram Colour") => {
+                    let g = &mut settings.game_graphics;
+                    g.hud_target_hologram = !g.hud_target_hologram;
+                    info!("Toggled target hologram colour: {}", g.hud_target_hologram);
                 }
                 Some("Star Light Colour") => {
                     let g = &mut settings.game_graphics;

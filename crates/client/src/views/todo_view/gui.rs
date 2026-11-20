@@ -24,7 +24,7 @@ const ROW_H: f32 = 30.0;
 
 /// Whether `value` changed since the last frame, per `key` (to scroll a keyboard move into view).
 fn moved(ui: &Ui, key: &str, value: usize) -> bool {
-    let id = Id::new(("todo-moved", key));
+    let id = Id::unique(("todo-moved", key));
     let before = ui.ctx().data_mut(|d| {
         let before = d.get_temp::<usize>(id);
         d.insert_temp(id, value);

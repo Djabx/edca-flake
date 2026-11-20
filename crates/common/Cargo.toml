@@ -1,6 +1,6 @@
 [package]
 name = "edcas-common"
-version = "0.13.1"
+version = "0.13.3"
 edition = "2021"
 description = "Shared Elite Dangerous journal event types for edcas-client and edcas-eddn"
 

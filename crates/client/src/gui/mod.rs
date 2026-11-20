@@ -6,6 +6,7 @@
 //! [`crate::wake::wake`], and once a second for clocks and toast expiry. OpenGL (glow) is used
 //! instead of wgpu because wgpu reserves ~200 MB of VRAM, which the game needs more.
 
+pub mod colour_picker;
 #[cfg(debug_assertions)]
 mod devscript;
 pub mod genus_art;
@@ -93,7 +94,7 @@ impl eframe::App for GuiApp {
         self.app.tick();
         #[cfg(debug_assertions)]
         if let Some(s) = &mut self.script {
-            s.collect_screenshot(ctx);
+            s.collect_screenshot();
         }
 
         // Keyboard focus belongs to text fields only. Buttons and rows must not keep it, or
@@ -316,7 +317,7 @@ impl GuiApp {
             return;
         }
         let mut dismiss = None;
-        egui::Area::new(egui::Id::new("toasts"))
+        egui::Area::new(egui::Id::unique("toasts"))
             .anchor(Align2::RIGHT_TOP, vec2(-16.0, 62.0))
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
@@ -360,6 +361,7 @@ impl GuiApp {
         }
         let mut open = true;
         let screen = ctx.content_rect();
+        let logo = self.logo.clone();
         egui::Window::new(egui::RichText::new("HELP · KEYBOARD REFERENCE").font(theme::head_bold(12.0)).color(accent_hi()))
             .open(&mut open)
             .collapsible(false)
@@ -368,6 +370,9 @@ impl GuiApp {
             .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
             .show(ctx, |ui| {
                 egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                    ui.add_space(4.0);
+                    widgets::logo_header(ui, logo.as_ref());
+                    ui.add_space(8.0);
                     widgets::styled_lines(ui, &crate::views::about::build_lines());
                 });
             });

@@ -102,7 +102,7 @@ impl SearchView {
         ui.add_space(6.0);
         ui.horizontal(|ui| {
             let w = (ui.available_width() - 96.0).max(120.0);
-            let id = Id::new(FIELD_ID);
+            let id = Id::unique(FIELD_ID);
             let replaced = self.query != self.field_text;
             let resp = ui.add_sized(
                 vec2(w, 30.0),

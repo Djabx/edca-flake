@@ -56,38 +56,40 @@ pub fn value(text: impl Into<String>) -> egui::RichText {
     egui::RichText::new(text.into()).font(theme::body_semi(15.0)).color(TEXT)
 }
 
-/// Styled text lines (`ratatui::text::Line`) as egui layout jobs, mapping colours onto the
+/// Styled text lines (`crate::text::Line`) as egui layout jobs, mapping colours onto the
 /// HUD palette. Useful for prose-like pages (help, notes) that views already build as lines.
-pub fn line_job(line: &ratatui::text::Line<'_>, font: &FontId) -> LayoutJob {
-    use ratatui::style::Modifier;
+pub fn line_job(line: &crate::text::Line, font: &FontId) -> LayoutJob {
     let mut job = LayoutJob::default();
-    let base_fg = line.style.fg;
     for span in &line.spans {
-        let st = line.style.patch(span.style);
-        let fg = st.fg.or(base_fg).map(theme::from_ratatui).unwrap_or(TEXT);
-        let bold = st.add_modifier.contains(Modifier::BOLD);
-        let font_id = if bold && font.family == egui::FontFamily::Proportional {
+        let fg = span.style.fg.map(theme::hud_color).unwrap_or(TEXT);
+        let font_id = if span.style.bold && font.family == egui::FontFamily::Proportional {
             theme::body_semi(font.size)
         } else {
             font.clone()
         };
-        let mut fmt = TextFormat { font_id, color: fg, ..Default::default() };
-        if let Some(bg) = st.bg {
-            fmt.background = theme::from_ratatui(bg);
-        }
-        if st.add_modifier.contains(Modifier::ITALIC) {
-            fmt.italics = true;
-        }
-        if st.add_modifier.contains(Modifier::UNDERLINED) {
-            fmt.underline = Stroke::new(1.0, fg);
-        }
-        job.append(&span.content, 0.0, fmt);
+        job.append(&span.content, 0.0, TextFormat { font_id, color: fg, ..Default::default() });
     }
     job
 }
 
+/// The logo with the name and its long form next to it: the head of the About page and of
+/// the help window.
+pub fn logo_header(ui: &mut Ui, logo: Option<&egui::TextureHandle>) {
+    ui.horizontal(|ui| {
+        if let Some(tex) = logo {
+            ui.add(egui::Image::new((tex.id(), vec2(72.0, 72.0))));
+            ui.add_space(8.0);
+        }
+        ui.vertical(|ui| {
+            ui.add_space(10.0);
+            ui.label(job("EDCAS", theme::head_bold(22.0), accent(), 4.0));
+            ui.label(job("ELITE DANGEROUS COMMANDER ASSISTANT SYSTEM", theme::head(8.5), accent_dim(), 1.6));
+        });
+    });
+}
+
 /// Renders styled text lines one label per line.
-pub fn styled_lines(ui: &mut Ui, lines: &[ratatui::text::Line<'_>]) {
+pub fn styled_lines(ui: &mut Ui, lines: &[crate::text::Line]) {
     let font = theme::body(15.0);
     for line in lines {
         if line.spans.iter().all(|s| s.content.trim().is_empty()) {

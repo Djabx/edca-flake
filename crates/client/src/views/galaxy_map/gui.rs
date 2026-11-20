@@ -317,7 +317,7 @@ impl GalaxyMapView {
     fn map_panel(&mut self, ui: &mut Ui, rect: Rect, api: &ApiClient, journal: &JournalData) {
         let caption = if self.total_systems > 0 { format!("{} systems", group_thousands(self.total_systems)) } else { String::new() };
         let canvas = widgets::paint_hud_frame(ui.painter(), rect, "Galaxy Map", &caption).expand2(vec2(6.0, 4.0));
-        let resp = ui.interact(canvas, ui.id().with("galaxy-canvas"), Sense::click_and_drag());
+        let resp = ui.interact(canvas, ui.scope_id().with("galaxy-canvas"), Sense::click_and_drag());
 
         // ---- input
         if resp.dragged() {

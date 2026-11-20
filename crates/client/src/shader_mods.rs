@@ -137,6 +137,113 @@ impl SunSource {
     }
 }
 
+/// Elite's HUD panel shader: it pastes sections of a ship's gauge textures onto the cockpit (game
+/// 2026.11.09; `scripts/ed-shader/README-ELITE.md`, "The HUD"). [`hud`] makes the copy that
+/// takes the HUD's colour and draws the gauges in colours of their own. This one shades the
+/// panels by the cockpit's shadow maps; it drew every panel of `ed_frame171605`. `HUD_SHADER`
+/// in `hud.py`.
+pub const HUD_SHADER: &str = "b4523c39a461fd35";
+
+/// The panel shaders a HUD needs copies of: [`HUD_SHADER`], and the same paste without the shadow
+/// maps, which the game drew the panels with instead in a session of 2026-11-17 (a ship landed
+/// in the dark; the shadowed one was not even created). A copy of one alone leaves the panels
+/// Elite's whenever the game takes the other. `HUD_PANEL_SHADERS` in `hud.py`.
+pub const HUD_PANEL_SHADERS: [&str; 2] = [HUD_SHADER, "5f6c54ac955ba85a"];
+
+/// More versions of the panel shader, copied where the game has exported them and not waited
+/// for: the paste with blocks of the panel shifted by `cb2[10].w` and a tint `cb2[10].xyz` by
+/// `v1.w` (a panel that glitches; not seen drawing yet), in two versions. `HUD_PANEL_EXTRA` in
+/// `hud.py`.
+pub const HUD_PANEL_EXTRA: [&str; 2] = ["77622058d555360f", "d563d13a3cb00855"];
+
+/// Whether `hash` is one of the panel shaders ([`HUD_PANEL_SHADERS`], [`HUD_PANEL_EXTRA`]).
+fn is_panel_shader(hash: &str) -> bool {
+    HUD_PANEL_SHADERS.contains(&hash) || HUD_PANEL_EXTRA.contains(&hash)
+}
+
+/// The other shaders of a ship's HUD that take the HUD's colour ([`hud`]): the head-up lines (the
+/// pitch ladder, the reticle), the radar's disc (and the icons drawn with it), the radar's rings.
+/// Told apart in a RenderDoc replay with each shader's output painted one colour
+/// (`ed_frame171605`, 2026-11-16); the contacts on the radar and the two holograms are other
+/// shaders and keep Elite's colours. And two more of the radar, which draw its rings and lines in
+/// supercruise after a jump (`ed_frame311038`, 2026-11-18: the radar orange under a white setting,
+/// drawn by these two). `HUD_COLOUR_SHADERS` in `hud.py`.
+pub const HUD_COLOUR_SHADERS: [&str; 8] = ["1a696e8bae6eec02", "4a533b975e4998bf", "c96ccbcb35950166", "0f80d300a37639f3", "97e6b9ff825cb157", HUD_CONTACT_SHADERS[0], HUD_CONTACT_SHADERS[1], HUD_CONTACT_SHADERS[2]];
+
+/// The radar's contacts (`ed_frame311038`, 2026-11-19, each shader replayed alone with its colours
+/// swapped): the own ship's marker, a contact's icon, a body's glyph and its stalk. They take the
+/// radar's colour too, except where Elite draws a contact red, its mark of a hostile ship: there the
+/// copy keeps Elite's colour ([`HOSTILE_RED`]). `HUD_CONTACT_SHADERS` in `hud.py`.
+pub const HUD_CONTACT_SHADERS: [&str; 3] = ["b1f29dc866cb17fa", "2b803276d219086b", "89c697b237594f04"];
+
+/// A contact is Elite's hostile red where its green and blue are both under this share of its red.
+/// The neutral orange of `ed_frame311038`'s contacts has green at 0.134 of red; a hostile's red is
+/// not measured yet. `HOSTILE_RED` in `hud.py`.
+const HOSTILE_RED: f32 = 0.07;
+
+/// The row each of [`HUD_COLOUR_SHADERS`] reads its colour from (as [`HUD_ROW`] for the panels):
+/// the head-up lines one, the radar's disc and rings one, so that each part of the HUD can be
+/// turned or left Elite's by itself. `HUD_COLOUR_ROWS` in `hud.py`.
+pub const HUD_COLOUR_ROWS: [u32; 8] = [542, 543, 543, 543, 543, 543, 543, 543];
+
+/// The row of the panels' own colour (`y z w` that colour times how far the panels are taken
+/// to it, each pixel as bright as Elite drew it; 0 0 0 none). `HUD_OWN_ROW` in `hud.py`.
+pub const HUD_OWN_ROW: u32 = 544;
+
+/// The same for each of [`HUD_COLOUR_SHADERS`]: the head-up lines' row, the radar's.
+/// `HUD_OWN_ROWS` in `hud.py`.
+pub const HUD_OWN_ROWS: [u32; 8] = [545, 546, 546, 546, 546, 546, 546, 546];
+
+/// A part's own colour can fade into a second one across the picture. The fade's row is this
+/// many after the part's own colour's (547 the panels, 548 the head-up lines, 549 the radar's
+/// disc and rings): `x` the way (0 none, 1 from the picture's left edge to its right one, 2 from
+/// its bottom to its top), `y z w` the second colour as the first is given. Only a copy made
+/// with `fade` reads it ([`hud`]). `HUD_FADE_AFTER` in `hud.py`.
+pub const HUD_FADE_AFTER: u32 = 3;
+
+/// `cb1[332].zw`: one over the picture's width and height in pixels (the radar's disc reads a
+/// texture of the picture at the pixel's place times it). `SCREEN` in `hud.py`.
+const HUD_SCREEN: u32 = 332;
+
+/// Which part of the HUD the shader `hash` draws, in the order of
+/// [`crate::settings::game_graphics::HudParts::list`]: the panels, the head-up lines, the radar.
+pub fn hud_part(hash: &str) -> usize {
+    match HUD_COLOUR_SHADERS.iter().position(|h| *h == hash) {
+        Some(0) => 1,
+        Some(_) => 2,
+        None => 0,
+    }
+}
+
+/// The row the copy of the HUD shader `hash` reads its part's own colour from. `own_row` in `hud.py`.
+pub fn hud_own_row(hash: &str) -> u32 {
+    HUD_COLOUR_SHADERS.iter().position(|h| *h == hash).map_or(HUD_OWN_ROW, |i| HUD_OWN_ROWS[i])
+}
+
+/// The row the copy of the HUD shader `hash` reads the HUD's colour from. `colour_row` in `hud.py`.
+pub fn hud_colour_row(hash: &str) -> u32 {
+    HUD_COLOUR_SHADERS.iter().position(|h| *h == hash).map_or(HUD_ROW, |i| HUD_COLOUR_ROWS[i])
+}
+
+/// A hologram of the ship's HUD that [`hologram`] gives a colour of its own.
+pub struct Hologram {
+    pub name: &'static str,
+    /// The pixel shader that draws it (the same replay).
+    pub shader: &'static str,
+    /// Its IniParams row: y z w a colour of its own times how far it is taken to that.
+    pub row: u32,
+}
+
+/// The holograms, as `HOLOGRAMS` in `hud.py`: the ship's, right of the radar, and the target's,
+/// left of it.
+pub const HOLOGRAMS: [Hologram; 2] = [Hologram { name: "ship", shader: "c4f04894e3f6ae79", row: 540 }, Hologram { name: "target", shader: "9798f7cba8194a6c", row: 541 }];
+
+/// The first words of the blocks [`hud`] and [`hologram`] add: how EDCAS's copy of a HUD shader is
+/// told from another mod's file of the same name (EDHM replaces all of them with its own).
+const HUD_MARKER: &str = "// EDCAS HUD";
+/// The same of client 0.43.187 and 0.43.188, whose copy had the fuel bar's spectrum alone.
+const OLD_HUD_MARKER: &str = "// EDCAS fuel bar spectrum";
+
 /// Game-shader replacements of EDCAS's from before client 0.43.39 (the landing dust redraw,
 /// removed 2026-11-03, `scripts/ed-shader/README.md` "Landing dust"): 3DMigoto loads a file in
 /// `ShaderFixes` by the game shader's hash for as long as it exists, so installing and
@@ -171,7 +278,7 @@ const OLD_TEXTURES: [&str; 4] = ["edcas_ground_detail.dds", "edcas_ground_relief
 
 /// Every shader `edcas.ini` runs or they include, as `SKY_SHADERS` in `install.py` (a test
 /// checks they are the same list).
-pub const SKY_SHADERS: [(&str, &str); 20] = [
+pub const SKY_SHADERS: [(&str, &str); 21] = [
     ("edcas_noise.hlsl", include_str!("../shader_mods/edcas_noise.hlsl")),
     ("edcas_clouds.hlsl", include_str!("../shader_mods/edcas_clouds.hlsl")),
     ("edcas_clouds_final.hlsl", include_str!("../shader_mods/edcas_clouds_final.hlsl")),
@@ -179,6 +286,7 @@ pub const SKY_SHADERS: [(&str, &str); 20] = [
     ("edcas_fog.hlsl", include_str!("../shader_mods/edcas_fog.hlsl")),
     ("edcas_dust.hlsl", include_str!("../shader_mods/edcas_dust.hlsl")),
     ("edcas_ground_grid.hlsl", include_str!("../shader_mods/edcas_ground_grid.hlsl")),
+    ("edcas_cloud_shade.hlsl", include_str!("../shader_mods/edcas_cloud_shade.hlsl")),
     ("edcas_ground_ref.hlsl", include_str!("../shader_mods/edcas_ground_ref.hlsl")),
     ("edcas_sun_ref.hlsl", include_str!("../shader_mods/edcas_sun_ref.hlsl")),
     ("edcas_memory.hlsl", include_str!("../shader_mods/edcas_memory.hlsl")),
@@ -312,33 +420,110 @@ pub fn star_light(asm: &str, source: &str) -> Result<String, String> {
     let mut block = tint_block(&reg, &clock, screen.then_some("v0"));
     block.push(format!("mul {reg}.xyz, {reg}.xyzx, {source}.xyzx"));
     // And the sun pass takes the sun off the ground it has set on (sunset_block).
+    // And the clouds' shadow off what lies under them (cloud_block).
     if screen {
+        let centre = format!("dcl_constantbuffer {}[", SUNSET_CENTRE.to_uppercase());
+        let known = lines.iter().any(|l| l == "dcl_input_ps linear v1.xyz")
+            && lines.iter().any(|l| l.contains("cb2[42]."))
+            && lines.iter().any(|l| l.starts_with("dcl_constantbuffer "))
+            && !lines.iter().any(|l| l.starts_with(&centre));
+        if !known {
+            return Err(format!("this doesn't look like the sun pass EDCAS knows (no view ray v1, no light direction cb2[42], or it has a {SUNSET_CENTRE} of its own); the game may have changed it"));
+        }
         block.extend(sunset_block(&reg, &clock));
+        block.extend(cloud_block(&reg, &clock));
     }
-    Ok(places.insert(lines, temps_line, n, block, screen.then_some(SUNSET_DECL)))
+    let patched = places.insert(lines, temps_line, n, block, screen.then_some(SUNSET_DECL));
+    if !screen {
+        return Ok(patched);
+    }
+    // Last, so the places above stay right: the planet centre's buffer, after the pass's own.
+    let mut lines: Vec<&str> = patched.split('\n').collect();
+    let decl = format!("dcl_constantbuffer {}[13], immediateIndexed", SUNSET_CENTRE.to_uppercase());
+    let last_buffer = lines.iter().rposition(|l| l.starts_with("dcl_constantbuffer ")).expect("checked above");
+    lines.insert(last_buffer + 1, &decl);
+    Ok(lines.join("\n"))
 }
 
-/// The terrain mask's slot in the sun pass (`edcas.ini` binds `ResourceEdcasTerrainDist` there, as
-/// the dust reads it) and its declaration.
-const SUNSET_DECL: &str = "dcl_resource_texture2d (float,float,float,float) t118";
+/// The declarations of the two textures of ours the sun pass reads: the terrain mask (t118: `edcas.ini`
+/// binds `ResourceEdcasTerrainDist` there, as the dust reads it) and the clouds' shadow (t114:
+/// `ResourceEdcasCloudShade`).
+const SUNSET_DECL: &str = "dcl_resource_texture2d (float,float,float,float) t118\ndcl_resource_texture2d (float,float,float,float) t114";
 
-/// The lines that take from the sun's colour in `reg.xyz` the share of the sun that has set for the
-/// ground under the pixel: the terrain mask's second channel ([`mask`]: 0 the sun is up, 1 it is
-/// down; 0 where no ground was drawn, and where the mask is not bound). Elite dims the sun by what
-/// the camera sees of it; from a few hundred metres up, where the sun's edge still shows, that lit
-/// ground the sun had set on, on every slope facing it (`ed_frame112478`, 2026-11-12). `v0` is the
-/// pixel's place on the screen (0 to 1), `cb2[1].xy` the resolution, as the pass's own first lines
-/// read its G-buffer; `clock` is scratch. Port of `star_light.sunset_block`.
-fn sunset_block(reg: &str, clock: &str) -> Vec<String> {
+/// The lines that take from the sun's colour in `reg.xyz` the share the clouds take from what the pixel
+/// shows: the clouds' shadow (`edcas_cloud_shade.hlsl`, worked out on the sun pass's draw right before
+/// it: 0 no cloud between the point and the sun, towards 1 under a thick one; 0 where it is not bound,
+/// so with the player's switch off). The pixel is found as in [`sunset_block`]; `clock` is scratch.
+/// Port of `star_light.cloud_block`.
+fn cloud_block(reg: &str, clock: &str) -> Vec<String> {
     vec![
-        "// EDCAS sunset: the ground the sun has set on gets none of it (the terrain mask's y)".to_string(),
+        "// EDCAS cloud shadows: the sunlight the clouds leave on what the pixel shows".to_string(),
         format!("mul {clock}.xy, v0.xyxx, cb2[1].xyxx"),
         format!("round_ni {clock}.xy, {clock}.xyxx"),
         format!("ftou {clock}.xy, {clock}.xyxx"),
         format!("mov {clock}.zw, l(0,0,0,0)"),
-        format!("ld_indexable(texture2d)(float,float,float,float) {clock}.x, {clock}.xyww, t118.yxzw"),
+        format!("ld_indexable(texture2d)(float,float,float,float) {clock}.x, {clock}.xyww, t114.xyzw"),
         format!("add_sat {clock}.x, -{clock}.x, l(1.000000)"),
         format!("mul {reg}.xyz, {reg}.xyzx, {clock}.xxxx"),
+    ]
+}
+
+/// The ground pass's `cb2` in the sun pass (`edcas.ini` binds `ResourceEdcasGroundCb2` there, as the dust
+/// reads it): its row 12 is the planet's centre from the camera. Elite's shaders use `cb0` to `cb5`.
+const SUNSET_CENTRE: &str = "cb12";
+/// The sine of the sun's height from which down it counts as set for a point of the ground, and from
+/// which up as risen: 0.29 degrees either way, about the sun's disc from the Earth.
+const SUNSET_SINE: f32 = 0.005;
+
+/// The lines that take from the sun's colour in `reg.xyz` the share of the sun that has set for the
+/// ground under the pixel. Elite dims the sun by what the camera sees of it; from a few hundred
+/// metres up, where the sun's edge still shows, that lit ground the sun had set on, on every slope
+/// facing it (`ed_frame112478`, 2026-11-12).
+///
+/// The sun's height at the point is the dot of its place from the planet's centre with the light's
+/// direction. The place, negated: the centre from the camera (the ground pass's `cb2[12]`, at
+/// [`SUNSET_CENTRE`]) minus the pixel's view ray (`v1`, the same axes) times the ground's distance (the
+/// terrain mask, [`mask`]; 0 where no ground was drawn: ships and rocks keep Elite's light). The
+/// light's direction is the pass's own, `cb2[42]`, so the sunset always belongs to the light the pass
+/// adds. 0 (up) to 1 (down) over [`SUNSET_SINE`] either side of the horizon; none on ground from
+/// [`MASK_FAR_M`] (from orbit Elite draws far terrain over the ground shaders' with one that writes no
+/// mask, 2026-11-15, ed_frame136151).
+///
+/// From client 0.43.151 to 0.43.234 the ground shaders worked this out with the frame's `cb1[4]`, a row
+/// Elite's own ground shaders never read: about once a second it held something else for a frame and
+/// the whole ground went dark for that frame (2026-11-19).
+///
+/// `v0` is the pixel's place on the screen (0 to 1), `cb2[1].xy` the resolution, as the pass's own
+/// first lines read its G-buffer; `clock` is scratch, and so is `reg.w` (the pass reads the colour's
+/// xyz only). Port of `star_light.sunset_block`, whose docstring says more.
+fn sunset_block(reg: &str, clock: &str) -> Vec<String> {
+    vec![
+        "// EDCAS sunset: the ground the sun has set on gets none of it (the terrain mask's distance, the ground's cb2[12])".to_string(),
+        format!("mul {clock}.xy, v0.xyxx, cb2[1].xyxx"),
+        format!("round_ni {clock}.xy, {clock}.xyxx"),
+        format!("ftou {clock}.xy, {clock}.xyxx"),
+        format!("mov {clock}.zw, l(0,0,0,0)"),
+        format!("ld_indexable(texture2d)(float,float,float,float) {clock}.x, {clock}.xyww, t118.xyzw"),
+        format!("dp3 {reg}.w, v1.xyzx, v1.xyzx"),
+        format!("rsq {reg}.w, {reg}.w"),
+        format!("mul {reg}.w, {reg}.w, {clock}.x"),
+        format!("mad {clock}.yzw, -v1.xxyz, {reg}.wwww, {SUNSET_CENTRE}[12].xxyz"),
+        format!("dp3 {reg}.w, {clock}.yzwy, {clock}.yzwy"),
+        format!("rsq {reg}.w, {reg}.w"),
+        format!("mul {clock}.yzw, {clock}.yyzw, {reg}.wwww"),
+        format!("dp3 {reg}.w, {clock}.yzwy, cb2[42].xyzx"),
+        format!("mad_sat {reg}.w, {reg}.w, l({:.6}), l(0.500000)", -0.5 / SUNSET_SINE),
+        format!("mad {clock}.y, {reg}.w, l(-2.000000), l(3.000000)"),
+        format!("mul {reg}.w, {reg}.w, {reg}.w"),
+        format!("mul {reg}.w, {reg}.w, {clock}.y"),
+        "// on ground only, and none on far ground".to_string(),
+        format!("lt {clock}.y, l(0.000000), {clock}.x"),
+        format!("lt {clock}.z, {clock}.x, l({MASK_FAR_M:.6})"),
+        format!("and {clock}.y, {clock}.y, {clock}.z"),
+        format!("and {clock}.y, {clock}.y, l(0x3f800000)"),
+        format!("mul {reg}.w, {reg}.w, {clock}.y"),
+        format!("add_sat {reg}.w, -{reg}.w, l(1.000000)"),
+        format!("mul {reg}.xyz, {reg}.xyzx, {reg}.wwww"),
     ]
 }
 
@@ -453,6 +638,463 @@ pub fn star_light_list(asm: &str, slot: &str) -> Result<String, String> {
     Ok(places.insert(lines, temps_line, n, tint_block(&reg, &clock, None), None))
 }
 
+// ------------------------------------------------------------------ HUD
+
+/// The lower right panel's texture among the panels the HUD shader pastes: its size at
+/// 3440 × 1440, and its width over its height, which is how it is told from the others. EDHM
+/// tells it the same way.
+const PANEL: (f64, f64) = (1466.0, 1200.0);
+const PANEL_ASPECT: (f64, f64) = (1.2, 1.3);
+/// The hue at the violet end, in sixths of the colour circle (0 red, 1 yellow, 2 green, 3 cyan,
+/// 4 blue): 4.5 is violet, 270 degrees.
+const HUE_SPAN: f64 = 4.5;
+/// How far what Elite draws in its second colour goes to white.
+const PALE: f32 = 0.65;
+/// The IniParams row of the HUD's colour: x the turn of the hue in degrees, y the brightness
+/// over Elite's.
+pub const HUD_ROW: u32 = 534;
+
+/// A gauge of the lower right panel that [`hud`] can colour.
+pub struct Gauge {
+    pub name: &'static str,
+    /// Its IniParams row: x how far it is taken to the spectrum, y z w a colour of its own times
+    /// how far it is taken to that.
+    pub row: u32,
+    /// The rectangles that hold it and the ones cut out of those: left, top, right, bottom in
+    /// pixels of the panel's texture ([`PANEL`]), measured in `ed_frame171605`.
+    inside: &'static [[f64; 4]],
+    outside: &'static [[f64; 4]],
+    /// The red end and the violet end of its spectrum, in the same pixels.
+    red: (f64, f64),
+    violet: (f64, f64),
+    /// Whether what Elite draws in its second colour (blue against the fill's orange) is made pale.
+    pale: bool,
+}
+
+/// The gauges, as `GAUGES` in `hud.py`: the fuel (the main tank's bar and the reservoir's thin
+/// one above it; red at the empty end), the heat (the arc left of the radar, with its number's
+/// percent sign; red at the hot end, the top), the speed (the arc right of the radar with its
+/// number; red at the slow end, the bottom; the percent sign of the heat and the compass are cut
+/// out), the shields (the three rings around the ship's hologram and their number), the hull
+/// (the blocks of its health under the hologram; red at the 0 % end, violet at 100 %) and the power
+/// distributor (its three columns and their pips; red at the bottom).
+pub const GAUGES: [Gauge; 6] = [
+    Gauge { name: "fuel", row: 533, inside: &[[463.0, 460.0, 714.0, 486.0]], outside: &[], red: (465.0, 474.0), violet: (712.0, 474.0), pale: true },
+    Gauge { name: "heat", row: 535, inside: &[[0.0, 0.0, 232.0, 346.0], [232.0, 0.0, 268.0, 46.0]], outside: &[], red: (12.0, 4.0), violet: (205.0, 337.0), pale: false },
+    Gauge {
+        name: "speed",
+        row: 536,
+        inside: &[[232.0, 0.0, 466.0, 346.0]],
+        outside: &[[232.0, 0.0, 268.0, 46.0], [240.0, 132.0, 334.0, 232.0]],
+        red: (290.0, 338.0),
+        violet: (449.0, 5.0),
+        pale: true,
+    },
+    Gauge { name: "shields", row: 537, inside: &[[466.0, 0.0, 764.0, 290.0]], outside: &[], red: (479.0, 143.0), violet: (750.0, 143.0), pale: false },
+    Gauge { name: "hull", row: 538, inside: &[[240.0, 347.0, 462.0, 594.0]], outside: &[], red: (440.0, 580.0), violet: (262.0, 358.0), pale: false },
+    Gauge { name: "distributor", row: 539, inside: &[[240.0, 716.0, 446.0, 903.0]], outside: &[], red: (340.0, 899.0), violet: (340.0, 724.0), pale: false },
+];
+
+/// The line that reads IniParams `row` into `dest` (a register with its mask).
+fn hud_load(row: u32, dest: &str) -> String {
+    format!("ld_indexable(texture1d)(float,float,float,float) {dest}, l({row}, 0, 0, 0), t120.xyzw")
+}
+
+/// The lines that turn the hue of `x`.xyz and scale it by `row`; `a` and `b` are scratch. Port
+/// of `hud.colour_block` in `scripts/ed-shader`.
+fn hud_colour_block(row: u32, x: &str, a: &str, b: &str) -> Vec<String> {
+    vec![
+        format!("{HUD_MARKER} colour: x{row} the turn of the hue in degrees, y{row} the brightness over Elite's (0 0 = Elite's HUD)"),
+        hud_load(row, &format!("{a}.xyzw")),
+        format!("add {b}.x, |{a}.x|, |{a}.y|"),
+        format!("lt {b}.x, l(0.000000), {b}.x"),
+        format!("if_nz {b}.x"),
+        // around the grey axis n = (1, 1, 1) / sqrt 3: v cos + (n x v) sin + n (n . v) (1 - cos)
+        format!("  mul {a}.x, {a}.x, l({:.6})", std::f64::consts::PI / 180.0),
+        format!("  sincos {a}.z, null, {a}.x"),
+        format!("  sincos null, {a}.w, {a}.x"),
+        format!("  dp3 {b}.w, {x}.xyzx, l(0.333333, 0.333333, 0.333333, 0.000000)"),
+        format!("  add {b}.xyz, {x}.zxyz, -{x}.yzxy"),
+        format!("  mul {b}.xyz, {b}.xyzx, {a}.zzzz"),
+        format!("  mul {b}.xyz, {b}.xyzx, l(0.577350, 0.577350, 0.577350, 0.000000)"),
+        format!("  add {a}.x, -{a}.w, l(1.000000)"),
+        format!("  mul {a}.x, {a}.x, {b}.w"),
+        format!("  mad {b}.xyz, {x}.xyzx, {a}.wwww, {b}.xyzx"),
+        format!("  add {b}.xyz, {b}.xyzx, {a}.xxxx"),
+        format!("  max {b}.xyz, {b}.xyzx, l(0.000000, 0.000000, 0.000000, 0.000000)"),
+        format!("  add {a}.y, {a}.y, l(1.000000)"),
+        format!("  max {a}.y, {a}.y, l(0.000000)"),
+        format!("  mul {x}.xyz, {b}.xyzx, {a}.yyyy"),
+        "endif".to_string(),
+    ]
+}
+
+/// `t`.x: whether the pixel is inside `rect`; `u` holds (u, v, -u, -v).
+fn rect_test(rect: &[f64; 4], t: &str, u: &str) -> Vec<String> {
+    let (left, top, right, bottom) = (rect[0] / PANEL.0, rect[1] / PANEL.1, rect[2] / PANEL.0, rect[3] / PANEL.1);
+    vec![
+        format!("lt {t}.xyzw, l({left:.6}, {top:.6}, {:.6}, {:.6}), {u}.xyzw", -right, -bottom),
+        format!("and {t}.xy, {t}.xyxx, {t}.zwzz"),
+        format!("and {t}.x, {t}.x, {t}.y"),
+    ]
+}
+
+/// The lines that colour one gauge in `x`.xyz; `a` to `d` are scratch, `u` holds (u, v, -u, -v),
+/// `panel` is the panel's texture. Port of `hud.gauge_block` in `scripts/ed-shader`.
+#[allow(clippy::too_many_arguments)]
+fn gauge_block(gauge: &Gauge, x: &str, a: &str, b: &str, c: &str, d: &str, u: &str, panel: &str) -> Vec<String> {
+    let mut lines = vec![format!("// {}: row {}, x how far to the spectrum, y z w its own colour times how far to that", gauge.name, gauge.row)];
+    for (i, rect) in gauge.inside.iter().enumerate() {
+        lines.extend(rect_test(rect, if i > 0 { d } else { c }, u));
+        if i > 0 {
+            lines.push(format!("or {c}.x, {c}.x, {d}.x"));
+        }
+    }
+    for rect in gauge.outside {
+        lines.extend(rect_test(rect, d, u));
+        lines.extend([format!("not {d}.x, {d}.x"), format!("and {c}.x, {c}.x, {d}.x")]);
+    }
+    // The place along the gauge, 0 at the red end and 1 at the violet one, from the pixel's place.
+    let (dx, dy) = (gauge.violet.0 - gauge.red.0, gauge.violet.1 - gauge.red.1);
+    let length = dx * dx + dy * dy;
+    let axis = (PANEL.0 * dx / length, PANEL.1 * dy / length, -(gauge.red.0 * dx + gauge.red.1 * dy) / length);
+    lines.extend([
+        format!("if_nz {c}.x"),
+        format!("  {}", hud_load(gauge.row, &format!("{a}.xyzw"))),
+        format!("  mov_sat {a}.x, {a}.x"),
+        format!("  max {b}.x, {a}.y, {a}.z"),
+        format!("  max {b}.x, {b}.x, {a}.w"),
+        format!("  add {b}.y, {a}.x, {b}.x"),
+        format!("  lt {b}.z, l(0.000000), {b}.y"),
+        format!("  if_nz {b}.z"),
+        // the spectrum: three ramps of the colour circle
+        format!("    dp2 {b}.z, v4.xyxx, l({:.6}, {:.6}, 0.000000, 0.000000)", axis.0, axis.1),
+        format!("    add_sat {b}.z, {b}.z, l({:.6})", axis.2),
+        format!("    mul {b}.z, {b}.z, l({HUE_SPAN:.6})"),
+        format!("    add {c}.xyz, {b}.zzzz, l(-3.000000, -2.000000, -4.000000, 0.000000)"),
+        format!("    mad_sat {c}.xyz, |{c}.xyzx|, l(1.000000, -1.000000, -1.000000, 0.000000), l(-1.000000, 2.000000, 2.000000, 0.000000)"),
+        // the look times how far: the spectrum's share and the own colour's
+        format!("    mad {c}.xyz, {c}.xyzx, {a}.xxxx, {a}.yzwy"),
+        format!("    min {b}.y, {b}.y, l(1.000000)"),
+    ]);
+    if gauge.pale {
+        lines.extend([
+            // Elite's second colour (the panel's own texel bluer than red): the look made pale
+            format!("    sample_l_indexable(texture2d)(float,float,float,float) {d}.xyz, v4.xyxx, {panel}.xyzw, s1, l(0.000000)"),
+            format!("    lt {d}.x, {d}.x, {d}.z"),
+            format!("    and {d}.x, {d}.x, l(0x{:08x})", PALE.to_bits()),
+            format!("    add {d}.yzw, -{c}.xxyz, {b}.yyyy"),
+            format!("    mad {c}.xyz, {d}.xxxx, {d}.yzwy, {c}.xyzx"),
+        ]);
+    }
+    lines.extend([
+        // as bright as Elite drew the pixel, and Elite's own colour for the rest of the way
+        format!("    max {d}.x, {x}.y, {x}.x"),
+        format!("    max {d}.x, {x}.z, {d}.x"),
+        format!("    mul {c}.xyz, {c}.xyzx, {d}.xxxx"),
+        format!("    mad {c}.xyz, -{x}.xyzx, {b}.yyyy, {c}.xyzx"),
+        format!("    add {x}.xyz, {x}.xyzx, {c}.xyzx"),
+        "  endif".to_string(),
+        "endif".to_string(),
+    ]);
+    lines
+}
+
+/// The lines that colour the gauges of the lower right panel in `x`.xyz; `panel` is the panel's
+/// texture. Port of `hud.gauges_block` in `scripts/ed-shader`.
+fn gauges_block(x: &str, a: &str, b: &str, c: &str, d: &str, u: &str, panel: &str) -> Vec<String> {
+    let mut lines = vec![
+        format!("{HUD_MARKER} gauges: the lower right panel is the texture {} to {} times as wide as high", PANEL_ASPECT.0, PANEL_ASPECT.1),
+        format!("resinfo_indexable(texture2d)(float,float,float,float)_uint {b}.xy, l(0), {panel}.xyzw"),
+        format!("utof {b}.xy, {b}.xyxx"),
+        format!("mul {b}.zw, {b}.yyyy, l(0.000000, 0.000000, {:.6}, {:.6})", PANEL_ASPECT.0, PANEL_ASPECT.1),
+        format!("lt {b}.z, {b}.z, {b}.x"),
+        format!("lt {b}.w, {b}.x, {b}.w"),
+        format!("and {b}.x, {b}.z, {b}.w"),
+        format!("if_nz {b}.x"),
+        format!("  mov {u}.xy, v4.xyxx"),
+        format!("  mov {u}.zw, -v4.xxxy"),
+    ];
+    for gauge in &GAUGES {
+        lines.extend(gauge_block(gauge, x, a, b, c, d, u, panel).into_iter().map(|line| format!("  {line}")));
+    }
+    lines.push("endif".to_string());
+    lines
+}
+
+/// `mul o0.xyz, rN.swiz, cb1[90].yyyy`, a HUD shader's output (the colour times the HUD's
+/// brightness, the last thing it does with it): the register and its swizzle.
+fn hud_output(line: &str) -> Option<(&str, &str)> {
+    let (reg, swizzle) = line.strip_prefix("mul o0.xyz, ")?.strip_suffix(", cb1[90].yyyy")?.split_once('.')?;
+    let digits = reg.strip_prefix('r')?;
+    (!digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()) && swizzle.len() == 4 && swizzle.bytes().all(|b| b"xyzw".contains(&b))).then_some((reg, swizzle))
+}
+
+/// The lines that fade the colour in `a`.yzw into the one of `row` across the picture; `b` and
+/// `c` are scratch, `pos` is the input with the pixel's place in the picture, in pixels. Port
+/// of `hud.fade_lines` in `scripts/ed-shader`.
+fn fade_lines(row: u32, a: &str, b: &str, c: &str, pos: &str) -> Vec<String> {
+    vec![
+        format!("{HUD_MARKER} fade: x{row} 1 fades the colour from the picture's left edge to its right one, 2 from its bottom to its top, into y{row} z{row} w{row} (0 = one colour)"),
+        hud_load(row, &format!("{b}.xyzw")),
+        format!("lt {c}.x, l(0.500000), {b}.x"),
+        format!("if_nz {c}.x"),
+        // how far along: the pixel's place across the picture, or up it
+        format!("  mul {c}.yz, {pos}.xxyx, cb1[{HUD_SCREEN}].zzwz"),
+        format!("  add {c}.z, -{c}.z, l(1.000000)"),
+        format!("  lt {c}.x, l(1.500000), {b}.x"),
+        format!("  movc {c}.x, {c}.x, {c}.z, {c}.y"),
+        format!("  mov_sat {c}.x, {c}.x"),
+        // how far each colour is taken, mixed as the colours are
+        format!("  max {c}.y, {a}.y, {a}.z"),
+        format!("  max {c}.y, {c}.y, {a}.w"),
+        format!("  max {c}.z, {b}.y, {b}.z"),
+        format!("  max {c}.z, {c}.z, {b}.w"),
+        format!("  add {c}.z, {c}.z, -{c}.y"),
+        format!("  mad {c}.y, {c}.z, {c}.x, {c}.y"),
+        format!("  add {b}.yzw, {b}.yyzw, -{a}.yyzw"),
+        format!("  mad {a}.yzw, {b}.yyzw, {c}.xxxx, {a}.yyzw"),
+        // the mix as bright as its ends: its largest part back to that
+        format!("  max {c}.z, {a}.y, {a}.z"),
+        format!("  max {c}.z, {c}.z, {a}.w"),
+        format!("  max {c}.z, {c}.z, l(0.000100)"),
+        format!("  div {c}.y, {c}.y, {c}.z"),
+        format!("  mul {a}.yzw, {a}.yyzw, {c}.yyyy"),
+        "endif".to_string(),
+    ]
+}
+
+/// The lines that give a hologram (or `what`: a part of the HUD) in `x`.xyz the colour of its
+/// own in `row`; `a` and `b` are scratch. `fade` (a third scratch register and the input with
+/// the pixel's place in the picture) fades that colour into the one of the row
+/// [`HUD_FADE_AFTER`] on. Port of `hud.hologram_block` in `scripts/ed-shader`.
+fn hologram_block(row: u32, x: &str, a: &str, b: &str, what: &str, fade: Option<(&str, &str)>) -> Vec<String> {
+    let mut lines = vec![
+        format!("{HUD_MARKER} {what}: y{row} z{row} w{row} a colour of its own times how far it is taken to that (0 0 0 = Elite's {what})"),
+        hud_load(row, &format!("{a}.xyzw")),
+    ];
+    if let Some((c, pos)) = fade {
+        lines.extend(fade_lines(row + HUD_FADE_AFTER, a, b, c, pos));
+    }
+    lines.extend([
+        format!("max {b}.x, {a}.y, {a}.z"),
+        format!("max {b}.x, {b}.x, {a}.w"),
+        format!("lt {b}.y, l(0.000000), {b}.x"),
+        format!("if_nz {b}.y"),
+        format!("  min {b}.x, {b}.x, l(1.000000)"),
+        // as bright as Elite drew the pixel, and Elite's own colour for the rest of the way
+        format!("  max {b}.y, {x}.y, {x}.x"),
+        format!("  max {b}.y, {x}.z, {b}.y"),
+        format!("  mul {a}.yzw, {a}.yyzw, {b}.yyyy"),
+        format!("  mad {a}.yzw, -{x}.xxyz, {b}.xxxx, {a}.yyzw"),
+        format!("  add {x}.xyz, {x}.xyzx, {a}.yzwy"),
+        "endif".to_string(),
+    ]);
+    lines
+}
+
+/// Makes the pixel's place in the picture an input of the shader `lines` and `cb1[HUD_SCREEN]`
+/// one of its constants; gives the input's name. A shader that takes the place already keeps
+/// its input; in another it is the register after its last input, where Elite's vertex shaders
+/// put `SV_Position`. Port of `hud.screen_input` in `scripts/ed-shader`.
+fn screen_input(lines: &mut Vec<String>) -> Result<String, String> {
+    let inputs: Vec<usize> = lines.iter().enumerate().filter(|(_, l)| l.starts_with("dcl_input_ps")).map(|(i, _)| i).collect();
+    let sizes: Vec<(usize, u32, String)> = lines
+        .iter()
+        .enumerate()
+        .filter_map(|(i, l)| {
+            let (size, how) = l.strip_prefix("dcl_constantbuffer CB1[")?.split_once("], ")?;
+            (how.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')).then_some((i, size.parse().ok()?, how.to_string()))
+        })
+        .collect();
+    let (Some(last_input), [(cb1, size, how)]) = (inputs.last(), sizes.as_slice()) else {
+        return Err("this HUD shader has no inputs or no cb1 to take the pixel's place in the picture by; the game may have changed it".into());
+    };
+    lines[*cb1] = format!("dcl_constantbuffer CB1[{}], {how}", (*size).max(HUD_SCREEN + 1));
+    let have = lines.iter().find_map(|l| {
+        let (name, mask) = l.strip_prefix("dcl_input_ps_siv linear noperspective ")?.strip_suffix(", position")?.split_once('.')?;
+        (name.starts_with('v') && name[1..].bytes().all(|b| b.is_ascii_digit()) && name.len() > 1 && mask.starts_with("xy") && mask.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')).then(|| name.to_string())
+    });
+    if let Some(name) = have {
+        return Ok(name);
+    }
+    if inputs.iter().any(|i| lines[*i].contains(", position")) {
+        return Err("this HUD shader takes the pixel's place in a way EDCAS does not know; the game may have changed it".into());
+    }
+    // The register of an input: the number after ` v`, before its mask.
+    let register = |line: &str| line.rsplit_once(" v").and_then(|(_, rest)| rest.split_once('.')).and_then(|(digits, _)| digits.parse::<u32>().ok());
+    let Some(last) = inputs.iter().filter_map(|i| register(&lines[*i])).max() else {
+        return Err("this HUD shader's inputs are not ones EDCAS knows; the game may have changed it".into());
+    };
+    let name = format!("v{}", last + 1);
+    lines.insert(last_input + 1, format!("dcl_input_ps_siv linear noperspective {name}.xy, position"));
+    Ok(name)
+}
+
+/// Where a copy's lines go in a HUD shader (`hud.places` in `scripts/ed-shader`).
+struct HudPlaces {
+    lines: Vec<String>,
+    /// The line of `dcl_temps` and its number.
+    temps_line: usize,
+    temps: u32,
+    /// The line of the output, and the register and swizzle it takes the colour from.
+    out: usize,
+    reg: String,
+    swizzle: String,
+    last_resource: usize,
+}
+
+impl HudPlaces {
+    fn of(asm: &str) -> Result<Self, String> {
+        let lines = unpatched_lines(asm)?;
+        let outs: Vec<(usize, String, String)> = lines.iter().enumerate().filter_map(|(i, l)| hud_output(l).map(|(reg, swizzle)| (i, reg.to_string(), swizzle.to_string()))).collect();
+        // IniParams' declaration goes after the last resource, or, in a shader without any (the radar's
+        // 97e6b9ff825cb157), after its constant buffers and samplers, where a resource would stand.
+        let last_resource = lines.iter().rposition(|l| l.starts_with("dcl_resource_") || l.starts_with("dcl_sampler") || l.starts_with("dcl_constantbuffer"));
+        let (Some((temps_line, temps)), [(out, reg, swizzle)], Some(last_resource)) = (dcl_temps(&lines), outs.as_slice(), last_resource) else {
+            return Err("this doesn't look like a HUD shader EDCAS knows (no single colour output times cb1[90].y); the game may have changed it".into());
+        };
+        let (out, reg, swizzle) = (*out, reg.clone(), swizzle.clone());
+        Ok(HudPlaces { lines, temps_line, temps, out, reg, swizzle, last_resource })
+    }
+
+    /// The scratch registers a copy may use, from the first one the shader does not.
+    fn scratch(&self) -> Vec<String> {
+        (0..6).map(|i| format!("r{}", self.temps + i)).collect()
+    }
+
+    /// The shader with `block` in place of its output line, `more` registers more and IniParams
+    /// declared.
+    fn patched(mut self, block: Vec<String>, more: u32) -> String {
+        // The later place first, so the earlier ones' indexes stay right (the declarations come first).
+        self.lines.splice(self.out..=self.out, block);
+        self.lines[self.temps_line] = format!("dcl_temps {}", self.temps + more);
+        self.lines.insert(self.last_resource + 1, T120_DECL.to_string());
+        self.lines.join("\n")
+    }
+}
+
+/// The panel's texture in a panel shader, `None` in another: a panel shader takes the pixel's
+/// place in the panel at `v4.xy` and reads one texture through `s1`, the panel (`t2` in the
+/// shader with the shadow maps, `t1` in the one without). Port of `hud.panel_texture` in
+/// `scripts/ed-shader`.
+fn panel_texture(lines: &[String]) -> Option<String> {
+    if !lines.iter().any(|l| l == "dcl_input_ps linear v4.xy") {
+        return None;
+    }
+    let mut read: Vec<&str> = lines
+        .iter()
+        .filter_map(|l| l.trim().strip_prefix("sample_indexable(texture2d)(float,float,float,float) ")?.strip_suffix(", s1"))
+        .filter_map(|l| l.rsplit(", ").next()?.split('.').next())
+        .collect();
+    read.sort_unstable();
+    read.dedup();
+    match read.as_slice() {
+        [panel] => Some(panel.to_string()),
+        _ => None,
+    }
+}
+
+/// The copy of one of Elite's HUD shaders ([`HUD_PANEL_SHADERS`], [`HUD_PANEL_EXTRA`],
+/// [`HUD_COLOUR_SHADERS`]; `asm` as
+/// 3DMigoto exported it) that takes the HUD's colour, and in a panel shader draws the gauges
+/// in colours of their own. Both are off while their IniParams rows are 0 (an unset row; the
+/// client writes them, [`crate::ground_tint::Hud`], and 3DMigoto fades them):
+///
+/// - **The HUD's colour**: the finished colour is turned around the grey axis by `x` degrees of
+///   `row` (orange to blue is 180) and made `1 + y` times as bright. The row is the shader's
+///   ([`hud_colour_row`]: the panels', the head-up lines', the radar's), so each part of the
+///   HUD is turned or left Elite's by itself. It goes in after the shader's own colour matrix
+///   (the player's `GUIColour`), so it adds to that.
+/// - **A part's own colour**: after it, `y z w` of `own` ([`hud_own_row`]) is one colour times
+///   how far the part is taken to it, each pixel as bright as Elite drew it (what a hologram's
+///   copy does, [`hologram`]); 0 0 0 is none. The gauges come after it and keep their looks.
+///   With `fade` the copy can fade that colour into a second one across the picture
+///   ([`HUD_FADE_AFTER`]): it takes the pixel's place in the picture as one more input
+///   ([`screen_input`]), which the plain copy leaves alone, so only a player who asked for a
+///   fade gets a shader with it. Proven in the replay under DXVK (2026-11-17,
+///   `171605-fade-red-blue-across.png`); not run on Windows' own Direct3D.
+/// - **The gauges** (the panel shaders only, told by [`panel_texture`]): Elite
+///   draws a ship's gauges into flat panel textures and pastes sections of them onto the cockpit
+///   with this shader; each gauge has a fixed place in the lower right panel's texture
+///   ([`PANEL_ASPECT`], [`GAUGES`]) and a row: `x` is how far it is taken to the spectrum (red at
+///   one end, through yellow, green and blue to violet at the other), `y z w` a colour of its
+///   own times how far it is taken to that. Each pixel stays as bright as Elite drew it, so a
+///   fill uncovers the colours and the empty part stays dark. What Elite draws in its second
+///   colour (the fuel of the plotted jump, the speed's best turning range) is the same colour
+///   made pale ([`PALE`]), where the gauge says so.
+///
+/// Proven in the RenderDoc replay before the game ran it (`ed-captures/hud/`, 2026-11-16: only
+/// the HUD and its bloom change; the contacts on the radar and the holograms keep their
+/// colours). Port of `hud.hud` in `scripts/ed-shader`.
+// The client makes every copy through `hud_with` (a contact or not); the tests call this.
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn hud(asm: &str, row: u32, own: u32, fade: bool) -> Result<String, String> {
+    hud_with(asm, row, own, fade, false)
+}
+
+/// [`hud`], and with `keep_red` (a radar contact, [`HUD_CONTACT_SHADERS`]) a pixel Elite draws in its
+/// hostile red keeps that ([`keep_red_lines`]). Port of `hud.hud` with `keep_red`.
+pub fn hud_with(asm: &str, row: u32, own: u32, fade: bool, keep_red: bool) -> Result<String, String> {
+    let mut pos = None;
+    let places = if fade {
+        let mut lines = unpatched_lines(asm)?;
+        pos = Some(screen_input(&mut lines)?);
+        HudPlaces::of(&lines.join("\n"))?
+    } else {
+        HudPlaces::of(asm)?
+    };
+    let panel = panel_texture(&places.lines);
+    let r = places.scratch();
+    let (x, a, b, c, d, u) = (&r[0], &r[1], &r[2], &r[3], &r[4], &r[5]);
+    let mut block = vec![format!("mov {x}.xyz, {}.{}", places.reg, places.swizzle)];
+    if keep_red {
+        block.push(format!("mov {d}.xyz, {x}.xyzx"));
+    }
+    block.extend(hud_colour_block(row, x, a, b));
+    block.extend(hologram_block(own, x, a, b, "part", pos.as_deref().map(|pos| (c.as_str(), pos))));
+    if let Some(panel) = &panel {
+        block.extend(gauges_block(x, a, b, c, d, u, panel));
+    }
+    if keep_red {
+        block.extend(keep_red_lines(x, d, u));
+    }
+    block.push(format!("mul o0.xyz, {x}.xyzx, cb1[90].yyyy"));
+    Ok(places.patched(block, if panel.is_some() || keep_red { 6 } else if fade { 4 } else { 3 }))
+}
+
+/// The lines that put Elite's colour `d.xyz` back into `x.xyz` where it is Elite's hostile red (green
+/// and blue both under [`HOSTILE_RED`] of a red above 0); `u` is scratch. Port of `hud.keep_red_lines`.
+fn keep_red_lines(x: &str, d: &str, u: &str) -> Vec<String> {
+    vec![
+        format!("{HUD_MARKER} contact: a red one (Elite's mark of a hostile ship) keeps Elite's colour"),
+        format!("mul {u}.x, {d}.x, l({HOSTILE_RED:.6})"),
+        format!("lt {u}.y, {d}.y, {u}.x"),
+        format!("lt {u}.z, {d}.z, {u}.x"),
+        format!("and {u}.y, {u}.y, {u}.z"),
+        format!("lt {u}.z, l(0.000000), {d}.x"),
+        format!("and {u}.y, {u}.y, {u}.z"),
+        format!("movc {x}.xyz, {u}.yyyy, {d}.xyzx, {x}.xyzx"),
+    ]
+}
+
+/// The copy of a hologram's shader ([`HOLOGRAMS`]; `asm` as 3DMigoto exported it) that takes a
+/// colour of its own: `y z w` of `row` is that colour times how far the hologram is taken to it,
+/// each pixel as bright as Elite drew it, so the hologram's lines and its shading stay; 0 0 0 (an
+/// unset row) is Elite's hologram. It goes in after the shader's own colour matrix, as [`hud`]'s
+/// blocks do. Proven in the RenderDoc replay before the game ran it (`ed-captures/hud/`,
+/// 2026-11-16: only that hologram and its bloom change). Port of `hud.hologram` in
+/// `scripts/ed-shader`.
+pub fn hologram(asm: &str, row: u32) -> Result<String, String> {
+    let places = HudPlaces::of(asm)?;
+    let r = places.scratch();
+    let (x, a, b) = (&r[0], &r[1], &r[2]);
+    let mut block = vec![format!("mov {x}.xyz, {}.{}", places.reg, places.swizzle)];
+    block.extend(hologram_block(row, x, a, b, "hologram", None));
+    block.push(format!("mul o0.xyz, {x}.xyzx, cb1[90].yyyy"));
+    Ok(places.patched(block, 3))
+}
+
 /// The lines of a game shader's assembly (`\r\n` read as `\n`) that EDCAS has not patched yet:
 /// one that reads IniParams (`t120`) already is refused.
 fn unpatched_lines(asm: &str) -> Result<Vec<String>, String> {
@@ -535,8 +1177,23 @@ pub fn detail(asm: &str) -> Result<String, String> {
     lines.splice(encode_line..encode_line, block.iter().map(|l| l.to_string()));
     lines[temps_line] = format!("dcl_temps {}", n + DETAIL_TEMPS);
     lines.splice(t120_line..t120_line, declarations.iter().map(|l| l.to_string()));
+    // The sun's direction's buffer ([`SUN_COPY_DECLARATION`]), after the shader's own; the earliest place, so last.
+    let last_buffer = lines.iter().rposition(|l| l.starts_with("dcl_constantbuffer "));
+    let (Some(last_buffer), false) = (last_buffer, lines.iter().any(|l| l == SUN_COPY_DECLARATION)) else {
+        return Err("the ground shader has no constant buffer, or a cb11 of its own; the game may have changed it".into());
+    };
+    lines.insert(last_buffer + 1, SUN_COPY_DECLARATION.to_string());
     Ok(lines.join("\n"))
 }
+
+/// The declaration of the sun pass's `cb2` as it was at that pass's last draw (`edcas.ini` copies it into
+/// `ResourceEdcasSunCb2` and binds it at `cb11` on the ground shaders; Elite's shaders use `cb0` to
+/// `cb5`): its row 42 is the direction the sunlight travels, which the relief's shadows are cast along
+/// ([`GROUND_DETAIL`]). The frame's `cb1[4]` is the same direction in most frames, but Elite's ground
+/// shaders never read that row, and about once a second it holds something else in the ground pass for
+/// a frame (2026-11-19, `README-ELITE.md` "Sunset"); the detail reads it only while there is no copy.
+/// `ground_tint.py` `SUN_COPY_DECLARATION`.
+const SUN_COPY_DECLARATION: &str = "dcl_constantbuffer CB11[43], immediateIndexed";
 
 /// Ice's index of refraction 1.31 gives F0 = ((n - 1) / (n + 1))^2 = 0.018; the game's own F0
 /// (0.04 on rock) is blended towards it.
@@ -763,6 +1420,26 @@ pub fn gloss(asm: &str) -> Result<String, String> {
         format!("mad {b}.x, {b}.z, {b}.x, {rough}.w"),
         "@sparkle".to_string(),
         format!("mov {a}.x, {b}.z"),
+        // Specular anti-aliasing (ground_tint.py `specular_aa`, SPEC_AA_*, client 0.43.207): the roughness widened by the spread of the normal
+        // over the pixel, on the ice types: the detail's relief made single pixels flash where the low sun mirrors.
+        format!("deriv_rtx_fine {e}.xyz, {normal}.xyzx"),
+        format!("deriv_rty_fine {f}.xyz, {normal}.xyzx"),
+        format!("dp3 {e}.x, {e}.xyzx, {e}.xyzx"),
+        format!("dp3 {e}.y, {f}.xyzx, {f}.xyzx"),
+        format!("add {e}.x, {e}.x, {e}.y"),
+        format!("mul {e}.x, {e}.x, l(0.500000)"),
+        format!("min {e}.x, {e}.x, l(0.180000)"),
+        format!("ld_indexable(texture1d)(float,float,float,float) {f}.xyzw, l(514, 0, 0, 0), t120.xyzw"),
+        format!("ge {f}.y, {f}.x, l(1.500000)"),
+        format!("lt {f}.z, {f}.x, l(3.500000)"),
+        format!("and {f}.y, {f}.y, {f}.z"),
+        format!("and {e}.x, {e}.x, {f}.y"),
+        format!("mul {e}.y, {b}.x, {b}.x"),
+        format!("mul {e}.y, {e}.y, {e}.y"),
+        format!("add_sat {e}.y, {e}.y, {e}.x"),
+        format!("sqrt {e}.y, {e}.y"),
+        format!("sqrt {e}.y, {e}.y"),
+        format!("max {b}.x, {b}.x, {e}.y"),
         format!("max o0.x, {b}.x, l(0.001000)"),
         // The glints' F0 (SPARKLE_F0) in place of the game's where a glint is (d.y, the sum of their weights).
         format!("mad_sat {e}.x, {d}.y, l(1.000000), l(0.000000)"),
@@ -793,24 +1470,17 @@ pub fn gloss(asm: &str) -> Result<String, String> {
     Ok(lines.join("\n"))
 }
 
+/// The farthest ground the terrain mask holds as ground, metres: the dust's far drift ends at 15 km, and
+/// the sun pass's sunset is for ground a few hundred metres off.
+const MASK_FAR_M: f32 = 60000.0;
+
 /// The ground shader with the terrain mask: it also writes its distance from the camera
 /// (metres, the length of the camera-relative position `v3`, at most [`MASK_FAR_M`]) to `o4.x`,
 /// which 3DMigoto binds next to Elite's four G-buffer outputs. The dust takes a pixel for ground
-/// only where that distance is the depth buffer's, which also holds the ships and the SRV. And to
-/// `o4.y` how far the sun has set for this point of the ground (0 up, 1 down, over
-/// [`SUNSET_SINE`] either side of the horizon), for the sun pass ([`sunset_block`]): the dot of the
-/// point's place from the planet's centre (`v3 + cb2[12]`, negated) with the light's direction
-/// `cb1[4]`. No sunset on ground farther than [`MASK_FAR_M`]: the sun pass reads the mask without the
-/// depth, and from orbit Elite draws a planet's far terrain over this shader's with one that writes no
-/// mask, so a stale sunset dimmed a band of the lit disc, or all of it for a frame (2026-11-15,
-/// ed_frame136151). `asm` is [`detail`]'s result. Port of `ground_tint.mask`, whose docstring says more.
-/// The farthest ground the mask holds as ground, metres: its target is half floats (R16G16_FLOAT), where
-/// a distance over 65504 m would be infinite; the dust's far drift ends at 15 km.
-const MASK_FAR_M: f32 = 60000.0;
-/// The sine of the sun's height from which down it counts as set for a point of the ground, and from
-/// which up as risen: 0.29 degrees either way, about the sun's disc from the Earth.
-const SUNSET_SINE: f32 = 0.005;
-
+/// only where that distance is the depth buffer's, which also holds the ships and the SRV. The sun
+/// pass reads it too, for the sunset on the ground ([`sunset_block`]; worked out here, with a second
+/// channel, from client 0.43.151 to 0.43.234, which lost the whole ground's sunlight for a frame about
+/// once a second). `asm` is [`detail`]'s result. Port of `ground_tint.mask`, whose docstring says more.
 pub fn mask(asm: &str) -> Result<String, String> {
     const UNKNOWN: &str = "the terrain mask goes on a tinted ground shader with outputs o0 to o3 and the position v3; the game may have changed it";
     let mut lines = asm_lines(asm);
@@ -829,29 +1499,14 @@ pub fn mask(asm: &str) -> Result<String, String> {
 
     // The later lines first, so the earlier ones' indexes stay right.
     let write = [
-        "// EDCAS terrain mask: this ground's distance from the camera (m), for the dust".to_string(),
+        "// EDCAS terrain mask: this ground's distance from the camera (m), for the dust and the sunset".to_string(),
         format!("dp3 {r}.x, v3.xyzx, v3.xyzx"),
         format!("sqrt {r}.x, {r}.x"),
         format!("min o4.x, {r}.x, l({MASK_FAR_M:.6})"),
-        "// and how far the sun has set here (0 up, 1 down), for the sun pass".to_string(),
-        format!("add {r}.xyz, v3.xyzx, cb2[12].xyzx"),
-        format!("dp3 {r}.w, {r}.xyzx, {r}.xyzx"),
-        format!("rsq {r}.w, {r}.w"),
-        format!("mul {r}.xyz, {r}.xyzx, {r}.wwww"),
-        format!("dp3 {r}.x, {r}.xyzx, cb1[4].xyzx"),
-        format!("mad_sat {r}.x, {r}.x, l({:.6}), l(0.500000)", -0.5 / SUNSET_SINE),
-        format!("mad {r}.y, {r}.x, l(-2.000000), l(3.000000)"),
-        format!("mul {r}.x, {r}.x, {r}.x"),
-        format!("mul {r}.x, {r}.x, {r}.y"),
-        "// none on ground farther than MASK_FAR_M (see the docstring)".to_string(),
-        format!("dp3 {r}.z, v3.xyzx, v3.xyzx"),
-        format!("lt {r}.z, {r}.z, l({:.6})", MASK_FAR_M * MASK_FAR_M),
-        format!("and {r}.z, {r}.z, l(0x3f800000)"),
-        format!("mul o4.y, {r}.x, {r}.z"),
     ];
     lines.splice(alpha_line + 1..alpha_line + 1, write);
     lines[temps_line] = format!("dcl_temps {}", n + 1);
-    lines.insert(outputs[outputs.len() - 1] + 1, "dcl_output o4.xy".to_string());
+    lines.insert(outputs[outputs.len() - 1] + 1, "dcl_output o4.x".to_string());
     Ok(lines.join("\n"))
 }
 
@@ -926,12 +1581,13 @@ impl StarLightShaders {
     }
 }
 
-/// What [`finish_game_shaders`] (and so [`install`] and [`update_shaders`]) made: the ground tint
-/// and the star light's copies.
+/// What [`finish_game_shaders`] (and so [`install`] and [`update_shaders`]) made: the ground tint,
+/// the star light's copies and the HUD's.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Patched {
     pub ground_tint: GroundTint,
     pub star_light: StarLightShaders,
+    pub hud: Hud,
 }
 
 /// Which copies of the game's own shaders the settings ask for. 3DMigoto can only get the game's
@@ -946,14 +1602,78 @@ pub struct Wanted {
     pub ground: bool,
     /// The star light's copies of the sun, sky, ring, forward and glass shaders.
     pub star_light: bool,
+    /// The copies of the HUD's shaders.
+    pub hud: HudWanted,
 }
 
 impl Wanted {
     #[cfg(test)]
-    pub const ALL: Wanted = Wanted { ground: true, star_light: true };
+    pub const ALL: Wanted = Wanted { ground: true, star_light: true, hud: HudWanted::ALL };
 
     pub fn of(g: &crate::settings::game_graphics::GameGraphicsSettings) -> Self {
-        Wanted { ground: g.ground_tint || g.ground_detail || g.planet_dust, star_light: g.star_light }
+        let colour = if g.hud_colour { g.hud_parts.list().map(|(_, part)| part.look != crate::settings::game_graphics::PartLook::Elite) } else { [false; 3] };
+        let fade = if g.hud_colour { g.hud_parts.list().map(|(_, part)| part.fades()) } else { [false; 3] };
+        let hud = HudWanted { colour, fade, gauges: g.hud_gauges.any(), holograms: [g.hud_hologram, g.hud_target_hologram] };
+        Wanted { ground: g.ground_tint || g.ground_detail || g.planet_dust, star_light: g.star_light, hud }
+    }
+}
+
+/// Which of the HUD's shaders the settings ask for copies of. The HUD's shaders are replaced only
+/// for players who asked for it, and only the ones their choice needs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HudWanted {
+    /// The HUD's colour on the panels (the panel shaders), on the head-up lines and on the
+    /// radar (its disc and its rings): each a choice of its own.
+    pub colour: [bool; 3],
+    /// A part's own colour fading into a second one across the picture, the parts as in
+    /// `colour`: its shaders' copies are the ones that take the pixel's place in the picture
+    /// ([`hud`] with `fade`). Only a part that takes the colour can fade.
+    pub fade: [bool; 3],
+    /// A gauge in colours of its own (the spectrum fuel bar among them): the panel shaders
+    /// ([`HUD_PANEL_SHADERS`]) alone.
+    pub gauges: bool,
+    /// A hologram in a colour of its own, in the order of [`HOLOGRAMS`]: its shader.
+    pub holograms: [bool; 2],
+}
+
+impl HudWanted {
+    pub const NOTHING: HudWanted = HudWanted { colour: [false; 3], fade: [false; 3], gauges: false, holograms: [false; 2] };
+    pub const GAUGES: HudWanted = HudWanted { gauges: true, ..HudWanted::NOTHING };
+    pub const COLOUR: HudWanted = HudWanted { colour: [true; 3], ..HudWanted::NOTHING };
+    #[cfg(test)]
+    pub const SHIP_HOLOGRAM: HudWanted = HudWanted { holograms: [true, false], ..HudWanted::NOTHING };
+    #[cfg(test)]
+    pub const TARGET_HOLOGRAM: HudWanted = HudWanted { holograms: [false, true], ..HudWanted::NOTHING };
+    /// Every shader of the HUD that EDCAS makes a copy of.
+    pub const ALL: HudWanted = HudWanted { colour: [true; 3], fade: [false; 3], gauges: true, holograms: [true; 2] };
+
+    /// The shaders it takes copies of where the game has exported them, without waiting for
+    /// them: [`HUD_PANEL_EXTRA`].
+    pub fn extra(self) -> Vec<&'static str> {
+        if self.colour[0] || self.gauges { HUD_PANEL_EXTRA.to_vec() } else { Vec::new() }
+    }
+
+    /// Every shader it makes a copy of: [`Self::shaders`] and [`Self::extra`].
+    pub fn every(self) -> Vec<&'static str> {
+        let mut shaders = self.shaders();
+        shaders.extend(self.extra());
+        shaders
+    }
+
+    /// The shaders it needs copies of.
+    pub fn shaders(self) -> Vec<&'static str> {
+        let mut shaders = Vec::new();
+        if self.colour[0] || self.gauges {
+            shaders.extend(HUD_PANEL_SHADERS);
+        }
+        if self.colour[1] {
+            shaders.push(HUD_COLOUR_SHADERS[0]);
+        }
+        if self.colour[2] {
+            shaders.extend(&HUD_COLOUR_SHADERS[1..]);
+        }
+        shaders.extend(HOLOGRAMS.iter().zip(self.holograms).filter(|(_, wanted)| *wanted).map(|(hologram, _)| hologram.shader));
+        shaders
     }
 }
 
@@ -969,11 +1689,103 @@ pub enum GroundTint {
     Failed(String),
 }
 
+/// How EDCAS's copies of the HUD's shaders stand, for what the settings ask ([`HudWanted`]).
+#[derive(Clone, Debug, PartialEq)]
+pub enum Hud {
+    /// The copies are in `ShaderFixes`; the game picks them up when it starts.
+    Done,
+    /// A copy is missing and there is no export to make it from: `export_shaders` is on and the
+    /// game writes the shader the first time it draws a cockpit.
+    NeedsExport,
+    /// Another mod's replacement of one of the shaders is in `ShaderFixes` (EDHM colours the
+    /// whole HUD with its own). A game folder has one file per shader, so it stays as it is and
+    /// EDCAS leaves the HUD to that mod.
+    OtherMod,
+    /// An exported shader isn't the one EDCAS knows.
+    Failed(String),
+}
+
+/// Whether `text` is one of EDCAS's copies of a HUD shader.
+fn is_hud_copy(text: &str) -> bool {
+    text.contains(HUD_MARKER) || text.contains(OLD_HUD_MARKER)
+}
+
+/// Whether a file of the shader `hash` in `ShaderFixes` is another mod's: any of that hash
+/// (3DMigoto takes `-ps.txt`, `-ps_replace.txt` and more) bar EDCAS's own `-ps.txt`, which
+/// carries [`HUD_MARKER`].
+fn other_mods_shader(fixes: &Path, hash: &str) -> bool {
+    let ours = format!("{hash}-ps.txt");
+    fs::read_dir(fixes).is_ok_and(|read| {
+        read.flatten().any(|e| {
+            let name = e.file_name().to_string_lossy().to_ascii_lowercase();
+            name.starts_with(hash) && !(name == ours && fs::read_to_string(e.path()).is_ok_and(|text| is_hud_copy(&text)))
+        })
+    })
+}
+
+/// How the HUD's copies stand in `dir` for `want`, without making anything.
+pub fn hud_state(dir: &Path, want: HudWanted) -> Hud {
+    let fixes = dir.join(FIXES);
+    if want.every().iter().any(|h| other_mods_shader(&fixes, h)) {
+        Hud::OtherMod
+    } else if want.shaders().iter().all(|h| fixes.join(format!("{h}-ps.txt")).is_file()) {
+        Hud::Done
+    } else {
+        Hud::NeedsExport
+    }
+}
+
+/// Whether an export is waiting to become one of the HUD's copies that `want` asks for.
+fn hud_pending(dir: &Path, want: HudWanted) -> bool {
+    hud_state(dir, want) == Hud::NeedsExport && want.shaders().iter().any(|h| !dir.join(FIXES).join(format!("{h}-ps.txt")).is_file() && exported_path(dir, h).is_file())
+}
+
+/// Writes the copies of the HUD's shaders that `want` asks for, each from its export: anew
+/// whenever the export is there (as [`make_star_light`]), kept when it is gone. A shader nobody
+/// asked for is not copied (a copy already there stays and does nothing, its rows are 0): the
+/// HUD's shaders are replaced only for players who asked for it. Another mod's file is never
+/// written over; where one is, EDCAS's own copies of the other HUD shaders go, so the HUD is
+/// that mod's as a whole and not half turned.
+fn make_hud(dir: &Path, want: HudWanted) -> Hud {
+    let fixes = dir.join(FIXES);
+    let state = hud_state(dir, want);
+    if state == Hud::OtherMod {
+        for hash in HudWanted::ALL.every() {
+            let path = fixes.join(format!("{hash}-ps.txt"));
+            if fs::read_to_string(&path).is_ok_and(|text| is_hud_copy(&text)) {
+                let _ = fs::remove_file(&path);
+            }
+        }
+        return state;
+    }
+    let mut failed = Vec::new();
+    for hash in want.every() {
+        let export = exported_path(dir, hash);
+        if !export.is_file() {
+            continue;
+        }
+        let out = fixes.join(format!("{hash}-ps.txt"));
+        let made = fs::read_to_string(&export).map_err(|e| io_error("read", &export, &e)).and_then(|asm| HOLOGRAMS.iter().find(|h| h.shader == hash).map_or_else(|| hud_with(&asm, hud_colour_row(hash), hud_own_row(hash), want.fade[hud_part(hash)], HUD_CONTACT_SHADERS.contains(&hash)), |h| hologram(&asm, h.row))).and_then(|text| {
+            // A panel shader is told by its panel texture: without the gauges it is not one EDCAS knows.
+            if is_panel_shader(hash) == text.contains(&format!("{HUD_MARKER} gauges")) {
+                Ok(text)
+            } else {
+                Err("a panel shader is told by its one texture read through s1 at v4.xy, and this one differs; the game may have changed it".to_string())
+            }
+        });
+        if let Err(e) = made.and_then(|text| fs::write(&out, text).map_err(|e| io_error("write", &out, &e))) {
+            failed.push(format!("{hash}-ps.txt: {e}"));
+        }
+    }
+    if failed.is_empty() { hud_state(dir, want) } else { Hud::Failed(failed.join("; ")) }
+}
+
 /// Makes EDCAS's copies of the game's shaders from the ones 3DMigoto exported: the tinted ground
 /// shaders when their three exports are all there, and each of the star light's
 /// [`StarLightShaders::TOTAL`] as its export turns up (the game exports a shader the first time it
 /// draws with it: the sun pass of open space at the first run, the atmosphere's over a planet
-/// with air, the rings' inside a ring). Sets `export_shaders` in `d3dx.ini` to match: on while a copy `want` asks
+/// with air, the rings' inside a ring), and the copies of the HUD's shaders that are asked for
+/// ([`make_hud`]). Sets `export_shaders` in `d3dx.ini` to match: on while a copy `want` asks
 /// for is still to be made, off otherwise. Copies already in `ShaderFixes` stay when the exports are gone.
 pub fn finish_game_shaders(dir: &Path, want: Wanted) -> Result<Patched, String> {
     let ini_path = dir.join("d3dx.ini");
@@ -989,14 +1801,15 @@ pub fn finish_game_shaders(dir: &Path, want: Wanted) -> Result<Patched, String> 
         GroundTint::NeedsLanding
     };
     let star_light = make_star_light(dir);
-    let export = (want.ground && ground_tint == GroundTint::NeedsLanding) || (want.star_light && !star_light.done());
+    let hud = make_hud(dir, want.hud);
+    let export = (want.ground && ground_tint == GroundTint::NeedsLanding) || (want.star_light && !star_light.done()) || hud == Hud::NeedsExport;
     set_export(dir, export)?;
-    Ok(Patched { ground_tint, star_light })
+    Ok(Patched { ground_tint, star_light, hud })
 }
 
 /// Whether the game has to export its shaders for `want`: a copy asked for is not in `ShaderFixes`.
 fn export_needed(dir: &Path, want: Wanted) -> bool {
-    (want.ground && !ground_tint_done(dir)) || (want.star_light && star_light_made(dir) < StarLightShaders::TOTAL)
+    (want.ground && !ground_tint_done(dir)) || (want.star_light && star_light_made(dir) < StarLightShaders::TOTAL) || hud_state(dir, want.hud) == Hud::NeedsExport
 }
 
 /// Writes `export_shaders` in `d3dx.ini`, only when it says something else. Returns whether it changed.
@@ -1014,7 +1827,8 @@ fn set_export(dir: &Path, on: bool) -> Result<bool, String> {
 static EXPORT_SYNCED: std::sync::Mutex<Option<(PathBuf, Wanted)>> = std::sync::Mutex::new(None);
 
 /// Brings `export_shaders` in line with the settings after they changed: off as soon as nothing
-/// switched on needs a game shader any more, on again when something does. Called at every change
+/// switched on needs a game shader any more, on again when something does; and makes the fuel
+/// bar's copy when that was switched on and its export is at hand. Called at every change
 /// of the settings; does nothing unless what is wanted changed. On a thread, as [`maintain`];
 /// `d3dx.ini` is read at the game's start, so a change counts from the next one.
 pub fn sync_export(settings: &crate::settings::Settings) {
@@ -1031,6 +1845,11 @@ pub fn sync_export(settings: &crate::settings::Settings) {
         let _guard = JOB_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         if !matches!(status(&dir, VERSION), Status::Installed { .. }) {
             return;
+        }
+        // A HUD switch went on with the shaders' exports already there (the star light's
+        // export wrote it): its copy is made now, no game start in between.
+        if hud_pending(&dir, want.hud) {
+            info!("Shader mods: the copies of the HUD's shaders from the exports at hand: {:?}", make_hud(&dir, want.hud));
         }
         let on = export_needed(&dir, want);
         match set_export(&dir, on) {
@@ -1311,7 +2130,7 @@ pub fn update_shaders(dir: &Path, version: &str, want: Wanted, progress: &mut im
     let patched = finish_game_shaders(dir, want)?;
 
     write_file(&fixes.join(VERSION_FILE), format!("{version}\n").as_bytes())?;
-    info!("Shader mods {version} installed in {} (ground tint: {:?}, star light: {:?})", dir.display(), patched.ground_tint, patched.star_light);
+    info!("Shader mods {version} installed in {} (ground tint: {:?}, star light: {:?}, HUD: {:?})", dir.display(), patched.ground_tint, patched.star_light, patched.hud);
     Ok(patched)
 }
 
@@ -1343,6 +2162,20 @@ pub fn update_due(dir: &Path) -> bool {
 /// ([`maintain`]) never write there together.
 static JOB_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+/// The step of the update [`maintain`] runs by itself, while it runs: Settings shows it as it shows
+/// its own jobs, with no buttons, which would only wait for it (2026-11-19: a Remove pressed
+/// during it waited 88 s without a word).
+static AUTO_STEP: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+/// What the update [`maintain`] runs by itself is doing, while it runs.
+pub fn auto_step() -> Option<String> {
+    AUTO_STEP.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone()
+}
+
+fn set_auto_step(step: Option<String>) {
+    *AUTO_STEP.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = step;
+}
+
 /// What EDCAS does in the game folder by itself, on a thread, whenever the game is known to be
 /// closed (the client's start, a journal Shutdown): undoes what another installer did to the
 /// folder ([`repair`]) and brings the shaders to this client's version
@@ -1363,10 +2196,16 @@ pub fn maintain(settings: &crate::settings::Settings) {
         }
         if !update_due(&dir) {
             if matches!(status(&dir, VERSION), Status::Installed { .. }) {
-                if star_light_pending(&dir) {
+                if star_light_pending(&dir) || hud_pending(&dir, want.hud) {
                     match finish_game_shaders(&dir, want) {
-                        Ok(p) => info!("Shader mods: star light shader copies made from the game's exports: {} of {}{}", p.star_light.made, StarLightShaders::TOTAL, failures(&p.star_light)),
-                        Err(e) => warn!("Shader mods: making the star light's shader copies failed: {e}"),
+                        Ok(p) => info!(
+                            "Shader mods: shader copies made from the game's exports: star light {} of {}{}, HUD {:?}",
+                            p.star_light.made,
+                            StarLightShaders::TOTAL,
+                            failures(&p.star_light),
+                            p.hud
+                        ),
+                        Err(e) => warn!("Shader mods: making the copies of the game's shaders failed: {e}"),
                     }
                     crate::wake::wake();
                 } else {
@@ -1383,22 +2222,60 @@ pub fn maintain(settings: &crate::settings::Settings) {
         }
         let installed = fs::read_to_string(dir.join(FIXES).join(VERSION_FILE)).unwrap_or_default().trim().to_string();
         info!("Shader mods: {installed} installed, this client is {VERSION}: updating the shaders by itself");
-        match update_shaders(&dir, VERSION, want, &mut |step| info!("Shader mods update: {step}")) {
-            Ok(report) => info!("Shader mods: updated to {VERSION} by itself (ground tint: {:?}, star light: {:?})", report.ground_tint, report.star_light),
+        set_auto_step(Some("Updating the shaders to this version".to_string()));
+        crate::wake::wake();
+        let result = update_shaders(&dir, VERSION, want, &mut |step| {
+            info!("Shader mods update: {step}");
+            set_auto_step(Some(format!("Updating the shaders to this version: {step}")));
+            crate::wake::wake();
+        });
+        set_auto_step(None);
+        match result {
+            Ok(report) => info!("Shader mods: updated to {VERSION} by itself (ground tint: {:?}, star light: {:?}, HUD: {:?})", report.ground_tint, report.star_light, report.hud),
             Err(e) => warn!("Shader mods: the update to {VERSION} failed, press Update in Settings > Game Graphics: {e}"),
         }
         crate::wake::wake();
     });
 }
 
-/// Makes the ground detail textures (46 MB, seconds) and writes them into `ShaderFixes`; the
-/// single textures from before the ground types (2026-10-29) go.
+/// Makes the ground detail textures (46 MB, about 100 s of a CPU) and writes them into
+/// `ShaderFixes`, unless the ones there were made from the same recipe ([`GROUND_TEXTURE_MARK`]):
+/// every client version brings an update, and the textures change only with `ground_detail`'s
+/// code or their sizes (2026-11-19: a Remove pressed after a client's start waited 88 s for its
+/// update to remake textures it had made the same before). The single textures from before the
+/// ground types (2026-10-29) go.
 fn write_ground_textures(fixes: &Path, progress: &mut impl FnMut(&str)) -> Result<(), String> {
-    ground_detail::write_all(fixes, TEXTURE_SIZE, TEXTURE_SIZE, SNOW_TEXTURE_SIZE, |s| progress(s))?;
+    let mark = fixes.join(GROUND_TEXTURE_MARK);
+    let recipe = ground_texture_recipe();
+    let all_there = ground_detail::file_names().iter().all(|n| fixes.join(n).is_file());
+    if all_there && fs::read_to_string(&mark).is_ok_and(|kept| kept.trim() == recipe) {
+        progress("Keeping the ground textures (unchanged)");
+    } else {
+        let _ = fs::remove_file(&mark);
+        ground_detail::write_all(fixes, TEXTURE_SIZE, TEXTURE_SIZE, SNOW_TEXTURE_SIZE, |s| progress(s))?;
+        write_file(&mark, format!("{recipe}\n").as_bytes())?;
+    }
     for old in OLD_TEXTURES {
         let _ = fs::remove_file(fixes.join(old));
     }
     Ok(())
+}
+
+/// The file in `ShaderFixes` that names the recipe the ground textures there were made from
+/// ([`ground_texture_recipe`]).
+const GROUND_TEXTURE_MARK: &str = "edcas_ground_textures.txt";
+
+/// What the ground textures are made from: `ground_detail`'s source (it uses nothing but the
+/// standard library) and the sizes, as a 64-bit FNV-1a hash in hex. The same recipe makes the
+/// same textures to the byte.
+fn ground_texture_recipe() -> String {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    let sizes = format!("{TEXTURE_SIZE} {SNOW_TEXTURE_SIZE}");
+    for b in include_str!("ground_detail.rs").bytes().chain(sizes.bytes()) {
+        h ^= u64::from(b);
+        h = h.wrapping_mul(0x0100_0000_01b3);
+    }
+    format!("{h:016x}")
 }
 
 /// Deletes EDCAS's shaders that are no longer in [`SKY_SHADERS`] (the landing dust's ship probe,
@@ -1439,7 +2316,7 @@ fn read_zip(bytes: &[u8]) -> Result<Vec<(String, Vec<u8>)>, String> {
         if entry.is_dir() {
             continue;
         }
-        let name = entry.enclosed_name().ok_or_else(|| format!("the download's zip has an unsafe path: {}", entry.name()))?;
+        let name = entry.enclosed_name().ok_or_else(|| format!("the download's zip has an unsafe path: {}", entry.name().unwrap_or("(a name that cannot be read)".into())))?;
         let name = name.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect::<Vec<_>>().join("/");
         total += entry.size();
         if total > LIMIT {
@@ -1459,11 +2336,21 @@ fn read_zip(bytes: &[u8]) -> Result<Vec<(String, Vec<u8>)>, String> {
 /// patch is EDCAS's), so the per-body values stay at `edcas.ini`'s defaults (a Windows
 /// tester, 2026-11-08: "v 1.3.16" in the log, no `params_file=` line).
 pub(crate) fn dll_report(dir: &Path) -> String {
-    let dll = match fs::read(dir.join("d3d11.dll")) {
-        Err(_) => "no d3d11.dll".to_string(),
-        Ok(b) if is_edcas_dll(&b) => format!("d3d11.dll is EDCAS's build ({} bytes)", b.len()),
-        Ok(b) if is_edloader_dll(&b) => format!("d3d11.dll is edloader's ({} bytes): EDCAS leaves it alone and can't run its shader mods through it yet", b.len()),
-        Ok(b) => format!("d3d11.dll is another 3DMigoto's ({} bytes; EDHM's, or one left behind when EDHM was uninstalled): it doesn't read edcas_params.txt", b.len()),
+    let slot = fs::read(dir.join("d3d11.dll"));
+    let edup = slot.as_ref().is_ok_and(|b| is_edup_dll(b));
+    let dll = match (migoto_dll(dir), &slot) {
+        (_, Err(_)) => "no d3d11.dll".to_string(),
+        (None, Ok(b)) => format!("d3d11.dll is ED-UP's ({} bytes) and its {} chains to no dll in the game folder: no 3DMigoto runs", b.len(), EDUP_INIS.join(" / ")),
+        (Some(name), Ok(b)) => {
+            let what = if edup { format!("d3d11.dll is ED-UP's ({} bytes), chaining to {name}: ", b.len()) } else { String::new() };
+            let dll = match fs::read(dir.join(&name)) {
+                Err(_) => format!("{name} is missing"),
+                Ok(b) if is_edcas_dll(&b) => format!("{name} is EDCAS's build ({} bytes)", b.len()),
+                Ok(b) if is_edloader_dll(&b) => format!("{name} is edloader's ({} bytes): EDCAS leaves it alone and can't run its shader mods through it yet", b.len()),
+                Ok(b) => format!("{name} is another 3DMigoto's ({} bytes; EDHM's, or one left behind when EDHM was uninstalled): it doesn't read edcas_params.txt", b.len()),
+            };
+            format!("{what}{dll}")
+        }
     };
     let log = fs::read_to_string(dir.join("d3d11_log.txt")).unwrap_or_default();
     let version = log
@@ -1474,12 +2361,47 @@ pub(crate) fn dll_report(dir: &Path) -> String {
     format!("{dll}{version}")
 }
 
-/// Whether the game folder's `d3d11.dll` is another 3DMigoto's (EDHM's installer puts its
-/// own back, see [`dll_report`]). edloader's is not: it is no 3DMigoto, and putting EDCAS's
-/// over it would break every mod its list loads.
+/// Whether the 3DMigoto the game loads ([`migoto_dll`]) is another one than EDCAS's build
+/// (EDHM's installer puts its own back, see [`dll_report`]). edloader's is not: it is no
+/// 3DMigoto, and putting EDCAS's over it would break every mod its list loads. Neither is
+/// ED-UP's in the `d3d11.dll` slot: what counts is the dll it chains to.
 fn foreign_dll(dir: &Path) -> bool {
-    fs::read(dir.join("d3d11.dll")).is_ok_and(|b| !is_edcas_dll(&b) && !is_edloader_dll(&b))
+    migoto_dll(dir).is_some_and(|name| fs::read(dir.join(name)).is_ok_and(|b| !is_edcas_dll(&b) && !is_edloader_dll(&b)))
 }
+
+/// ED-UP's ini files (`edvr.ini` for VR, `edvr-flat.ini`), read in this order: the first
+/// `[advanced] real_dll` found names the d3d11 mod ED-UP loads behind itself.
+const EDUP_INIS: [&str; 2] = ["edvr.ini", "edvr-flat.ini"];
+
+/// Whether a `d3d11.dll` is ED-UP's (the Elite VR patch, github.com/characterecho-sean/
+/// ed-unofficial-patch): its version info's CompanyName, a wide string in the resources (a
+/// narrow copy counts too).
+fn is_edup_dll(bytes: &[u8]) -> bool {
+    const COMPANY: &str = "ED-UP (unofficial)";
+    let wide: Vec<u8> = COMPANY.encode_utf16().flat_map(u16::to_le_bytes).collect();
+    bytes.windows(wide.len()).any(|w| w == wide.as_slice()) || bytes.windows(COMPANY.len()).any(|w| w == COMPANY.as_bytes())
+}
+
+/// The file name of the `d3d11.dll` the game runs as its 3DMigoto: `d3d11.dll` itself, or, with
+/// ED-UP's in that slot, the dll its ini chains to (`[advanced] real_dll`, the way ED-UP runs
+/// beside EDHM or EDCAS). `None` when ED-UP is in the slot and chains to no dll in the game
+/// folder: then no 3DMigoto runs, and EDCAS's must not take ED-UP's place (a VR player,
+/// GitHub issue 13: each repair moved ED-UP aside and the next start was flat).
+fn migoto_dll(dir: &Path) -> Option<String> {
+    const SLOT: &str = "d3d11.dll";
+    if !fs::read(dir.join(SLOT)).is_ok_and(|b| is_edup_dll(&b)) {
+        return Some(SLOT.into());
+    }
+    let chained = EDUP_INIS.iter().find_map(|ini| read_ini(&dir.join(ini)).and_then(|ini| get_option(&ini, "advanced", "real_dll")))?;
+    // A bare file name only: a path would lead out of the game folder, ED-UP itself would loop.
+    let chained = chained.trim_matches('"').to_string();
+    let plain = !chained.is_empty() && !chained.contains(['/', '\\', ':']) && !chained.eq_ignore_ascii_case(SLOT);
+    plain.then_some(chained)
+}
+
+/// Why [`install`] and [`repair`] stop when ED-UP's `d3d11.dll` chains to no dll.
+const EDUP_REFUSAL: &str = "ED-UP's d3d11.dll (the VR patch) is in the game folder and its edvr.ini chains to no other d3d11 mod. \
+    EDCAS doesn't move it aside (VR would stop working): set real_dll = d3d11_edcas.dll under [advanced] in edvr.ini, then press Update";
 
 /// Whether the game folder's `d3d11.dll` is edloader's.
 pub(crate) fn edloader_in_place(dir: &Path) -> bool {
@@ -1508,7 +2430,9 @@ pub fn damage(dir: &Path) -> Vec<&'static str> {
         return Vec::new();
     }
     let mut found = Vec::new();
-    if foreign_dll(dir) {
+    if migoto_dll(dir).is_none() {
+        found.push("ED-UP's d3d11.dll (the VR patch) is in place and its edvr.ini chains to no other d3d11 mod, so none of EDCAS's effects run: set real_dll = d3d11_edcas.dll under [advanced] in edvr.ini, then press Update");
+    } else if foreign_dll(dir) {
         found.push("a d3d11.dll from another 3DMigoto is in place (EDHM's, or one left behind when EDHM was uninstalled), so EDCAS's per-planet values don't reach the game");
     }
     if let Some(ini) = read_ini(&dir.join("d3dx.ini")) {
@@ -1531,6 +2455,9 @@ pub fn repair(dir: &Path) -> Result<Option<String>, String> {
     let found = damage(dir);
     if found.is_empty() {
         return Ok(None);
+    }
+    if migoto_dll(dir).is_none() {
+        return Err(EDUP_REFUSAL.into());
     }
     if foreign_dll(dir) {
         let ours = fs::read(dir.join(EDCAS_DLL_COPY)).ok().filter(|b| is_edcas_dll(b)).ok_or("no copy of EDCAS's d3d11.dll to put back: press Update")?;
@@ -1559,10 +2486,13 @@ fn is_edcas_dll(bytes: &[u8]) -> bool {
 /// another installer (EDHM's) has overwritten it, without a download.
 pub(crate) const EDCAS_DLL_COPY: &str = "d3d11.dll.edcas";
 
-/// Puts EDCAS's `d3d11.dll` in place. Another 3DMigoto's (the release's, EDHM's) is kept
-/// once as `d3d11.dll.official`, also when it was switched off as `d3d11.dll.off`.
+/// Puts EDCAS's `d3d11.dll` in place: in the slot of the 3DMigoto the game loads
+/// ([`migoto_dll`]), which is the dll ED-UP chains to when ED-UP's is `d3d11.dll`. Another
+/// 3DMigoto's (the release's, EDHM's) is kept once as `<name>.official`, also when it was
+/// switched off as `<name>.off`.
 fn install_dll(dir: &Path, new: &[u8]) -> Result<(), String> {
-    let (current, off, official) = (dir.join("d3d11.dll"), dir.join("d3d11.dll.off"), dir.join("d3d11.dll.official"));
+    let name = migoto_dll(dir).ok_or(EDUP_REFUSAL)?;
+    let (current, off, official) = (dir.join(&name), dir.join(format!("{name}.off")), dir.join(format!("{name}.official")));
     if !official.exists() {
         for candidate in [&current, &off] {
             if fs::read(candidate).is_ok_and(|b| !is_edcas_dll(&b)) {
@@ -1635,6 +2565,9 @@ fn locked_or(path: &Path, e: &std::io::Error) -> String {
 ///   ([`other_mod_in_use`]); otherwise it stays switched off under that name (uninstalling
 ///   EDHM leaves its dll behind) and EDCAS's own `d3d11.dll` is deleted, as it is when there
 ///   was no 3DMigoto before. A `d3d11.dll` that isn't EDCAS's is not touched.
+/// - With ED-UP's `d3d11.dll` in the slot the same goes for the dll it chains to
+///   ([`migoto_dll`]), except that EDCAS's stays there when there is no original to put
+///   back: ED-UP's ini names it.
 pub fn remove(dir: &Path) -> Result<String, String> {
     if !dir.is_dir() {
         return Err(format!("{} doesn't exist: set the Game Folder above", dir.display()));
@@ -1657,9 +2590,12 @@ pub fn remove(dir: &Path) -> Result<String, String> {
     let mut doomed = vec![fixes.join(INI_FILE), fixes.join(VERSION_FILE)];
     doomed.extend(GROUND_SHADERS.iter().copied().chain(star_light_shaders().map(|(h, _)| h)).map(|h| fixes.join(format!("{h}-ps.txt"))));
     doomed.extend(STALE_SHADERS.iter().map(|n| fixes.join(n)));
+    // EDCAS's copies of the HUD's shaders, not another mod's files of those names (EDHM's).
+    doomed.extend(HudWanted::ALL.every().iter().map(|h| fixes.join(format!("{h}-ps.txt"))).filter(|path| fs::read_to_string(path).is_ok_and(|text| is_hud_copy(&text))));
     // Every embedded shader by name: the game-shader replacements are not named edcas*.hlsl.
     doomed.extend(SKY_SHADERS.iter().map(|(n, _)| fixes.join(n)));
     doomed.extend(ground_detail::file_names().iter().map(|n| fixes.join(n)));
+    doomed.push(fixes.join(GROUND_TEXTURE_MARK));
     doomed.extend(OLD_TEXTURES.iter().map(|n| fixes.join(n)));
     if let Ok(read) = fs::read_dir(&fixes) {
         for entry in read.flatten() {
@@ -1678,13 +2614,23 @@ pub fn remove(dir: &Path) -> Result<String, String> {
         }
     }
 
-    let (current, official) = (dir.join("d3d11.dll"), dir.join("d3d11.dll.official"));
     let _ = fs::remove_file(dir.join(EDCAS_DLL_COPY));
+    let Some(name) = migoto_dll(dir) else {
+        let dll = "d3d11.dll is ED-UP's and stays";
+        info!("Shader mods removed from {} ({removed} files; {dll})", dir.display());
+        return Ok(format!("Removed {removed} EDCAS file(s); {dll}"));
+    };
+    let chained = name != "d3d11.dll";
+    let (current, official) = (dir.join(&name), dir.join(format!("{name}.official")));
     let ours = fs::read(&current).map_or(true, |b| is_edcas_dll(&b));
     let kept = official.is_file();
     let dll = if !ours {
         "d3d11.dll isn't EDCAS's and stays"
-    } else if kept && !other_mod_in_use(dir) {
+    } else if chained && !kept {
+        // ED-UP loads it by name, and its ini is the player's: the chain stays as it was set
+        // up. Without the include the dll runs nothing of EDCAS's.
+        "EDCAS's 3DMigoto stays where ED-UP's edvr.ini chains to it (it runs none of EDCAS's effects now); take real_dll out of edvr.ini and delete the file to drop it"
+    } else if kept && !chained && !other_mod_in_use(dir) {
         // Uninstalling EDHM leaves its 3DMigoto behind; put back, it would only bring the
         // "another installer" warning back at the next install (a Windows player, 2026-11-14).
         if current.is_file() {
@@ -1823,7 +2769,24 @@ fn installed_message(patched: &Patched, want: Wanted) -> String {
             .into(),
         GroundTint::Failed(why) => format!("Installed, but the ground tint failed: {why}.\nClouds, fog and frost work."),
     };
-    format!("{ground}\n{}", star_light_message(&patched.star_light, want.star_light))
+    let hud = if want.hud == HudWanted::NOTHING { String::new() } else { format!("\n{}", hud_message(&patched.hud)) };
+    format!("{ground}\n{}{hud}", star_light_message(&patched.star_light, want.star_light))
+}
+
+/// One line on the copies of the HUD's shaders, for a player who switched something of the HUD on.
+pub fn hud_message(hud: &Hud) -> String {
+    match hud {
+        Hud::Done => "HUD colours: ready from the game's next start.".to_string(),
+        Hud::NeedsExport => "HUD colours: start the game and sit in a ship's cockpit once, so the game hands out its HUD shaders; \
+                             EDCAS copies them when the game closes, and the colours show from the start after that. \
+                             The game has two shaders for the panels, with and without the cockpit's shadows, and hands out each the first time it draws with it: \
+                             until it has used both, the panels keep Elite's colours where it takes the other."
+            .to_string(),
+        Hud::OtherMod => "HUD colours: another mod (EDHM) replaces the game's HUD shaders with its own, and a game folder has one file per shader. \
+                          EDCAS leaves those files alone, so the HUD keeps that mod's colours."
+            .to_string(),
+        Hud::Failed(why) => format!("HUD colours: failed, {why}."),
+    }
 }
 
 /// One line on the star light's shader copies.
@@ -1863,6 +2826,9 @@ mod tests {
 
     const TINTED: &str = "ps_5_0\n\
 dcl_globalFlags refactoringAllowed\n\
+dcl_constantbuffer CB0[12], immediateIndexed\n\
+dcl_constantbuffer CB1[294], immediateIndexed\n\
+dcl_constantbuffer CB2[59], immediateIndexed\n\
 dcl_sampler s0, mode_default\n\
 dcl_resource_texture2d (float,float,float,float) t0\n\
 dcl_resource_texture2d (float,float,float,float) t1\n\
@@ -1970,13 +2936,18 @@ ret\n";
         assert!(out.contains("  mul r0.xyz, r34.xyzx, r33.yyyy\n  add r33.y, -r30.x, l(0.450000)\n  mad r30.x, r33.x, r33.y, r30.x\nendif\n"));
         // The broad gloss' weight (b.z = r30.z, times 1 - mask) goes back into a.x after the sparkle, whose glints used a.x before it.
         assert_eq!(lines[end + 1], "mov r29.x, r30.z");
-        assert_eq!(lines[end + 2], "max o0.x, r30.x, l(0.001000)");
+        // Specular anti-aliasing (client 0.43.207): the roughness (r30.x) widened by the spread of the world normal (r0) over the pixel, at most
+        // 0.18 of alpha squared, on the ice types (2, 3), then written.
+        assert_eq!(lines[end + 2..end + 9].join("\n"), "deriv_rtx_fine r33.xyz, r0.xyzx\nderiv_rty_fine r34.xyz, r0.xyzx\ndp3 r33.x, r33.xyzx, r33.xyzx\ndp3 r33.y, r34.xyzx, r34.xyzx\nadd r33.x, r33.x, r33.y\nmul r33.x, r33.x, l(0.500000)\nmin r33.x, r33.x, l(0.180000)");
+        assert_eq!(lines[end + 9..end + 14].join("\n"), "ld_indexable(texture1d)(float,float,float,float) r34.xyzw, l(514, 0, 0, 0), t120.xyzw\nge r34.y, r34.x, l(1.500000)\nlt r34.z, r34.x, l(3.500000)\nand r34.y, r34.y, r34.z\nand r33.x, r33.x, r34.y");
+        assert_eq!(lines[end + 14..end + 20].join("\n"), "mul r33.y, r30.x, r30.x\nmul r33.y, r33.y, r33.y\nadd_sat r33.y, r33.y, r33.x\nsqrt r33.y, r33.y\nsqrt r33.y, r33.y\nmax r30.x, r30.x, r33.y");
+        assert_eq!(lines[end + 20], "max o0.x, r30.x, l(0.001000)");
         // The glints' F0 (0.02) replaces the game's where a glint is (r32.y, the sum of the weights), before the broad blend.
-        assert_eq!(lines[end + 3], "mad_sat r33.x, r32.y, l(1.000000), l(0.000000)");
-        assert_eq!(lines[end + 4], "add r33.y, l(0.020000), -r3.x");
-        assert_eq!(lines[end + 5], "mad r3.xy, r33.xxxx, r33.yyyy, r3.xyxx");
-        assert_eq!(lines[end + 6], "add r30.yz, l(0.000000, 0.018000, 0.018000, 0.000000), -r3.xxyx");
-        assert_eq!(lines[end + 7], "mad r3.xy, r29.xxxx, r30.yzyy, r3.xyxx");
+        assert_eq!(lines[end + 21], "mad_sat r33.x, r32.y, l(1.000000), l(0.000000)");
+        assert_eq!(lines[end + 22], "add r33.y, l(0.020000), -r3.x");
+        assert_eq!(lines[end + 23], "mad r3.xy, r33.xxxx, r33.yyyy, r3.xyxx");
+        assert_eq!(lines[end + 24], "add r30.yz, l(0.000000, 0.018000, 0.018000, 0.000000), -r3.xxyx");
+        assert_eq!(lines[end + 25], "mad r3.xy, r29.xxxx, r30.yzyy, r3.xyxx");
         // The game's own branch stays as it is.
         assert_eq!(lines[at("if_nz r0.x") + 1], "  mad r3.xy, r0.wwww, r1.xyxx, l(0.040000, 0.040000, 0.000000, 0.000000)");
         // The snow crust (the detail's r18) is matte: the broad gloss' strength (r30.z) is times one minus the mask, before the blend; the sparkle's (r29.x) is not.
@@ -1986,10 +2957,10 @@ ret\n";
         let detail_at = lines.iter().position(|l| l.starts_with("// EDCAS ground detail")).expect("the detail's comment");
         assert!(detail_at < at("// EDCAS ground gloss: x520 strength (0 = 1, under 0 = off), y520 roughness of polished ice (0 = 0.5); ground types 2, 3 only"));
         // The debug views (y511 = 7 and 8) paint the ground colour the tint blends (r1), before the encoding.
-        assert_eq!(lines[end + 8], "ld_indexable(texture1d)(float,float,float,float) r33.xyzw, l(511, 0, 0, 0), t120.xyzw");
-        assert_eq!(lines[end + 12], "movc r1.xyz, r34.xxxx, l(1.000000, 1.000000, 1.000000, 0.000000), r1.xyzx");
-        assert_eq!(lines[end + 14], "movc r1.xyz, r34.xxxx, r32.wwww, r1.xyzx");
-        assert_eq!(lines[end + 15], "dp3 r2.y, r0.xyzx, cb1[277].xyzx");
+        assert_eq!(lines[end + 26], "ld_indexable(texture1d)(float,float,float,float) r33.xyzw, l(511, 0, 0, 0), t120.xyzw");
+        assert_eq!(lines[end + 30], "movc r1.xyz, r34.xxxx, l(1.000000, 1.000000, 1.000000, 0.000000), r1.xyzx");
+        assert_eq!(lines[end + 32], "movc r1.xyz, r34.xxxx, r32.wwww, r1.xyzx");
+        assert_eq!(lines[end + 33], "dp3 r2.y, r0.xyzx, cb1[277].xyzx");
         // The shader that writes o2.xy itself (7ce82fabb300f52e): both writes go to a spare register,
         // the block blends from it into o2.xy.
         let own = detailed
@@ -2015,14 +2986,33 @@ ret\n";
     }
 
     #[test]
+    fn the_reliefs_shadows_take_the_suns_direction_from_the_sun_pass() {
+        let out = detail(&tint(GROUND).unwrap()).unwrap();
+        // The sun pass's cb2 of the frame before, declared after the shader's own buffers.
+        assert!(out.contains("dcl_constantbuffer CB2[59], immediateIndexed\ndcl_constantbuffer CB11[43], immediateIndexed\n"), "{out}");
+        // Its row 42 where there is a copy (a unit vector), the frame's cb1[4] only in the branch without one: Elite's ground
+        // shaders never read cb1[4], and in some frames of the ground pass it is not the sun's (2026-11-19).
+        let lines: Vec<&str> = out.lines().collect();
+        let stray: Vec<usize> = lines.iter().enumerate().filter(|(_, l)| l.contains("cb1[4]")).map(|(i, _)| i).collect();
+        assert!(!stray.is_empty() && stray.len() % 3 == 0, "{stray:?}");
+        for group in stray.chunks(3) {
+            assert_eq!(lines[group[0] - 1], "else", "cb1[4] outside the branch without a copy");
+            assert_eq!(lines[group[2] + 1], "endif");
+            assert!(lines[group[0] - 4].starts_with("  dp3 ") && lines[group[0] - 4].contains("cb11[42].xyzx"), "{}", lines[group[0] - 4]);
+            assert!(lines[group[0] - 5].starts_with("if_nz ") && lines[group[0] - 6].starts_with("lt ") && lines[group[0] - 7].contains("cb11[42].xyzx, cb11[42].xyzx"));
+        }
+        assert!(detail(&tint(&GROUND.replace("dcl_constantbuffer CB2[59], immediateIndexed\n", "dcl_constantbuffer CB2[59], immediateIndexed\ndcl_constantbuffer CB11[43], immediateIndexed\n")).unwrap()).unwrap_err().contains("cb11 of its own"));
+    }
+
+    #[test]
     fn the_mask_writes_the_grounds_distance_to_o4_after_the_colour() {
         let out = mask(&detail(&tint(GROUND).unwrap()).unwrap()).unwrap();
         let at = |needle: &str| out.find(needle).unwrap_or_else(|| panic!("{needle} missing"));
-        assert!(at("dcl_output o3.xyzw\ndcl_output o4.xy\n") < at("dcl_temps 30\n"));
+        assert!(at("dcl_output o3.xyzw\ndcl_output o4.x\n") < at("dcl_temps 30\n"));
         assert!(at("mov o1.xyzw, r1.xyzw\n// EDCAS terrain mask") < at("dp3 r29.x, v3.xyzx, v3.xyzx\nsqrt r29.x, r29.x\nmin o4.x, r29.x, l(60000.000000)\n"));
-        // And how far the sun has set for the point: its place from the centre (negated) against the light's direction,
-        // 1 from a sine of -0.005 down, 0 from +0.005 up, smooth between.
-        assert!(at("min o4.x") < at("add r29.xyz, v3.xyzx, cb2[12].xyzx\ndp3 r29.w, r29.xyzx, r29.xyzx\nrsq r29.w, r29.w\nmul r29.xyz, r29.xyzx, r29.wwww\ndp3 r29.x, r29.xyzx, cb1[4].xyzx\nmad_sat r29.x, r29.x, l(-100.000000), l(0.500000)\nmad r29.y, r29.x, l(-2.000000), l(3.000000)\nmul r29.x, r29.x, r29.x\nmul r29.x, r29.x, r29.y\n// none on ground farther than MASK_FAR_M (see the docstring)\ndp3 r29.z, v3.xyzx, v3.xyzx\nlt r29.z, r29.z, l(3600000000.000000)\nand r29.z, r29.z, l(0x3f800000)\nmul o4.y, r29.x, r29.z\nret"));
+        // The distance alone: the sunset is the sun pass's (sunset_block), and this shader reads neither the light's direction
+        // for it nor writes a second channel (2026-11-19: cb1[4] is not the sun's in every frame of the ground pass).
+        assert!(!out.contains("o4.y") && !out[at("// EDCAS terrain mask")..].contains("cb1[4]"), "{out}");
     }
 
     #[test]
@@ -2067,7 +3057,10 @@ ret\n";
         // The crust's fields are value noise of the point on the planet (three octaves, two of drifts and the snow relief's mounds; the pillows are off, ground_tint.py
         // `SNOW_PILLOWS` is empty; `crust_octave`), no tiled sample of the colour layer: the key constants once an octave, no
         // t110 read but the 32 m layer's, the 8 and 2 m and 0.5 m ones' (three each, hex-tiled) and the three planes'.
-        assert_eq!(out.matches("imul null, r23.xyzw, r23.xyzw, l(0x8da6b343,").count(), 6);
+        // Two more since client 0.43.206: the two slower noises that bend the mounds' lattice (ground_tint.py `SNOW_MOUND_WARP`; the mounds stood in rows
+        // and columns). The drifts are bent by the field before them (`CRUST_DRIFT_WARP`: their edges were ruler-straight along the wind).
+        assert_eq!(out.matches("imul null, r23.xyzw, r23.xyzw, l(0x8da6b343,").count(), 8);
+        assert_eq!(out.matches("l(1.600000, -1.200000, 0.250000, 0.000000)").count(), 2, "{out}");
         assert_eq!(out.matches("t110.xyzw, s0").count(), 1 + 3 + 3);
         // The far look (ground_tint.py `CRUST_FAR_K`, client 0.43.180): no blend into the plain cover by the distance any more (it was 1 / (700 - 150) per
         // metre from 150 m). Each octave of the score is left out as a pixel stops resolving it (its fade by the ground footprint, here for the 650 m
@@ -2106,7 +3099,11 @@ ret\n";
         assert!(out.contains("mov r16.y, r25.x\nmov r28.xy, l(0.000000, 0.000000, 0.000000, 0.000000)\n"), "{out}");
         assert_eq!(out.matches("max r15.z, r15.z, r25.x\n").count(), 8);
         assert_eq!(out.matches("max r27.y, r27.y, r10.z\n").count(), 8);
-        assert!(out.contains("sample_d_indexable(texture2darray)(float,float,float,float) r12.zw, r17.xyzx, t117.xxxy, s0, r11.xyxx, r11.zwzz\n"), "{out}");
+        // The height is read over a round footprint as long as the pixel's longer side times 2 (ground_tint.py `CRUST_LACE_ROUND`, client 0.43.203: the snow's
+        // edges shimmered; read over the pixel's own long, thin footprint a piece 10 pixels wide and half a pixel high came through), and the mask's two ramps
+        // are 2 pixels wide at least (`CRUST_RAMP_PX`).
+        assert_eq!(out.matches("dp2 r12.x, r11.xyxx, r11.xyxx\ndp2 r12.y, r11.zwzz, r11.zwzz\nmax r12.x, r12.x, r12.y\nsqrt r12.x, r12.x\nmul r12.x, r12.x, l(2.000000)\nmov r12.y, l(0.000000)\nsample_d_indexable(texture2darray)(float,float,float,float) r12.zw, r17.xyzx, t117.xxxy, s0, r12.xyxx, r12.yxyy\n").count(), 3, "{out}");
+        assert!(out.contains("add r7.y, |r7.y|, |r7.z|\nmul r7.y, r7.y, l(2.000000)\nmax r7.y, r7.y, l(0.000100)\nrcp r7.y, r7.y\n") && out.contains("add r15.z, |r15.z|, |r15.w|\nmul r15.z, r15.z, l(2.000000)\nmax r15.z, r15.z, l(0.000100)\n"), "{out}");
         // The fine layer (ground_tint.py `SNOW_FINE`): the slopes a second time at 12 times each vertex's coordinate and derivatives, three reads; its gain 0.3 by the
         // switch y532, added to the map's screen derivatives.
         assert_eq!(out.matches("mul r13.xy, r13.zwzz, l(12.000000, 12.000000, 0.000000, 0.000000)\nfrc r13.xy, r13.xyxx\nmov r13.z, r17.z\nmul r12.xyzw, r11.xyzw, l(12.000000, 12.000000, 12.000000, 12.000000)\nsample_d_indexable(texture2darray)(float,float,float,float) r27.zw, r13.xyzx, t116.xxxy, s0, r12.xyxx, r12.zwzz\n").count(), 3, "{out}");
@@ -2403,6 +3400,72 @@ ret\n";
         assert_eq!(fs::read(dir.join("d3d11.dll")).unwrap(), EDLOADER_DLL, "remove leaves edloader in place");
     }
 
+    /// ED-UP's d3d11.dll: its version info's CompanyName, a wide string.
+    fn edup_dll() -> Vec<u8> {
+        let mut dll = b"MZ ed-up proxy CompanyName\0".to_vec();
+        dll.extend("ED-UP (unofficial)".encode_utf16().flat_map(u16::to_le_bytes));
+        dll
+    }
+
+    #[test]
+    fn edcas_chained_behind_ed_up_is_healthy_and_ed_up_keeps_its_slot() {
+        // GitHub issue 13: ED-UP (VR) in the d3d11.dll slot, EDCAS's 3DMigoto renamed and
+        // chained by edvr.ini, as ED-UP's manual says. Each repair moved ED-UP aside.
+        let dir = game("ed-up");
+        fs::write(dir.join("d3d11.dll"), STOCK_DLL).unwrap();
+        install(&dir, &bundle(EDCAS_DLL), "1.0.0", Wanted::ALL, |_| {}).unwrap();
+        fs::rename(dir.join("d3d11.dll"), dir.join("d3d11_edcas.dll")).unwrap();
+        fs::write(dir.join("d3d11.dll"), edup_dll()).unwrap();
+        let edvr = "[general]\r\nmode = vr\r\n[advanced]\r\nreal_dll = d3d11_edcas.dll\r\n";
+        fs::write(dir.join("edvr.ini"), edvr).unwrap();
+
+        assert!(damage(&dir).is_empty(), "{:?}", damage(&dir));
+        assert_eq!(repair(&dir).unwrap(), None);
+        assert_eq!(fs::read(dir.join("d3d11.dll")).unwrap(), edup_dll(), "ED-UP keeps its slot");
+        let report = dll_report(&dir);
+        assert!(report.contains("ED-UP's") && report.contains("d3d11_edcas.dll is EDCAS's build"), "{report}");
+
+        // An update writes EDCAS's dll where ED-UP chains to, nothing else.
+        let newer = b"MZ patched 3dmigoto v2  params_file=%S  ";
+        install(&dir, &bundle(newer), "1.0.1", Wanted::ALL, |_| {}).unwrap();
+        assert_eq!(fs::read(dir.join("d3d11.dll")).unwrap(), edup_dll());
+        assert_eq!(fs::read(dir.join("d3d11_edcas.dll")).unwrap(), newer);
+        assert_eq!(fs::read(dir.join("d3d11.dll.official")).unwrap(), STOCK_DLL);
+        assert!(!dir.join("d3d11_edcas.dll.official").exists());
+        assert!(damage(&dir).is_empty());
+
+        // Remove leaves ED-UP and the dll its ini names in place.
+        let msg = remove(&dir).unwrap();
+        assert!(msg.contains("ED-UP"), "{msg}");
+        assert_eq!(fs::read(dir.join("d3d11.dll")).unwrap(), edup_dll());
+        assert_eq!(fs::read(dir.join("d3d11_edcas.dll")).unwrap(), newer);
+        install(&dir, &bundle(newer), "1.0.1", Wanted::ALL, |_| {}).unwrap();
+
+        // EDHM's 3DMigoto under the chained name is another installer's change: repaired
+        // there (EDHM's kept beside it), ED-UP still in the slot.
+        let edhm = b"MZ edhm 3dmigoto 1.3.16";
+        fs::write(dir.join("d3d11_edcas.dll"), edhm).unwrap();
+        assert!(damage(&dir)[0].contains("another 3DMigoto"), "{:?}", damage(&dir));
+        repair(&dir).unwrap().unwrap();
+        assert_eq!(fs::read(dir.join("d3d11_edcas.dll")).unwrap(), newer);
+        assert_eq!(fs::read(dir.join("d3d11_edcas.dll.official")).unwrap(), edhm);
+        assert_eq!(fs::read(dir.join("d3d11.dll")).unwrap(), edup_dll());
+
+        // ED-UP chaining to nothing: no 3DMigoto runs, but EDCAS never moves ED-UP aside.
+        fs::write(dir.join("edvr.ini"), "[advanced]\r\n;real_dll = d3d11_edcas.dll\r\n").unwrap();
+        assert!(damage(&dir)[0].contains("ED-UP"), "{:?}", damage(&dir));
+        assert!(repair(&dir).unwrap_err().contains("ED-UP"));
+        assert!(install(&dir, &bundle(newer), "1.0.2", Wanted::ALL, |_| {}).unwrap_err().contains("ED-UP"));
+        assert_eq!(fs::read(dir.join("d3d11.dll")).unwrap(), edup_dll());
+
+        // With an original kept for the chained name, Remove puts it back there.
+        fs::write(dir.join("edvr.ini"), edvr).unwrap();
+        remove(&dir).unwrap();
+        assert_eq!(fs::read(dir.join("d3d11.dll")).unwrap(), edup_dll());
+        assert_eq!(fs::read(dir.join("d3d11_edcas.dll")).unwrap(), edhm);
+        assert!(!dir.join("d3d11_edcas.dll.official").exists());
+    }
+
     #[test]
     fn another_installers_changes_are_found_and_repaired_when_the_mods_are_installed() {
         let dir = game("edhm");
@@ -2529,9 +3592,11 @@ dcl_constantbuffer CB2[47], immediateIndexed\n\
 dcl_resource_texture2d (float,float,float,float) t0\n\
 dcl_resource_texture2d (float,float,float,float) t1\n\
 dcl_input_ps linear v0.xy\n\
+dcl_input_ps linear v1.xyz\n\
 dcl_output o0.xyz\n\
 dcl_temps 3\n\
 sample_indexable(texture2d)(float,float,float,float) r0.xyzw, v0.xyxx, t0.xyzw, s0\n\
+dp3 r1.w, v1.xyzx, -cb2[42].xyzx\n\
 mul r1.xyz, r0.xyzx, cb2[40].xyzx\n\
 if_nz r0.w\n\
   mad r2.xyz, r1.wwww, cb2[40].xxyz, r1.xyzx\n\
@@ -2545,17 +3610,21 @@ ret\n";
             "ps_5_0\n\
 dcl_globalFlags refactoringAllowed\n\
 dcl_constantbuffer CB2[47], immediateIndexed\n\
+dcl_constantbuffer CB12[13], immediateIndexed\n\
 dcl_resource_texture2d (float,float,float,float) t0\n\
 dcl_resource_texture2d (float,float,float,float) t1\n\
 dcl_resource_texture1d (float,float,float,float) t120\n\
 dcl_resource_texture2d (float,float,float,float) t118\n\
+dcl_resource_texture2d (float,float,float,float) t114\n\
 dcl_input_ps linear v0.xy\n\
+dcl_input_ps linear v1.xyz\n\
 dcl_output o0.xyz\n\
 dcl_temps 5\n\
 {}\n\
 mul r3.xyz, r3.xyzx, cb2[40].xyzx\n\
 {}\n\
 sample_indexable(texture2d)(float,float,float,float) r0.xyzw, v0.xyxx, t0.xyzw, s0\n\
+dp3 r1.w, v1.xyzx, -cb2[42].xyzx\n\
 mul r1.xyz, r0.xyzx, r3.xyzx\n\
 if_nz r0.w\n\
   mad r2.xyz, r1.wwww, r3.xxyz, r1.xyzx\n\
@@ -2563,7 +3632,7 @@ endif\n\
 mul o0.xyz, r2.xyzx, cb2[0].xxxx\n\
 ret\n",
             tint_block("r3", "r4", Some("v0")).join("\n"),
-            sunset_block("r3", "r4").join("\n")
+            sunset_block("r3", "r4").into_iter().chain(cloud_block("r3", "r4")).collect::<Vec<_>>().join("\n")
         )
     }
 
@@ -2664,6 +3733,369 @@ ret\n";
         if let Some(py) = star_light_py("star_light_list", GLASS, "t1") {
             assert_eq!(star_light_list(GLASS, "t1").unwrap(), py, "star_light.py and shader_mods::star_light_list differ on the made-up glass shader");
         }
+    }
+
+    /// A made-up HUD panel shader: the panel texture at `v4.xy`, the colour matrix, the test for an
+    /// empty pixel, the output times the HUD's brightness.
+    const HUD: &str = "ps_5_0\n\
+dcl_globalFlags refactoringAllowed\n\
+dcl_constantbuffer CB1[327], dynamicIndexed\n\
+dcl_constantbuffer CB2[13], immediateIndexed\n\
+dcl_sampler s0, mode_default\n\
+dcl_sampler s1, mode_default\n\
+dcl_resource_texture2d (float,float,float,float) t1\n\
+dcl_resource_texture2d (float,float,float,float) t2\n\
+dcl_input_ps linear v0.xyzw\n\
+dcl_input_ps linear v4.xy\n\
+dcl_output o0.xyzw\n\
+dcl_temps 3\n\
+sample_indexable(texture2d)(float,float,float,float) r0.xyzw, v4.xyxx, t2.xyzw, s1\n\
+mul r1.xyz, r0.yyyy, cb1[86].xyzx\n\
+mad r0.xyz, r0.xxxx, cb1[85].xyzx, r1.xyzx\n\
+lt r1.xyzw, r0.xyzw, l(0.0196078438, 0.0196078438, 0.0196078438, 0.0196078438)\n\
+and r1.x, r1.y, r1.x\n\
+if_nz r1.x\n\
+  discard_nz l(-1)\n\
+endif\n\
+mul o0.xyz, r0.xyzx, cb1[90].yyyy\n\
+mov o0.w, r0.w\n\
+ret\n";
+
+    /// A made-up HUD shader without a panel texture (the radar's disc has this shape): the colour
+    /// matrix into three parts of a register that are not x y z, the output times the HUD's
+    /// brightness.
+    const HUD_LINES: &str = "ps_5_0\n\
+dcl_globalFlags refactoringAllowed\n\
+dcl_constantbuffer CB1[91], immediateIndexed\n\
+dcl_sampler s0, mode_default\n\
+dcl_resource_texture2d (float,float,float,float) t0\n\
+dcl_input_ps linear v1.xy\n\
+dcl_output o0.xyzw\n\
+dcl_temps 2\n\
+sample_indexable(texture2d)(float,float,float,float) r0.xyzw, v1.xyxx, t0.xyzw, s0\n\
+mul r1.xyz, r0.zzzz, cb1[86].xyzx\n\
+mad r1.xyz, r0.xxxx, cb1[85].xyzx, r1.xyzx\n\
+mad r0.xzw, r0.wwww, cb1[87].xxyz, r1.xxyz\n\
+mul o0.xyz, r0.xzwx, cb1[90].yyyy\n\
+mov o0.w, r0.y\n\
+ret\n";
+
+    /// The HUD shaders' exports in a game folder: the panel shader's, the three others' and the
+    /// two holograms'.
+    fn export_hud_shader(dir: &Path) {
+        fs::create_dir_all(dir.join("ShaderCache")).unwrap();
+        for hash in HUD_PANEL_SHADERS {
+            fs::write(exported_path(dir, hash), HUD).unwrap();
+        }
+        for hash in HUD_COLOUR_SHADERS.iter().chain(HOLOGRAMS.iter().map(|h| &h.shader)) {
+            fs::write(exported_path(dir, hash), HUD_LINES).unwrap();
+        }
+    }
+
+    #[test]
+    fn the_huds_blocks_go_in_before_the_output_and_read_their_rows() {
+        let patched = hud(HUD, HUD_ROW, HUD_OWN_ROW, false).unwrap();
+        let lines: Vec<&str> = patched.split('\n').collect();
+        let at = |needle: &str| lines.iter().position(|l| l.contains(needle)).unwrap_or_else(|| panic!("no '{needle}' in\n{patched}"));
+        assert!(lines.contains(&"dcl_temps 9") && lines.contains(&T120_DECL), "{patched}");
+        // After the empty-pixel test: the colour copied out of the output's register, the HUD's
+        // colour, the gauges, the output from the copy.
+        let (copy, colour, gauges, out) = (at("mov r3.xyz, r0.xyzx"), at(&format!("{HUD_MARKER} colour")), at(&format!("{HUD_MARKER} gauges")), at("mul o0.xyz, r3.xyzx, cb1[90].yyyy"));
+        assert!(at("discard_nz") < copy && copy + 1 == colour && colour < gauges && gauges < out, "{patched}");
+        assert!(lines.contains(&"ld_indexable(texture1d)(float,float,float,float) r4.xyzw, l(534, 0, 0, 0), t120.xyzw"), "{patched}");
+        for gauge in &GAUGES {
+            let load = format!("    ld_indexable(texture1d)(float,float,float,float) r4.xyzw, l({}, 0, 0, 0), t120.xyzw", gauge.row);
+            assert_eq!(lines.iter().filter(|l| **l == load).count(), 1, "{}: {patched}", gauge.name);
+        }
+        assert_eq!(patched.matches("if_nz").count(), patched.matches("endif").count());
+        // The second colour is made pale in the fuel bar and the speed alone.
+        assert_eq!(patched.matches("sample_l_indexable").count(), GAUGES.iter().filter(|g| g.pale).count());
+        // Everything else is the game's.
+        let mut rest = lines.clone();
+        rest.splice(copy..=out, ["mul o0.xyz, r0.xyzx, cb1[90].yyyy"]);
+        rest.retain(|l| *l != T120_DECL);
+        assert_eq!(rest.join("\n"), HUD.replace("dcl_temps 3", "dcl_temps 9"));
+
+        // A HUD shader without the panel texture takes the HUD's colour alone, from whichever
+        // parts of the register the output reads.
+        let patched = hud(HUD_LINES, HUD_ROW, HUD_OWN_ROW, false).unwrap();
+        let lines: Vec<&str> = patched.split('\n').collect();
+        assert!(lines.contains(&"dcl_temps 5") && lines.contains(&T120_DECL) && lines.contains(&"mov r2.xyz, r0.xzwx") && lines.contains(&"mul o0.xyz, r2.xyzx, cb1[90].yyyy"), "{patched}");
+        assert!(patched.contains(&format!("{HUD_MARKER} colour")) && !patched.contains(&format!("{HUD_MARKER} gauges")) && !patched.contains("mul o0.xyz, r0."), "{patched}");
+        // Patched once; another shader is refused.
+        assert!(hud(&patched, HUD_ROW, HUD_OWN_ROW, false).unwrap_err().contains("already"));
+        assert!(hud(SUN, HUD_ROW, HUD_OWN_ROW, false).unwrap_err().contains("HUD shader"));
+
+        // A hologram takes a colour of its own from its row and nothing of the HUD's colour;
+        // everything else is the game's.
+        const HOLOGRAM_ROW: u32 = 541;
+        let patched = hologram(HUD_LINES, HOLOGRAM_ROW).unwrap();
+        let lines: Vec<&str> = patched.split('\n').collect();
+        let at = |needle: &str| lines.iter().position(|l| l.contains(needle)).unwrap_or_else(|| panic!("no '{needle}' in\n{patched}"));
+        let (copy, block, out) = (at("mov r2.xyz, r0.xzwx"), at(&format!("{HUD_MARKER} hologram")), at("mul o0.xyz, r2.xyzx, cb1[90].yyyy"));
+        assert!(copy + 1 == block && block < out && lines.contains(&"dcl_temps 5") && lines.contains(&T120_DECL), "{patched}");
+        assert_eq!(patched.matches("t120.xyzw").count(), 1, "{patched}");
+        assert!(lines.contains(&format!("ld_indexable(texture1d)(float,float,float,float) r3.xyzw, l({HOLOGRAM_ROW}, 0, 0, 0), t120.xyzw").as_str()), "{patched}");
+        assert!(!patched.contains(&format!("{HUD_MARKER} colour")) && !patched.contains("sincos") && is_hud_copy(&patched), "{patched}");
+        let mut rest = lines.clone();
+        rest.splice(copy..=out, ["mul o0.xyz, r0.xzwx, cb1[90].yyyy"]);
+        rest.retain(|l| *l != T120_DECL);
+        assert_eq!(rest.join("\n"), HUD_LINES.replace("dcl_temps 2", "dcl_temps 5"));
+        assert!(hologram(&patched, HOLOGRAM_ROW).unwrap_err().contains("already"));
+    }
+
+    #[test]
+    fn the_gauges_keep_clear_of_each_other() {
+        // Two gauges that both took a pixel would colour it twice.
+        let holds = |g: &Gauge, x: f64, y: f64| {
+            let within = |r: &[f64; 4]| r[0] <= x && x < r[2] && r[1] <= y && y < r[3];
+            g.inside.iter().any(within) && !g.outside.iter().any(within)
+        };
+        for y in 0..PANEL.1 as u32 {
+            for x in 0..PANEL.0 as u32 {
+                let (x, y) = (f64::from(x) + 0.5, f64::from(y) + 0.5);
+                let taken: Vec<&str> = GAUGES.iter().filter(|g| holds(g, x, y)).map(|g| g.name).collect();
+                assert!(taken.len() <= 1, "({x}, {y}) is in {taken:?}");
+            }
+        }
+        // The rows are apart from each other and from the HUD's colour row.
+        let mut rows: Vec<u32> = GAUGES.iter().map(|g| g.row).chain([HUD_ROW, HUD_OWN_ROW]).chain(HUD_COLOUR_ROWS).chain(HUD_OWN_ROWS).chain([HUD_OWN_ROW + HUD_FADE_AFTER]).chain(HUD_OWN_ROWS.map(|r| r + HUD_FADE_AFTER)).chain(HOLOGRAMS.iter().map(|h| h.row)).collect();
+        rows.sort_unstable();
+        rows.dedup();
+        // The radar's disc and its rings share a row: two of the colour's rows besides the panels',
+        // and so for the own colours and their fades.
+        assert_eq!(rows.len(), GAUGES.len() + 3 * (1 + 2) + HOLOGRAMS.len());
+    }
+
+    #[test]
+    fn a_fading_copy_takes_the_pixels_place_and_the_plain_one_does_not() {
+        // The plain copy: no new input, cb1 as the game declared it, no row of a fade.
+        let plain = hud(HUD_LINES, HUD_COLOUR_ROWS[0], HUD_OWN_ROWS[0], false).unwrap();
+        assert!(!plain.contains("position") && plain.contains("dcl_constantbuffer CB1[91], immediateIndexed") && !plain.contains("l(548, 0, 0, 0)"), "{plain}");
+        // The fading one: the place in the register after the last input, cb1 up to the
+        // picture's size, one register more, and the fade's row read after the own colour's.
+        let fading = hud(HUD_LINES, HUD_COLOUR_ROWS[0], HUD_OWN_ROWS[0], true).unwrap();
+        assert!(fading.contains("dcl_input_ps linear v1.xy\ndcl_input_ps_siv linear noperspective v2.xy, position\n"), "{fading}");
+        assert!(fading.contains("dcl_constantbuffer CB1[333], immediateIndexed") && fading.contains("dcl_temps 6\n"), "{fading}");
+        let (own, fade) = (fading.find("l(545, 0, 0, 0)").unwrap(), fading.find("l(548, 0, 0, 0)").unwrap());
+        assert!(own < fade && fading.contains("mul r5.yz, v2.xxyx, cb1[332].zzwz"), "{fading}");
+        // A panel shader keeps its six registers, and a larger cb1 its size.
+        let panel = hud(HUD, HUD_ROW, HUD_OWN_ROW, true).unwrap();
+        assert!(panel.contains("dcl_input_ps_siv linear noperspective v5.xy, position") && panel.contains("dcl_constantbuffer CB1[333], dynamicIndexed") && panel.contains("l(547, 0, 0, 0)"), "{panel}");
+        assert_eq!(panel.lines().find(|l| l.starts_with("dcl_temps")), hud(HUD, HUD_ROW, HUD_OWN_ROW, false).unwrap().lines().find(|l| l.starts_with("dcl_temps")));
+        // A shader that takes the place already keeps its input.
+        let with_place = HUD_LINES.replace("dcl_input_ps linear v1.xy\n", "dcl_input_ps linear v1.xy\ndcl_input_ps_siv linear noperspective v2.xy, position\n");
+        let kept = hud(&with_place, HUD_COLOUR_ROWS[1], HUD_OWN_ROWS[1], true).unwrap();
+        assert_eq!(kept.matches("position").count(), 1, "{kept}");
+        assert!(kept.contains("mul r5.yz, v2.xxyx, cb1[332].zzwz"), "{kept}");
+        // The parts' shaders: the panels' are part 0, the lines' 1, the radar's two 2.
+        assert_eq!([HUD_PANEL_SHADERS[1], HUD_PANEL_EXTRA[0], HUD_COLOUR_SHADERS[0], HUD_COLOUR_SHADERS[1], HUD_COLOUR_SHADERS[2], HUD_COLOUR_SHADERS[3], HUD_COLOUR_SHADERS[4], HUD_CONTACT_SHADERS[2]].map(hud_part), [0, 0, 1, 2, 2, 2, 2, 2]);
+        // Only a part in one colour with a second colour set asks for the fading copy.
+        let mut g = crate::settings::game_graphics::GameGraphicsSettings { hud_colour: true, ..Default::default() };
+        g.hud_parts.lines.fade_to = "#0000ff".to_string();
+        assert_eq!(Wanted::of(&g).hud.fade, [false; 3], "a turned part does not fade");
+        g.hud_parts.lines.look = crate::settings::game_graphics::PartLook::Colour;
+        assert_eq!(Wanted::of(&g).hud.fade, [false, true, false]);
+        g.hud_colour = false;
+        assert_eq!(Wanted::of(&g).hud.fade, [false; 3]);
+    }
+
+    #[test]
+    fn the_ground_textures_are_kept_when_their_recipe_is_the_same() {
+        let dir = temp("ground-recipe");
+        let fixes = dir.as_ref();
+        let mut steps = Vec::new();
+        write_ground_textures(fixes, &mut |s| steps.push(s.to_string())).unwrap();
+        assert!(steps.iter().any(|s| s.starts_with("Making")), "{steps:?}");
+        assert_eq!(fs::read_to_string(fixes.join(GROUND_TEXTURE_MARK)).unwrap().trim(), ground_texture_recipe());
+        // The same recipe: kept, not made again (a byte changed by hand stays changed).
+        let first = fixes.join(&ground_detail::file_names()[0]);
+        let mut bytes = fs::read(&first).unwrap();
+        let last = bytes.len() - 1;
+        bytes[last] ^= 0xff;
+        fs::write(&first, &bytes).unwrap();
+        steps.clear();
+        write_ground_textures(fixes, &mut |s| steps.push(s.to_string())).unwrap();
+        assert_eq!(steps, ["Keeping the ground textures (unchanged)"]);
+        assert_eq!(fs::read(&first).unwrap(), bytes);
+        // Another recipe, or a texture gone: made again.
+        fs::write(fixes.join(GROUND_TEXTURE_MARK), "0000000000000000\n").unwrap();
+        steps.clear();
+        write_ground_textures(fixes, &mut |s| steps.push(s.to_string())).unwrap();
+        assert!(steps.iter().any(|s| s.starts_with("Making")) && fs::read(&first).unwrap() != bytes, "{steps:?}");
+        fs::remove_file(fixes.join(&ground_detail::file_names()[1])).unwrap();
+        steps.clear();
+        write_ground_textures(fixes, &mut |s| steps.push(s.to_string())).unwrap();
+        assert!(steps.iter().any(|s| s.starts_with("Making")), "{steps:?}");
+    }
+
+    #[test]
+    fn hud_py_patches_as_the_port_does() {
+        let Some(dir) = scripts_dir() else { return };
+        let py = fs::read_to_string(dir.join("hud.py")).unwrap();
+        assert!(py.contains(&format!("HUD_SHADER = '{HUD_SHADER}'")), "HUD_SHADER in shader_mods.rs and hud.py differ");
+        assert!(py.contains(&format!("HUD_COLOUR_SHADERS = ({}) + HUD_CONTACT_SHADERS", HUD_COLOUR_SHADERS[..5].iter().map(|h| format!("'{h}'")).collect::<Vec<_>>().join(", "))) && HUD_COLOUR_SHADERS[5..] == HUD_CONTACT_SHADERS, "HUD_COLOUR_SHADERS in shader_mods.rs and hud.py differ");
+        assert!(py.contains(&format!("HUD_CONTACT_SHADERS = ({})", HUD_CONTACT_SHADERS.map(|h| format!("'{h}'")).join(", "))) && py.contains(&format!("\nHOSTILE_RED = {HOSTILE_RED}\n")), "the radar's contacts in shader_mods.rs and hud.py differ");
+        assert!(py.contains(&format!("HUD_COLOUR_ROWS = ({})", HUD_COLOUR_ROWS.map(|r| r.to_string()).join(", "))) && py.contains(&format!("\nHUD_ROW = {HUD_ROW}\n")), "the HUD colour's rows in shader_mods.rs and hud.py differ");
+        assert!(py.contains(&format!("HUD_OWN_ROWS = ({})", HUD_OWN_ROWS.map(|r| r.to_string()).join(", "))) && py.contains(&format!("\nHUD_OWN_ROW = {HUD_OWN_ROW}\n")), "the rows of the parts' own colours in shader_mods.rs and hud.py differ");
+        assert!(py.contains(&format!("HUD_PANEL_SHADERS = (HUD_SHADER, '{}')", HUD_PANEL_SHADERS[1])) && HUD_PANEL_SHADERS[0] == HUD_SHADER, "HUD_PANEL_SHADERS in shader_mods.rs and hud.py differ");
+        assert!(py.contains(&format!("HUD_PANEL_EXTRA = ({})", HUD_PANEL_EXTRA.map(|h| format!("'{h}'")).join(", "))), "HUD_PANEL_EXTRA in shader_mods.rs and hud.py differ");
+        for h in &HOLOGRAMS {
+            assert!(py.contains(&format!("\n    ('{}', '{}', {}),\n", h.name, h.shader, h.row)), "HOLOGRAMS in shader_mods.rs and hud.py differ ({})", h.name);
+        }
+        assert_eq!(py.matches("', 54").count(), HOLOGRAMS.len(), "HOLOGRAMS in hud.py has another number of holograms");
+        assert!(py.contains(&format!("\nMARKER = '{HUD_MARKER}'")) && py.contains(&format!("OLD_MARKER = '{OLD_HUD_MARKER}'")), "the markers in shader_mods.rs and hud.py differ");
+        // The made-up shaders, and the game's own when their dumps are at hand.
+        let dumps = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ed-captures/shaders-cache-2026-11-09");
+        let mut shaders = vec![(0, HUD_ROW, HUD_OWN_ROW, false, false, HUD.to_string()), (0, HUD_ROW, HUD_OWN_ROW, true, false, HUD.to_string()), (0, HUD_COLOUR_ROWS[0], HUD_OWN_ROWS[0], false, false, HUD_LINES.to_string()), (0, HUD_COLOUR_ROWS[0], HUD_OWN_ROWS[0], true, false, HUD_LINES.to_string()), (0, HUD_COLOUR_ROWS[1], HUD_OWN_ROWS[1], false, true, HUD_LINES.to_string()), (0, HUD_COLOUR_ROWS[1], HUD_OWN_ROWS[1], true, true, HUD_LINES.to_string()), (HOLOGRAMS[0].row, 0, 0, false, false, HUD_LINES.to_string())];
+        for fade in [false, true] {
+            shaders.extend(HudWanted::COLOUR.every().iter().filter_map(|h| fs::read_to_string(dumps.join(format!("{h}-ps.txt"))).ok().map(|asm| (0, hud_colour_row(h), hud_own_row(h), fade, HUD_CONTACT_SHADERS.contains(h), asm))));
+        }
+        shaders.extend(HOLOGRAMS.iter().filter_map(|h| fs::read_to_string(dumps.join(format!("{}-ps.txt", h.shader))).ok().map(|asm| (h.row, 0, 0, false, false, asm))));
+        assert!(py.contains(&format!("\nHUD_FADE_AFTER = {HUD_FADE_AFTER}\n")) && py.contains(&format!("\nSCREEN = {HUD_SCREEN}\n")), "the fade's row and the picture's size in shader_mods.rs and hud.py differ");
+        // A row says the shader is a hologram's; 0 that it is one of the HUD's, with its colour's row.
+        for (row, colour_row, own_row, fade, contact, asm) in shaders {
+            let script = "import sys; sys.path.insert(0, sys.argv[1]); import hud; row = int(sys.argv[2]); asm = sys.stdin.read(); sys.stdout.write(hud.hologram(asm, row) if row else hud.hud(asm, None, int(sys.argv[3]), int(sys.argv[4]), sys.argv[5] == 'fade', sys.argv[6] == 'contact'))";
+            let Ok(mut child) = std::process::Command::new("python3")
+                .args(["-c", script, dir.to_str().unwrap(), &row.to_string(), &colour_row.to_string(), &own_row.to_string(), if fade { "fade" } else { "plain" }, if contact { "contact" } else { "part" }])
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped())
+                .spawn()
+            else {
+                return;
+            };
+            child.stdin.take().unwrap().write_all(asm.as_bytes()).unwrap();
+            let out = child.wait_with_output().unwrap();
+            assert!(out.status.success(), "hud.py failed");
+            let ours = if row > 0 { hologram(&asm, row) } else { hud_with(&asm, colour_row, own_row, fade, contact) };
+            assert_eq!(ours.unwrap(), String::from_utf8_lossy(&out.stdout), "hud.py and shader_mods differ (row {row}, fade {fade}, {} lines)", asm.lines().count());
+        }
+    }
+
+    #[test]
+    fn the_huds_copies_are_made_only_when_asked_and_never_over_another_mods_file() {
+        let export = |dir: &Path| get_option(&read(dir, "d3dx.ini").replace("\r\n", "\n"), "Rendering", "export_shaders");
+        let off = Wanted { ground: false, star_light: false, hud: HudWanted::NOTHING };
+        let gauges = Wanted { hud: HudWanted::GAUGES, ..off };
+        let colour = Wanted { hud: HudWanted::COLOUR, ..off };
+        let holo = Wanted { hud: HudWanted::SHIP_HOLOGRAM, ..off };
+        let target = Wanted { hud: HudWanted::TARGET_HOLOGRAM, ..off };
+        let dir = game("hud");
+        let copy_of = |hash: &str| dir.join(FIXES).join(format!("{hash}-ps.txt"));
+        let copy = copy_of(HUD_SHADER);
+        let unshadowed = copy_of(HUD_PANEL_SHADERS[1]);
+        let glitching = copy_of(HUD_PANEL_EXTRA[0]);
+        let others = HUD_COLOUR_SHADERS.map(copy_of);
+        let holo_copy = copy_of(HOLOGRAMS[0].shader);
+        let target_copy = copy_of(HOLOGRAMS[1].shader);
+
+        // Off: the game is not asked for its HUD shaders, and exports at hand are not used.
+        let p = install(&dir, &bundle(EDCAS_DLL), "1.0.0", off, |_| {}).unwrap();
+        assert_eq!((p.hud.clone(), export(&dir).as_deref()), (Hud::Done, Some("0")));
+        assert!(!installed_message(&p, off).contains("HUD"), "no line for switches that are off");
+        export_hud_shader(&dir);
+        assert_eq!(finish_game_shaders(&dir, off).unwrap().hud, Hud::Done);
+        assert!(!copy.exists() && !others.iter().any(|o| o.exists()));
+        fs::remove_dir_all(dir.join("ShaderCache")).unwrap();
+
+        // A gauge on: the export is asked for, and the panel shader's copy made once it is there.
+        let p = finish_game_shaders(&dir, gauges).unwrap();
+        assert_eq!((p.hud.clone(), export(&dir).as_deref()), (Hud::NeedsExport, Some("1")));
+        assert!(export_needed(&dir, gauges) && !export_needed(&dir, off) && !hud_pending(&dir, gauges.hud));
+        assert!(installed_message(&p, gauges).contains("cockpit once"), "{}", installed_message(&p, gauges));
+        // The game has two panel shaders and exports each when it first draws with it: the one
+        // at hand is copied, and the export stays on for the other.
+        fs::create_dir_all(dir.join("ShaderCache")).unwrap();
+        fs::write(exported_path(&dir, HUD_SHADER), HUD).unwrap();
+        assert!(hud_pending(&dir, gauges.hud));
+        let p = finish_game_shaders(&dir, gauges).unwrap();
+        assert_eq!((p.hud, export(&dir).as_deref()), (Hud::NeedsExport, Some("1")));
+        assert!(copy.exists() && !unshadowed.exists() && !hud_pending(&dir, gauges.hud));
+        export_hud_shader(&dir);
+        assert!(hud_pending(&dir, gauges.hud));
+        let p = finish_game_shaders(&dir, gauges).unwrap();
+        assert_eq!((p.hud, export(&dir).as_deref()), (Hud::Done, Some("0")));
+        assert_eq!(fs::read_to_string(&copy).unwrap(), hud(HUD, HUD_ROW, HUD_OWN_ROW, false).unwrap());
+        assert_eq!(fs::read_to_string(&unshadowed).unwrap(), hud(HUD, HUD_ROW, HUD_OWN_ROW, false).unwrap());
+        assert!(!others.iter().any(|o| o.exists()), "the gauges need the panel shaders alone");
+        // The panel's other versions are copied where the game has exported them, not waited for.
+        assert!(!glitching.exists());
+        fs::write(exported_path(&dir, HUD_PANEL_EXTRA[0]), HUD).unwrap();
+        assert_eq!(finish_game_shaders(&dir, gauges).unwrap().hud, Hud::Done);
+        assert_eq!(fs::read_to_string(&glitching).unwrap(), hud(HUD, HUD_ROW, HUD_OWN_ROW, false).unwrap());
+        assert!(!export_needed(&dir, gauges) && !hud_pending(&dir, gauges.hud));
+
+        // The HUD's colour on: the three other shaders' copies as well, from the exports at hand.
+        assert!(hud_pending(&dir, colour.hud) && export_needed(&dir, colour));
+        let p = finish_game_shaders(&dir, colour).unwrap();
+        assert_eq!((p.hud, export(&dir).as_deref()), (Hud::Done, Some("0")));
+        // (the radar's contacts with the rule that keeps a hostile's red)
+        for (((other, row), own), hash) in others.iter().zip(HUD_COLOUR_ROWS).zip(HUD_OWN_ROWS).zip(HUD_COLOUR_SHADERS) {
+            assert_eq!(fs::read_to_string(other).unwrap(), hud_with(HUD_LINES, row, own, false, HUD_CONTACT_SHADERS.contains(&hash)).unwrap());
+        }
+        assert_eq!((hud_own_row(HUD_PANEL_SHADERS[1]), hud_own_row(HUD_COLOUR_SHADERS[0]), hud_own_row(HUD_COLOUR_SHADERS[2])), (544, 545, 546));
+        assert_eq!((hud_colour_row(HUD_PANEL_SHADERS[1]), hud_colour_row(HUD_COLOUR_SHADERS[0]), hud_colour_row(HUD_COLOUR_SHADERS[2])), (534, 542, 543));
+        // Each part of the HUD is a choice of its own: the head-up lines alone need their shader alone.
+        let lines_only = HudWanted { colour: [false, true, false], ..HudWanted::NOTHING };
+        let radar_only = HudWanted { colour: [false, false, true], ..HudWanted::NOTHING };
+        assert_eq!((lines_only.every(), radar_only.every()), (vec![HUD_COLOUR_SHADERS[0]], HUD_COLOUR_SHADERS[1..].to_vec()));
+
+        // A hologram is a choice of its own: its shader's copy is made for it alone, from the
+        // export at hand, with its own row, and it is not the HUD's colour's copy.
+        assert!(!holo_copy.exists() && !target_copy.exists(), "nobody asked for a hologram yet");
+        assert!(hud_pending(&dir, holo.hud) && export_needed(&dir, holo));
+        let p = finish_game_shaders(&dir, holo).unwrap();
+        assert_eq!((p.hud, export(&dir).as_deref()), (Hud::Done, Some("0")));
+        assert_eq!(fs::read_to_string(&holo_copy).unwrap(), hologram(HUD_LINES, 540).unwrap());
+        assert!(!target_copy.exists(), "the ship's hologram alone was asked for");
+        assert_eq!(finish_game_shaders(&dir, target).unwrap().hud, Hud::Done);
+        assert_eq!(fs::read_to_string(&target_copy).unwrap(), hologram(HUD_LINES, 541).unwrap());
+        assert_eq!((HudWanted::SHIP_HOLOGRAM.shaders(), HudWanted::TARGET_HOLOGRAM.shaders()), (vec![HOLOGRAMS[0].shader], vec![HOLOGRAMS[1].shader]));
+        assert_eq!((HudWanted::ALL.shaders().len(), HudWanted::ALL.every().len()), (12, 14));
+
+        // A copy of client 0.43.187 (the fuel bar alone) is EDCAS's own and is made anew.
+        fs::write(&copy, format!("{OLD_HUD_MARKER}: x533\nps_5_0\nret\n")).unwrap();
+        assert_eq!(hud_state(&dir, gauges.hud), Hud::Done);
+        assert_eq!(finish_game_shaders(&dir, gauges).unwrap().hud, Hud::Done);
+        assert_eq!(fs::read_to_string(&copy).unwrap(), hud(HUD, HUD_ROW, HUD_OWN_ROW, false).unwrap());
+
+        // An export that is not the panel shader EDCAS knows is not copied.
+        fs::write(exported_path(&dir, HUD_SHADER), HUD.replace("v4.xy", "v5.xy")).unwrap();
+        assert!(matches!(finish_game_shaders(&dir, gauges).unwrap().hud, Hud::Failed(why) if why.contains("panel shader")));
+        assert_eq!(fs::read_to_string(&copy).unwrap(), hud(HUD, HUD_ROW, HUD_OWN_ROW, false).unwrap());
+        export_hud_shader(&dir);
+
+        // Switched off again the copies stay (their rows are 0: Elite's colours), and Remove takes them.
+        assert_eq!(finish_game_shaders(&dir, off).unwrap().hud, Hud::Done);
+        assert!(copy.exists() && unshadowed.exists() && glitching.exists() && others.iter().all(|o| o.exists()) && holo_copy.exists() && target_copy.exists());
+        remove(&dir).unwrap();
+        assert!(!copy.exists() && !unshadowed.exists() && !glitching.exists() && !others.iter().any(|o| o.exists()) && !holo_copy.exists() && !target_copy.exists());
+
+        // Another mod's HUD shader (EDHM's): never written over, never removed, no export asked
+        // for, and EDCAS's own copies of the other HUD shaders go, so the HUD is not half turned.
+        install(&dir, &bundle(EDCAS_DLL), "1.0.0", off, |_| {}).unwrap();
+        fs::write(&copy, "// EDHM's HUD shader\nps_5_0\nret\n").unwrap();
+        fs::write(&others[1], hud(HUD_LINES, HUD_COLOUR_ROWS[1], HUD_OWN_ROWS[1], false).unwrap()).unwrap();
+        fs::write(&unshadowed, hud(HUD, HUD_ROW, HUD_OWN_ROW, false).unwrap()).unwrap();
+        export_hud_shader(&dir);
+        let p = finish_game_shaders(&dir, colour).unwrap();
+        assert_eq!((p.hud.clone(), export(&dir).as_deref()), (Hud::OtherMod, Some("0")));
+        assert!(!unshadowed.exists(), "EDCAS's copy of the other panel shader goes with the rest");
+        assert!(installed_message(&p, colour).contains("EDHM"), "{}", installed_message(&p, colour));
+        assert!(!export_needed(&dir, colour) && !hud_pending(&dir, colour.hud));
+        assert!(!others.iter().any(|o| o.exists()));
+        remove(&dir).unwrap();
+        assert_eq!(fs::read_to_string(&copy).unwrap(), "// EDHM's HUD shader\nps_5_0\nret\n");
+        // And one in 3DMigoto's other form (an HLSL replacement) counts as well.
+        fs::remove_file(&copy).unwrap();
+        fs::write(dir.join(FIXES).join(format!("{HUD_SHADER}-ps_replace.txt")), "// hlsl").unwrap();
+        assert_eq!(hud_state(&dir, gauges.hud), Hud::OtherMod);
+        // The hologram's shader is not that mod's here, so its copy can be made beside it; with
+        // that mod's file of the hologram's shader (EDHM has one) it is left alone as well.
+        assert_eq!(finish_game_shaders(&dir, holo).unwrap().hud, Hud::Done);
+        fs::write(&holo_copy, "// EDHM's hologram\nps_5_0\nret\n").unwrap();
+        assert_eq!(finish_game_shaders(&dir, holo).unwrap().hud, Hud::OtherMod);
+        assert_eq!(fs::read_to_string(&holo_copy).unwrap(), "// EDHM's hologram\nps_5_0\nret\n");
     }
 
     #[test]
@@ -2771,8 +4203,10 @@ ret\n";
         assert_eq!(get_option(&ini, "Rendering", "export_shaders").as_deref(), Some("1"), "four star light copies are still to come");
         assert_eq!(status(&dir, "1.0.0"), Status::Installed { ground_tint: true, star_light: 1 });
         assert!(star_light_message(&p.star_light, true).contains(&format!("1 of {}", StarLightShaders::TOTAL)));
-        // Over a planet with air the rest is exported; EDCAS finishes by itself at its next start.
+        // Over a planet with air the rest is exported (the HUD's shader was with the first cockpit
+        // frame); EDCAS finishes by itself at its next start.
         export_star_light_shaders(&dir);
+        export_hud_shader(&dir);
         assert!(star_light_pending(&dir));
         let p = finish_game_shaders(&dir, Wanted::ALL).unwrap();
         assert!(p.star_light.done(), "{:?}", p.star_light);
@@ -2931,7 +4365,7 @@ ret\n";
     #[test]
     fn the_export_is_on_only_while_something_switched_on_needs_a_game_shader() {
         let export = |dir: &Path| get_option(&read(dir, "d3dx.ini").replace("\r\n", "\n"), "Rendering", "export_shaders");
-        let nothing = Wanted { ground: false, star_light: false };
+        let nothing = Wanted { ground: false, star_light: false, hud: HudWanted::NOTHING };
         let dir = game("export-wanted");
         // Every effect that needs a game shader is off: the game is never asked to export.
         let p = install(&dir, &bundle(EDCAS_DLL), "1.0.0", nothing, |_| {}).unwrap();
@@ -2940,8 +4374,8 @@ ret\n";
         assert!(installed_message(&p, nothing).contains("not asked"), "{}", installed_message(&p, nothing));
         assert!(!export_needed(&dir, nothing));
         // The star light alone, then the ground alone: on for each while its copies are missing.
-        let star = Wanted { ground: false, star_light: true };
-        let ground = Wanted { ground: true, star_light: false };
+        let star = Wanted { ground: false, star_light: true, hud: HudWanted::NOTHING };
+        let ground = Wanted { ground: true, star_light: false, hud: HudWanted::NOTHING };
         assert!(export_needed(&dir, star) && export_needed(&dir, ground));
         assert!(set_export(&dir, true).unwrap(), "changed");
         assert!(!set_export(&dir, true).unwrap(), "left alone when it says so already");
@@ -2955,11 +4389,14 @@ ret\n";
         assert_eq!(export(&dir).as_deref(), Some("1"), "the star light switched on: its copies are missing");
         // All there: off for good, whatever is switched on.
         export_star_light_shaders(&dir);
+        export_hud_shader(&dir);
         assert!(finish_game_shaders(&dir, Wanted::ALL).unwrap().star_light.done());
         assert_eq!(export(&dir).as_deref(), Some("0"));
         assert!(!export_needed(&dir, Wanted::ALL));
-        // What the settings ask for: the dust needs the ground shaders too (its terrain mask).
-        let mut g = crate::settings::Settings::default().game_graphics;
+        // What the settings ask for: the dust needs the ground shaders too (its terrain mask). The
+        // defaults themselves, not `Settings::default()`: that loads this machine's settings file,
+        // where a HUD switch left on made `nothing` fail (2026-11-18).
+        let mut g = crate::settings::game_graphics::GameGraphicsSettings::default();
         (g.ground_tint, g.ground_detail, g.planet_dust, g.star_light) = (false, false, false, false);
         assert_eq!(Wanted::of(&g), nothing);
         g.planet_dust = true;

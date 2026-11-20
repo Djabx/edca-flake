@@ -49,8 +49,8 @@ impl SearchNearestView {
     /// The commodity and reference-system fields, kept in step with the view's edit mode:
     /// focusing a field is `editing`, Enter searches, Esc cancels, Tab completes / switches.
     fn search_bar(&mut self, ui: &mut Ui, api: &ApiClient, event: &mut ViewEvent) {
-        let c_id = Id::new("search-nearest-commodity");
-        let s_id = Id::new("search-nearest-system");
+        let c_id = Id::unique("search-nearest-commodity");
+        let s_id = Id::unique("search-nearest-system");
         let (c_had, s_had) = ui.memory(|m| (m.has_focus(c_id), m.has_focus(s_id)));
 
         // Keys the fields keep for us (see `field`): suggestion moves and Tab.
@@ -160,7 +160,7 @@ impl SearchNearestView {
             return None;
         }
         let mut picked = None;
-        egui::Area::new(Id::new("search-nearest-suggestions"))
+        egui::Area::new(Id::unique("search-nearest-suggestions"))
             .order(egui::Order::Foreground)
             .fixed_pos(pos2(below.left(), below.bottom() + 2.0))
             .show(ui.ctx(), |ui| {
@@ -477,7 +477,7 @@ fn status_line(ui: &mut Ui, loading: bool, msg: &str) {
             ui.add(egui::Spinner::new().size(14.0).color(theme::CYAN));
         }
         let text = if loading && !msg.to_lowercase().starts_with("search") { "Searching…" } else { msg };
-        let col = crate::views::util::status_style(text).fg.map(theme::from_ratatui).unwrap_or(TEXT_DIM);
+        let col = crate::views::util::status_style(text).fg.map(theme::hud_color).unwrap_or(TEXT_DIM);
         let col = if col == GREY { TEXT_DIM } else { col };
         ui.add(egui::Label::new(RichText::new(text).font(theme::body(15.0)).color(col)).truncate());
     });
@@ -502,7 +502,7 @@ fn pad_filter_label(pad: char) -> (&'static str, &'static str) {
 
 /// Whether `selected` differs from what this list showed last frame (to scroll it into view).
 fn selection_moved(ui: &Ui, salt: &str, selected: usize) -> bool {
-    let id = Id::new(salt).with("last-selected");
+    let id = Id::unique(salt).with("last-selected");
     let moved = ui.data(|d| d.get_temp::<usize>(id)) != Some(selected);
     ui.data_mut(|d| d.insert_temp(id, selected));
     moved

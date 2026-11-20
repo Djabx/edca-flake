@@ -199,10 +199,22 @@ fn thickness(gust: f64) -> f64 {
 
 /// The dust haze's vertical optical depth where the dust is at full strength on a ground of loose
 /// sand (`x531`, the shader's `dustHaze`); in proportion to the dust's thickness elsewhere, so 0.035
-/// on Mars and none where no gust reaches the threshold. Mars's own column is 0.4 to 1.25 (Gale), ten
-/// times this and more: along the horizon a column is some 14 times the vertical one, and at Mars's
-/// the land a few kilometres off would be gone. A starting value, picked on replays at 0.02, 0.05 and
-/// 0.1 (`ed-captures/dust-haze`, 2026-11-12), to tune in game.
+/// on Mars and none where no gust reaches the threshold.
+///
+/// It is far thinner than the one measured haze there is. Mars's column is 0.4 to 1.25 at Gale, and
+/// the dust along the ground was measured there from the crater's rim through the air: an extinction
+/// of 0.05 to 0.11 per km in ordinary seasons (Moores et al. 2015, Moore et al. 2016, as Smith et al.
+/// 2019 sum them up, arXiv 1910.00986: "average peak values of 0.11 km-1"), the rim 30 km off seen
+/// at most times of the year; over 1.1 per km in the storm of 2018, when less than 3 km could be
+/// seen. This value gives Mars 0.035 / 11.1 km = 0.003 per km: a fifteenth to a thirty-fifth of the
+/// measured. Mars's own would take 1.1 to 3.6 here.
+///
+/// Picked first on replays at 0.02, 0.05 and 0.1 (`ed-captures/dust-haze`, 2026-11-12), while the
+/// shader drew too little of it. With its columns right (client 0.43.199, 0.43.200) it lies over the
+/// whole view from 8 km up in a basin on Plooe Thoi EP-R d4-9 C 4 and hides the basin's far wall on
+/// foot (`ed-captures/crater`). For a day (client 0.43.201) it was a third of this, for the looks;
+/// the owner's rule is the real thing before the looks (2026-11-17), and of the strengths tried the
+/// thickest is the nearest to the measured, so it is 0.1 again.
 const DUST_HAZE: f64 = 0.1;
 
 /// The gust ratio from which the sand moves all the time: no fronts. Under 3 by DUST-PLAN.md's first
@@ -436,11 +448,11 @@ mod tests {
     fn the_haze_goes_with_the_dust_and_the_airs_scale_height() {
         // Mars: a tenth of its dust's strength, the air thinning by e every 10.7 km.
         let mars = for_body(&body("Rocky body", "CarbonDioxide", 610.0, 210.0, 3.71), 1.0);
-        assert!((mars.haze - 0.1 * mars.strength).abs() < 1e-6 && (mars.haze - 0.035).abs() < 0.001, "{mars:?}");
+        assert!((f64::from(mars.haze) - DUST_HAZE * f64::from(mars.strength)).abs() < 1e-6 && (mars.haze - 0.035).abs() < 0.001, "{mars:?}");
         assert!((mars.scale_m - 10_693.0).abs() < 20.0, "{mars:?}");
         // 7 c: at full strength, 22 km.
         let seven_c = for_body(&body("Rocky body", "CarbonDioxide", 4687.5, 182.1, 1.5457), 1.0);
-        assert!((seven_c.haze - 0.1).abs() < 1e-6 && (seven_c.scale_m - 22_255.0).abs() < 40.0, "{seven_c:?}");
+        assert!((f64::from(seven_c.haze) - DUST_HAZE).abs() < 1e-6 && (seven_c.scale_m - 22_255.0).abs() < 40.0, "{seven_c:?}");
         // With the player's setting, and gone with the dust.
         assert!((for_body(&body("Rocky body", "CarbonDioxide", 610.0, 210.0, 3.71), 0.5).haze - 0.5 * mars.haze).abs() < 1e-6);
         assert_eq!(for_body(&body("Rocky body", "CarbonDioxide", 100.0, 210.0, 3.71), 1.0).haze, 0.0);

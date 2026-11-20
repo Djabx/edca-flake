@@ -110,7 +110,7 @@ fn paragraph(text: &str, font: FontId, color: Color32) -> LayoutJob {
 /// since the last frame scrolls to `line * STEP`; wheel scrolling writes the position back,
 /// so the keys continue from where the wheel left off and stop at the end.
 fn line_scroll<R>(ui: &mut Ui, salt: &str, line: &mut usize, add: impl FnOnce(&mut Ui) -> R) -> R {
-    let id = egui::Id::new(("news-line", salt));
+    let id = egui::Id::unique(("news-line", salt));
     let prev = ui.ctx().data(|d| d.get_temp::<usize>(id));
     let mut area = egui::ScrollArea::vertical().id_salt(salt).auto_shrink([false, false]);
     if prev != Some(*line) {
@@ -118,7 +118,7 @@ fn line_scroll<R>(ui: &mut Ui, salt: &str, line: &mut usize, add: impl FnOnce(&m
     }
     let out = area.show(ui, add);
     let max = (out.content_size.y - out.inner_rect.height()).max(0.0);
-    *line = (out.state.offset.y.clamp(0.0, max) / STEP).round() as usize;
+    *line = (out.state.clamped_offset().y.clamp(0.0, max) / STEP).round() as usize;
     ui.ctx().data_mut(|d| d.insert_temp(id, *line));
     out.inner
 }

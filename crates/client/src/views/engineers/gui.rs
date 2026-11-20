@@ -34,7 +34,7 @@ impl EngineersView {
         let left = Rect::from_min_size(full.min, vec2(left_w, full.height()));
         let right = Rect::from_min_max(pos2(left.right() + 10.0, full.top()), full.max);
 
-        let prev_id = ui.id().with("engineers-prev");
+        let prev_id = ui.scope_id().with("engineers-prev");
         let prev: Option<(usize, usize)> = ui.data(|d| d.get_temp(prev_id));
         let follow_eng = prev.map(|p| p.0) != Some(self.engineer_idx);
         let follow_mod = prev != Some((self.engineer_idx, self.mod_grade_idx));

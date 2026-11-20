@@ -39,7 +39,7 @@ use crate::journal_reader::{BodyScan, JournalData, Place};
 use crate::planet_clouds::{self, Clouds, Forecast};
 use crate::planet_dust::{self, Dust};
 use crate::star_light::{self, StarLight};
-use crate::settings::game_graphics::{GameGraphicsSettings, TintMode, DUST_REACH_RANGE, FOG_DEPTH_RANGE, MAX_LOOK_PERCENT};
+use crate::settings::game_graphics::{FadeWay, GameGraphicsSettings, GaugeLook, PartLook, TintMode, DUST_REACH_RANGE, FOG_DEPTH_RANGE, MAX_LOOK_PERCENT};
 use crate::settings::Settings;
 
 /// The values file, in the game folder.
@@ -182,7 +182,7 @@ impl Tint {
 /// is no tint) stay as they were.
 pub fn params_text(existing: &str, look: &Look) -> String {
     let ours = look.assignments();
-    let mut text = String::from("; written by EDCAS: planet ground tint (x500 y500 z500 w500), ground detail (x511, z511, $ground_type) and its ice look's switches (x520, w520), clouds (x503 to w504, z505, x501 to w501, x502, y502, x507, w507, y507, x508, x509, w509, x521 to w521, the waves x529 y529, the deck's cells and rows z529 w529, the fall streaks x530, the smooth veil and its halo y530 z530, a droplet layer's edges w530, the haze x522 to w522 and x528 to z528), dust (x515 to z516, x519 to w519, the haze x531 y531), the star's light (x526 y526 z526 w526, x527 the witch-space rainbow)\n");
+    let mut text = String::from("; written by EDCAS: planet ground tint (x500 y500 z500 w500), ground detail (x511, z511, $ground_type) and its ice look's switches (x520, w520), clouds (x503 to w504, z505, x501 to w501, x502, y502, their shadow z502, the air's Rayleigh depth x550 y550 z550 and methane w550, x507, w507, y507, x508, x509, w509, x521 to w521, the waves x529 y529, the deck's cells and rows z529 w529, the fall streaks x530, the smooth veil and its halo y530 z530, a droplet layer's edges w530, the haze x522 to w522 and x528 to z528), dust (x515 to z516, x519 to w519, the haze x531 y531), the star's light (x526 y526 z526 w526, x527 the witch-space rainbow), the HUD (the gauges x533 to w533 and x535 to w539, the colour's turn and brightness x534 y534 on the panels, x542 y542 on the head-up lines, x543 y543 on the radar, a part's own colour y z w of 544 to 546, the holograms' colours y540 z540 w540 and y541 z541 w541)\n");
     for (name, value) in &ours {
         text.push_str(&format!("{name} = {value}\n"));
     }
@@ -290,10 +290,122 @@ pub struct Look {
     pub detail: Detail,
     /// The colour of the system's star's light (see [`crate::star_light`]).
     pub star: StarLight,
+    /// The ship's HUD in other colours (see [`crate::shader_mods::hud`]): the player's choice,
+    /// whatever the place.
+    pub hud: HudLook,
+}
+
+/// The rows of the HUD's shader copies ([`crate::shader_mods::hud`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct HudLook {
+    /// The parts of the HUD in the order of [`HUD_COLOUR_ROWS`] (the panels, the head-up lines,
+    /// the radar), each: how far its hue is turned, in degrees (`x` of its row); its brightness
+    /// over Elite's, 0 Elite's and 1 twice that (`y`); and its own colour (linear light, the
+    /// largest part 1; `y z w` of its row in [`HUD_OWN_ROWS`]), all 0 for none; then the way
+    /// that colour fades into a second one (0 none, 1 across the picture, 2 up it) and the
+    /// second colour, as the first is given (`x` and `y z w` of its row in [`HUD_FADE_ROWS`]).
+    /// A part left Elite's is all 0.
+    pub parts: [[f32; 9]; 3],
+    /// The gauges in the order of [`GAUGE_ROWS`]: how far each is taken to the spectrum, and its
+    /// own colour (linear light, its largest part 1) times how far it is taken to that.
+    pub gauges: [[f32; 4]; 6],
+    /// The holograms' own colours, the ship's and the target's (linear light, the largest part
+    /// 1; `y540 z540 w540` and `y541 z541 w541`), all 0 for Elite's.
+    pub holograms: [[f32; 3]; 2],
+}
+
+/// The rows of the gauges, as [`crate::shader_mods::GAUGES`] has them: the fuel bar, the heat,
+/// the speed, the shields, the hull, the distributor.
+const GAUGE_ROWS: [[&str; 4]; 6] = [
+    ["x533", "y533", "z533", "w533"],
+    ["x535", "y535", "z535", "w535"],
+    ["x536", "y536", "z536", "w536"],
+    ["x537", "y537", "z537", "w537"],
+    ["x538", "y538", "z538", "w538"],
+    ["x539", "y539", "z539", "w539"],
+];
+
+/// A picked colour as light (the HUD is drawn in linear light), its largest part 1: what takes
+/// it keeps the brightness Elite drew each pixel with.
+fn hud_light(colour: &str) -> [f32; 3] {
+    let (red, green, blue) = crate::theme::parse_rgb(colour).unwrap_or((255, 255, 255));
+    let light = [red, green, blue].map(|c| (f32::from(c) / 255.0).powf(2.2));
+    let most = light.iter().copied().fold(0.0, f32::max);
+    if most > 0.0 { light.map(|c| c / most) } else { [1.0; 3] }
+}
+
+/// The rows of the HUD's colour, a part of the HUD each (as [`crate::shader_mods::HUD_ROW`] and
+/// [`crate::shader_mods::HUD_COLOUR_ROWS`] have them): the panels, the head-up lines, the radar.
+const HUD_COLOUR_ROWS: [[&str; 2]; 3] = [["x534", "y534"], ["x542", "y542"], ["x543", "y543"]];
+
+/// The rows of the parts' own colours (as [`crate::shader_mods::HUD_OWN_ROW`] and
+/// [`crate::shader_mods::HUD_OWN_ROWS`] have them): the panels, the head-up lines, the radar.
+const HUD_OWN_ROWS: [[&str; 3]; 3] = [["y544", "z544", "w544"], ["y545", "z545", "w545"], ["y546", "z546", "w546"]];
+
+/// The rows of the parts' fades ([`crate::shader_mods::HUD_FADE_AFTER`] after their own
+/// colours'): the panels, the head-up lines, the radar.
+const HUD_FADE_ROWS: [[&str; 4]; 3] = [["x547", "y547", "z547", "w547"], ["x548", "y548", "z548", "w548"], ["x549", "y549", "z549", "w549"]];
+
+/// The rows of the holograms' colours, as [`crate::shader_mods::HOLOGRAMS`] has them: the
+/// ship's, the target's.
+const HOLOGRAM_ROWS: [[&str; 3]; 2] = [["y540", "z540", "w540"], ["y541", "z541", "w541"]];
+
+impl HudLook {
+    pub const NONE: HudLook = HudLook { parts: [[0.0; 9]; 3], gauges: [[0.0; 4]; 6], holograms: [[0.0; 3]; 2] };
+
+    /// What the settings ask for.
+    pub fn of(g: &GameGraphicsSettings) -> Self {
+        let mut gauges = [[0.0; 4]; 6];
+        for (row, (_, gauge)) in gauges.iter_mut().zip(g.hud_gauges.list()) {
+            *row = match gauge.look {
+                GaugeLook::Elite => [0.0; 4],
+                GaugeLook::Spectrum => [1.0, 0.0, 0.0, 0.0],
+                GaugeLook::Colour => {
+                    let light = hud_light(&gauge.colour);
+                    [0.0, light[0], light[1], light[2]]
+                }
+            };
+        }
+        let (hue, brightness) = (f32::from(g.hud_hue_shift), f32::from(g.hud_brightness) / 100.0 - 1.0);
+        let parts = g.hud_parts.list().map(|(_, part)| match part.look {
+            _ if !g.hud_colour => [0.0; 9],
+            PartLook::Elite => [0.0; 9],
+            PartLook::Turned => [hue, brightness, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            PartLook::Colour => {
+                let light = hud_light(&part.colour);
+                let (way, to) = if part.fades() { (if part.fade_way == FadeWay::Up { 2.0 } else { 1.0 }, hud_light(&part.fade_to)) } else { (0.0, [0.0; 3]) };
+                [0.0, brightness, light[0], light[1], light[2], way, to[0], to[1], to[2]]
+            }
+        });
+        let hologram = |on: bool, colour: &str| if on { hud_light(colour) } else { [0.0; 3] };
+        let holograms = [hologram(g.hud_hologram, &g.hud_hologram_colour), hologram(g.hud_target_hologram, &g.hud_target_hologram_colour)];
+        HudLook { parts, gauges, holograms }
+    }
+
+    /// The values file's lines: every row always, so a switch that goes off is written as 0.
+    pub fn assignments(&self) -> Vec<(&'static str, String)> {
+        let mut ours = Vec::new();
+        for (names, values) in GAUGE_ROWS.iter().zip(&self.gauges) {
+            ours.extend(names.iter().zip(values).map(|(name, value)| (*name, format!("{value:.3}"))));
+        }
+        for (names, part) in HUD_COLOUR_ROWS.iter().zip(&self.parts) {
+            ours.extend([(names[0], format!("{:.1}", part[0])), (names[1], format!("{:.3}", part[1]))]);
+        }
+        for (names, values) in HOLOGRAM_ROWS.iter().zip(&self.holograms) {
+            ours.extend(names.iter().zip(values).map(|(name, value)| (*name, format!("{value:.3}"))));
+        }
+        for (names, part) in HUD_OWN_ROWS.iter().zip(&self.parts) {
+            ours.extend(names.iter().zip(&part[2..5]).map(|(name, value)| (*name, format!("{value:.3}"))));
+        }
+        for (names, part) in HUD_FADE_ROWS.iter().zip(&self.parts) {
+            ours.extend(names.iter().zip(&part[5..]).map(|(name, value)| (*name, format!("{value:.3}"))));
+        }
+        ours
+    }
 }
 
 impl Look {
-    pub const NONE: Look = Look { tint: Tint::NONE, clouds: Clouds::NONE, dust: Dust::NONE, detail: Detail::NONE, star: StarLight::NONE };
+    pub const NONE: Look = Look { tint: Tint::NONE, clouds: Clouds::NONE, dust: Dust::NONE, detail: Detail::NONE, star: StarLight::NONE, hud: HudLook::NONE };
 
     /// The values file's lines for it.
     pub fn assignments(&self) -> Vec<(&'static str, String)> {
@@ -302,6 +414,7 @@ impl Look {
         ours.extend(self.dust.assignments());
         ours.extend(self.detail.assignments());
         ours.extend(self.star.assignments());
+        ours.extend(self.hud.assignments());
         ours
     }
 }
@@ -352,6 +465,7 @@ fn clouds_at(g: &GameGraphicsSettings, body: Option<&BodyScan>) -> Forecast {
     if forecast.source.is_ok() {
         let c = &mut forecast.clouds;
         c.volumetric = g.planet_clouds_volumetric;
+        c.shadows = g.planet_cloud_shadows;
         c.thickness *= look_scale(g.planet_cloud_thickness);
         c.thickness_m *= look_scale(g.planet_cloud_thickness);
         // The shader reads x508 = 0 as its own default, so 0 % asks for the least it takes instead.
@@ -411,7 +525,7 @@ fn star_at(g: &GameGraphicsSettings, near: Option<&BodyScan>, lists: &[&[BodySca
 /// and the server's), for the stars that light it.
 fn look_at(g: &GameGraphicsSettings, body: Option<&BodyScan>, near: Option<&BodyScan>, lists: &[&[BodyScan]], jump: Option<&str>) -> Look {
     let dust = dust_at(g, body);
-    Look { tint: tint_at(g, body), clouds: clouds_at(g, body).clouds, dust, detail: detail_at(g, body), star: star_at(g, near, lists, jump) }
+    Look { tint: tint_at(g, body), clouds: clouds_at(g, body).clouds, dust, detail: detail_at(g, body), star: star_at(g, near, lists, jump), hud: HudLook::of(g) }
 }
 
 /// What the GUI and the journal reader hand to the background thread. Each part is its
@@ -664,11 +778,12 @@ impl Updater {
 impl Drop for Updater {
     /// Without EDCAS running nobody would change a planet's tint, clouds, dust or ground detail
     /// at the next planet, nor the star's light (or the witch-space rainbow) at the next system,
-    /// so they go; a fixed colour stays.
+    /// so they go; a fixed colour stays, and so do the HUD's colours, a choice of the
+    /// player's that no place changes.
     fn drop(&mut self) {
         if let Some(w) = &self.written {
             let tint = if w.keep_tint_on_close { self.target.map_or(Tint::NONE, |t| t.tint) } else { Tint::NONE };
-            let reset = Look { tint, ..Look::NONE };
+            let reset = Look { tint, hud: self.target.map_or(HudLook::NONE, |t| t.hud), ..Look::NONE };
             if w.ours != reset.assignments() {
                 let text = params_text(&std::fs::read_to_string(&w.path).unwrap_or_default(), &reset);
                 let _ = write_atomically(&w.path, &text);
@@ -837,9 +952,10 @@ mod tests {
         // With clouds and a tint all eighteen are written (and the dust's x515) and x505 stays; stale x, x503, y503 don't double up.
         let tinted = Tint { strength: 0.5, colour: [1.1, 1.3, 1.6] };
         let star = StarLight { colour: [1.9, 0.8, 0.2], strength: 1.0, rainbow: false };
-        let text = params_text(existing, &Look { tint: tinted, clouds: cloudy, dust: Dust::NONE, detail: Detail::NONE, star });
+        let text = params_text(existing, &Look { tint: tinted, clouds: cloudy, dust: Dust::NONE, detail: Detail::NONE, star, hud: HudLook { gauges: [[1.0, 0.0, 0.0, 0.0], [0.0; 4], [0.0; 4], [0.0; 4], [0.0; 4], [0.0; 4]], ..HudLook::NONE } });
         let names: Vec<_> = text.lines().filter_map(|l| l.split_once(" = ")).map(|(n, _)| n).collect();
-        assert_eq!(names, ["x500", "y500", "z500", "w500", "x503", "y503", "z503", "w503", "x504", "y504", "w504", "z505", "x501", "y501", "z501", "w501", "x502", "y502", "x507", "w507", "y507", "x508", "x509", "w509", "x521", "y521", "z521", "w521", "x529", "y529", "z529", "w529", "x530", "y530", "z530", "w530", "x522", "x515", "x531", "x511", "z511", "x520", "w520", "x526", "y526", "z526", "w526", "x527", "x505", "X1"], "{text}");
+        assert_eq!(names, ["x500", "y500", "z500", "w500", "x503", "y503", "z503", "w503", "x504", "y504", "w504", "z505", "x501", "y501", "z501", "w501", "x502", "y502", "z502", "x550", "y550", "z550", "w550", "x507", "w507", "y507", "x508", "x509", "w509", "x521", "y521", "z521", "w521", "x529", "y529", "z529", "w529", "x530", "y530", "z530", "w530", "x522", "x515", "x531", "x511", "z511", "x520", "w520", "x526", "y526", "z526", "w526", "x527", "x533", "y533", "z533", "w533", "x535", "y535", "z535", "w535", "x536", "y536", "z536", "w536", "x537", "y537", "z537", "w537", "x538", "y538", "z538", "w538", "x539", "y539", "z539", "w539", "x534", "y534", "x542", "y542", "x543", "y543", "y540", "z540", "w540", "y541", "z541", "w541", "y544", "z544", "w544", "y545", "z545", "w545", "y546", "z546", "w546", "x547", "y547", "z547", "w547", "x548", "y548", "z548", "w548", "x549", "y549", "z549", "w549", "x505", "X1"], "{text}");
+        assert!(text.contains("x533 = 1.000\n"), "the fuel bar in the spectrum: {text}");
         assert!(text.contains("x505 = 0.35\n") && text.contains("y503 = 8.000\n"), "{text}");
 
         // Without clouds only x503 and x507 are ours: the old look of the clouds (y503) is kept, the fog goes.
@@ -1049,6 +1165,105 @@ mod tests {
         drop(updater);
         assert!(value(&read(), "w526") == 0.0 && value(&read(), "x527") == 0.0, "the next system's light is not EDCAS's to know: {}", read());
         std::fs::remove_dir_all(&game).unwrap();
+    }
+
+    #[test]
+    fn the_huds_colours_follow_their_settings_and_stay_when_edcas_closes() {
+        use crate::settings::game_graphics::GaugeLook;
+        let game = game_folder("ground-tint-hud");
+        let mut settings = test_settings();
+        settings.game_graphics.game_folder = game.display().to_string();
+        let read = || std::fs::read_to_string(game.join(PARAMS_FILE)).unwrap();
+
+        // Off by default: every row of the HUD is 0, Elite's colours.
+        let feed = Feed::new(&settings);
+        let mut updater = Updater::default();
+        tick(&feed, &mut updater);
+        for name in HUD_COLOUR_ROWS.iter().flatten().chain(GAUGE_ROWS.iter().flatten()).chain(HOLOGRAM_ROWS.iter().flatten()).chain(HUD_OWN_ROWS.iter().flatten()).chain(HUD_FADE_ROWS.iter().flatten()) {
+            assert_eq!(value(&read(), name), 0.0, "{name}: {}", read());
+        }
+        // On with the settings, wherever the ship is: the fuel bar's spectrum, the hue's turn in
+        // degrees and the brightness over Elite's, a gauge to the spectrum, a gauge to a colour
+        // (as light, its largest part 1).
+        let g = &mut settings.game_graphics;
+        (g.hud_gauges.fuel.look, g.hud_colour, g.hud_hue_shift, g.hud_brightness) = (GaugeLook::Spectrum, true, 180, 150);
+        g.hud_gauges.speed.look = GaugeLook::Spectrum;
+        g.hud_gauges.heat = crate::settings::game_graphics::GaugeSetting { look: GaugeLook::Colour, colour: "#ff8000".to_string() };
+        (g.hud_hologram, g.hud_hologram_colour) = (true, "#0080ff".to_string());
+        (g.hud_target_hologram, g.hud_target_hologram_colour) = (true, "#ff0000".to_string());
+        feed.set_settings(&settings);
+        tick(&feed, &mut updater);
+        let now = |name: &str| value(&read(), name);
+        assert_eq!((now("x533"), now("x534"), now("y534")), (1.0, 180.0, 0.5), "{}", read());
+        assert_eq!((now("x542"), now("y542"), now("x543"), now("y543")), (180.0, 0.5, 180.0, 0.5), "every part takes the colour by default: {}", read());
+        // A part of the HUD switched off keeps Elite's colours, the others stay turned.
+        settings.game_graphics.hud_parts.panels.look = PartLook::Elite;
+        feed.set_settings(&settings);
+        tick(&feed, &mut updater);
+        assert_eq!((now("x534"), now("y534"), now("x542"), now("x543")), (0.0, 0.0, 180.0, 180.0), "the panels left Elite's: {}", read());
+        // A part in one colour of its own: not turned, as bright as the setting says, and its
+        // colour as light in its own row; the other parts' own rows stay 0.
+        settings.game_graphics.hud_parts.panels.look = PartLook::Turned;
+        settings.game_graphics.hud_parts.radar = crate::settings::game_graphics::PartSetting { look: PartLook::Colour, colour: "#00ff00".to_string(), ..Default::default() };
+        feed.set_settings(&settings);
+        tick(&feed, &mut updater);
+        assert_eq!((now("x534"), now("x542"), now("x543"), now("y543")), (180.0, 180.0, 0.0, 0.5), "the radar is not turned: {}", read());
+        assert_eq!((now("y546"), now("z546"), now("w546"), now("z544"), now("z545")), (0.0, 1.0, 0.0, 0.0, 0.0), "the radar's own colour: {}", read());
+        assert_eq!((now("x549"), now("z549"), now("x547")), (0.0, 0.0, 0.0), "one colour alone does not fade: {}", read());
+        // A second colour: the radar's fades into it across the picture, or up it; the other
+        // parts' fades stay 0, and so does the radar's once its look is another.
+        settings.game_graphics.hud_parts.radar.fade_to = "#0000ff".to_string();
+        feed.set_settings(&settings);
+        tick(&feed, &mut updater);
+        assert_eq!((now("x549"), now("y549"), now("z549"), now("w549"), now("x547"), now("x548")), (1.0, 0.0, 0.0, 1.0, 0.0, 0.0), "the radar fades to blue: {}", read());
+        assert_eq!((now("y546"), now("z546"), now("w546")), (0.0, 1.0, 0.0), "from its own colour: {}", read());
+        settings.game_graphics.hud_parts.radar.fade_way = FadeWay::Up;
+        feed.set_settings(&settings);
+        tick(&feed, &mut updater);
+        assert_eq!(now("x549"), 2.0, "up the picture: {}", read());
+        settings.game_graphics.hud_parts.radar.look = PartLook::Turned;
+        feed.set_settings(&settings);
+        tick(&feed, &mut updater);
+        assert_eq!((now("x549"), now("w549"), now("z546")), (0.0, 0.0, 0.0), "a turned part does not fade: {}", read());
+        assert_eq!((now("x536"), now("y536"), now("z536"), now("w536")), (1.0, 0.0, 0.0, 0.0), "the speed: {}", read());
+        assert_eq!((now("x535"), now("y535"), now("w535")), (0.0, 1.0, 0.0), "the heat: {}", read());
+        assert!((now("z535") - (128.0f32 / 255.0).powf(2.2)).abs() < 0.001, "the heat's green as light: {}", read());
+        assert_eq!(now("x537"), 0.0, "the shields stay Elite's: {}", read());
+        // The fuel bar is a gauge like the others: a colour of its own in place of the spectrum.
+        assert_eq!((now("y533"), now("z533"), now("w533")), (0.0, 0.0, 0.0), "the fuel bar in the spectrum has no colour: {}", read());
+        settings.game_graphics.hud_gauges.fuel = crate::settings::game_graphics::GaugeSetting { look: GaugeLook::Colour, colour: "#00ff00".to_string() };
+        feed.set_settings(&settings);
+        tick(&feed, &mut updater);
+        assert_eq!((now("x533"), now("y533"), now("z533"), now("w533")), (0.0, 0.0, 1.0, 0.0), "the fuel bar's own colour: {}", read());
+        settings.game_graphics.hud_gauges.fuel.look = GaugeLook::Spectrum;
+        feed.set_settings(&settings);
+        tick(&feed, &mut updater);
+        assert_eq!((now("y540"), now("w540")), (0.0, 1.0), "the hologram: {}", read());
+        assert!((now("z540") - (128.0f32 / 255.0).powf(2.2)).abs() < 0.001, "the hologram's green as light: {}", read());
+        assert_eq!((now("y541"), now("z541"), now("w541")), (1.0, 0.0, 0.0), "the target's hologram: {}", read());
+        // The hue and the brightness count only with the HUD's colour switched on.
+        settings.game_graphics.hud_colour = false;
+        feed.set_settings(&settings);
+        tick(&feed, &mut updater);
+        assert_eq!((now("x534"), now("y534"), now("x542"), now("x543"), now("z546")), (0.0, 0.0, 0.0, 0.0, 0.0), "{}", read());
+        // They are the player's choice, not a place's look: they stay with EDCAS closed.
+        drop(updater);
+        assert_eq!((now("x533"), now("x536"), now("y535"), now("w540")), (1.0, 1.0, 1.0, 1.0), "{}", read());
+        // A hologram's switch off: Elite's again, and the other one keeps its colour.
+        settings.game_graphics.hud_hologram = false;
+        assert_eq!(HudLook::of(&settings.game_graphics).holograms, [[0.0; 3], [1.0, 0.0, 0.0]]);
+        std::fs::remove_dir_all(&game).unwrap();
+    }
+
+    #[test]
+    fn the_gauges_rows_are_the_shaders() {
+        let rows: Vec<String> = crate::shader_mods::GAUGES.iter().map(|g| format!("{} x{}", g.name, g.row)).collect();
+        let ours: Vec<String> = GameGraphicsSettings::default().hud_gauges.list().iter().zip(GAUGE_ROWS).map(|((name, _), row)| format!("{name} {}", row[0])).collect();
+        assert_eq!(rows, ours);
+        assert_eq!(crate::shader_mods::HUD_ROW, 534);
+        for (names, hologram) in HOLOGRAM_ROWS.iter().zip(&crate::shader_mods::HOLOGRAMS) {
+            assert_eq!(names.map(str::to_string), ["y", "z", "w"].map(|part| format!("{part}{}", hologram.row)), "{}", hologram.name);
+        }
     }
 
     #[test]

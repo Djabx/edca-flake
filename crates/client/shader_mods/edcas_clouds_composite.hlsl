@@ -24,7 +24,9 @@ Texture1D<float4> IniParams : register(t120);
 // The depth at a point of the picture, as edcas_clouds.hlsl reads it.
 float depthAt(float2 uv, bool alt, float2 size)
 {
-	int3 pixel = int3(min(uv * size, size - 1), 0);
+	// A quarter of a pixel on, as viewRay: a texel's middle lies on the line between two of the depth's
+	// pixels, and this has to take the one the cloud pass took.
+	int3 pixel = int3(min(uv * size + 0.25, size - 1), 0);
 	// Held below infinity, should the sky be stored as that: inf - inf would poison the weights.
 	return min(alt ? DepthAlt.Load(pixel).x : Depth.Load(pixel).x, 1e30);
 }

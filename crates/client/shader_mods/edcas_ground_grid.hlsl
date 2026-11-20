@@ -7,6 +7,9 @@
 // z (client 0.43.176): how far off it is, metres, where it is terrain at any distance (the depth
 // buffer's as far as the terrain mask's, as edcas_dust.hlsl tells ground from a hull), else 0:
 // edcas_ground_ref.hlsl keeps the level of the nearest, the ground the camera is over, for the dust.
+// w (client 0.43.216): 1 + the sun's share on it by Elite's shadow (sunShade, edcas_clouds.hlsl), so 1 in
+// shadow and 2 in the sun, or 0 where that is not to be had: edcas_ground_ref.hlsl keeps its mean over
+// the terrain round the camera, for the fog's light (edcas_fog.hlsl).
 
 // How far out ground still gives a level where none is nearer: the fog and the dust's far drift are
 // gone by 15 km.
@@ -45,5 +48,5 @@ void main(float3 v0 : TEXCOORD0, float3 v1 : TEXCOORD1, float3 v2 : TEXCOORD2, f
 	float mask = TerrainDist.Load(int3(pixel, 0));
 	float terrain = mask > 0 && abs(mask - metres) < 0.2 + 0.02 * metres ? metres : 0;
 	float kind = metres < 300 || metres > GROUND_FAR_M ? 0 : metres <= 3000 ? 1 : 0.25;
-	o0 = float4((length(cb1[3].xyz + dir * ground) - rPlanet) / (1 - rPlanet), kind, terrain, 0);
+	o0 = float4((length(cb1[3].xyz + dir * ground) - rPlanet) / (1 - rPlanet), kind, terrain, 1 + sunShade(pixel));
 }

@@ -573,7 +573,7 @@ impl ExplorerView {
                 ui.add_space(8.0);
             });
             let max = (out.content_size.y - out.inner_rect.height()).max(0.0);
-            out.state.offset.y.clamp(0.0, max)
+            out.state.clamped_offset().y.clamp(0.0, max)
         });
         let line = (offset / DETAIL_STEP).round() as usize;
         self.detail_scroll = line;
@@ -743,7 +743,7 @@ impl ExplorerView {
                 widgets::section(ui, "Signals", Some(sigs.len()));
                 for sig in sigs {
                     let (glyph, col) = body_signal_icon(sig, settings);
-                    let col = theme::from_ratatui(col);
+                    let col = theme::hud_color(col);
                     let name_col = if sig.is_biological() {
                         GREEN
                     } else if sig.is_geological() {
@@ -919,7 +919,7 @@ impl ExplorerView {
         let p = ui.painter();
         let cy = r.center().y;
         if indent == 0.0 {
-            txt(p, pos2(r.left() + 12.0, cy), Align2::CENTER_CENTER, &glyph, theme::body(15.0), theme::from_ratatui(icon_col), 0.0);
+            txt(p, pos2(r.left() + 12.0, cy), Align2::CENTER_CENTER, &glyph, theme::body(15.0), theme::hud_color(icon_col), 0.0);
         }
         let mut x = r.right();
         let mut hover = vec![if bio { "Biological" } else { "Geological" }.to_string()];
@@ -1174,7 +1174,7 @@ fn faction_card(ui: &mut Ui, f: &FactionInfo, controlling: bool, selected: bool,
     ui.add_space(4.0);
 
     let rect = Rect::from_min_max(top, pos2(top.x + w, ui.cursor().min.y));
-    let resp = ui.interact(rect, ui.id().with(("faction", &f.name)), Sense::click());
+    let resp = ui.interact(rect, ui.scope_id().with(("faction", &f.name)), Sense::click());
     let acc = accent();
     let shape = if selected {
         Shape::Vec(vec![
@@ -1344,12 +1344,12 @@ fn tree_row(ui: &mut Ui, node: &FlatNode, sel: bool, first: bool, valuable: bool
         }
         NodeType::Signal(sig) => {
             let (glyph, col) = signal_icon(sig, settings);
-            txt(p, c, Align2::CENTER_CENTER, &glyph, theme::body(14.0), on(theme::from_ratatui(col)), 0.0);
+            txt(p, c, Align2::CENTER_CENTER, &glyph, theme::body(14.0), on(theme::hud_color(col)), 0.0);
             ("", TEXT, theme::body(15.0))
         }
         NodeType::BodySignal(sig) => {
             let (glyph, col) = body_signal_icon(sig, settings);
-            let col = theme::from_ratatui(col);
+            let col = theme::hud_color(col);
             txt(p, c, Align2::CENTER_CENTER, &glyph, theme::body(14.0), on(col), 0.0);
             ("", mix(col, TEXT, 0.5), theme::body(15.0))
         }
@@ -1477,7 +1477,7 @@ fn row_tooltip(ui: &mut Ui, node: &FlatNode, system: &str, has_kids: bool, first
 /// colour the settings give it, and returns that colour.
 fn paint_body_icon(p: &Painter, c: Pos2, node: &FlatNode, settings: &Settings, sel: bool) -> Color32 {
     let style = node_style(node, settings);
-    let col = style.fg.map(theme::from_ratatui).unwrap_or(TEXT);
+    let col = style.fg.map(theme::hud_color).unwrap_or(TEXT);
     // The ring stays within RING_REACH of the centre, clear of the expander to its left.
     let ring = |r: f32| {
         if node.has_rings {
@@ -1641,7 +1641,7 @@ fn signal_detail(ui: &mut Ui, sig: &DiscoveredSignal, settings: &Settings) {
         badges.push(("Station".to_string(), CYAN));
     }
     let subtitle = sig.signal_type.as_deref().map(words).unwrap_or_default();
-    detail_header(ui, "Signal source", &sig.display_name, &subtitle, &badges, Some((glyph, theme::from_ratatui(col))));
+    detail_header(ui, "Signal source", &sig.display_name, &subtitle, &badges, Some((glyph, theme::hud_color(col))));
     if let Some(uss) = &sig.uss_type {
         widgets::section(ui, "USS", None);
         kv_row(ui, 110.0, "Type", uss, "", TEXT);
@@ -1719,7 +1719,7 @@ fn bar_row(ui: &mut Ui, name: &str, percent: f64, scale: f64, col: Color32, inv:
 /// A ring class's colour from the icon settings (cyan when unset).
 fn ring_colour(ring_class: &str, settings: &Settings) -> Color32 {
     settings.icons.get(ring_class).filter(|i| i.enabled)
-        .map(|i| theme::from_ratatui(parse_color(&i.color)))
+        .map(|i| theme::hud_color(parse_color(&i.color)))
         .unwrap_or(CYAN)
 }
 

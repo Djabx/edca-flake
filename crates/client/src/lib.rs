@@ -23,6 +23,7 @@ pub mod planet_dust;
 pub mod settings;
 pub mod shader_mods;
 pub mod star_light;
+pub mod text;
 pub mod theme;
 pub mod todo;
 pub mod tts;

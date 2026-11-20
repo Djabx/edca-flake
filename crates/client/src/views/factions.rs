@@ -2,7 +2,7 @@ mod gui;
 
 use crate::event_shim::{KeyCode, KeyEvent};
 use edcas_common::api::{FactionQuery, FactionResponse, InfluencePoint};
-use ratatui::style::Color;
+use crate::text::Color;
 use std::cmp::Ordering;
 use std::collections::HashSet;
 

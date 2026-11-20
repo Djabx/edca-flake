@@ -270,7 +270,7 @@ fn suit_card(ui: &mut Ui, suit: &SuitData) -> egui::Response {
 /// is measured each frame and remembered, so the card settles on its content's size (one
 /// extra frame is requested whenever it changes).
 pub(in crate::views) fn card<R>(ui: &mut Ui, salt: &str, title: &str, right: &str, add: impl FnOnce(&mut Ui) -> R) -> R {
-    let id = ui.id().with(("card", salt));
+    let id = ui.scope_id().with(("card", salt));
     let h: f32 = ui.data(|d| d.get_temp(id)).unwrap_or(120.0);
     let rect = Rect::from_min_size(ui.cursor().min, vec2(ui.available_width(), h));
     let (r, used) = widgets::hud_panel_at(ui, rect, title, right, |ui| {
@@ -399,11 +399,11 @@ pub(in crate::views) fn key_scroll<R>(
     line_h: f32,
     show: impl FnOnce(&mut Ui, Option<f32>) -> egui::scroll_area::ScrollAreaOutput<R>,
 ) -> usize {
-    let id = ui.id().with(("key-scroll", salt));
+    let id = ui.scope_id().with(("key-scroll", salt));
     let (prev_lines, prev_off): (usize, f32) = ui.data(|d| d.get_temp(id)).unwrap_or((usize::MAX, 0.0));
     let keyed = *lines != prev_lines;
     let out = show(ui, keyed.then_some(*lines as f32 * line_h));
-    let off = out.state.offset.y;
+    let off = out.state.clamped_offset().y;
     if !keyed && (off - prev_off).abs() > 0.5 {
         *lines = (off / line_h).round() as usize;
     }

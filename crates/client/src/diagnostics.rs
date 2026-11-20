@@ -490,6 +490,12 @@ fn system_text(inputs: &Inputs, ini: Option<&str>, crashes: &str, notes: &[Strin
         Some(dir) => {
             let _ = writeln!(s, "game folder used: {} ({})", dir.display(), if dir.is_dir() { "exists" } else { "does not exist" });
             let _ = writeln!(s, "shader mods here: {:?} (this client is {})", shader_mods::status(dir, shader_mods::VERSION), shader_mods::VERSION);
+            let _ = writeln!(s, "copies of the HUD's colour shaders (two panel shaders, head-up lines, radar disc, radar rings): {:?}; of the two panel shaders alone: {:?}", shader_mods::hud_state(dir, shader_mods::HudWanted::COLOUR), shader_mods::hud_state(dir, shader_mods::HudWanted::GAUGES));
+            for (i, hologram) in shader_mods::HOLOGRAMS.iter().enumerate() {
+                let mut want = shader_mods::HudWanted::NOTHING;
+                want.holograms[i] = true;
+                let _ = writeln!(s, "copy of the {}'s hologram's shader: {:?}", hologram.name, shader_mods::hud_state(dir, want));
+            }
             let _ = writeln!(s, "3DMigoto here: {}", shader_mods::dll_report(dir));
             let _ = writeln!(s, "{}", d3d11_log_age(dir, ini));
             let damage = shader_mods::damage(dir);
@@ -587,7 +593,7 @@ mod tests {
 
     fn entry_names(zip: &Path) -> Vec<String> {
         let mut archive = zip::ZipArchive::new(File::open(zip).unwrap()).unwrap();
-        (0..archive.len()).map(|i| archive.by_index(i).unwrap().name().to_string()).collect()
+        (0..archive.len()).map(|i| archive.by_index(i).unwrap().name().unwrap().to_string()).collect()
     }
 
     fn entry_text(zip: &Path, name: &str) -> String {

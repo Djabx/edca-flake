@@ -1,6 +1,6 @@
 [package]
 name = "edcas-client"
-version = "0.43.186"
+version = "0.43.245"
 edition = "2021"
 rust-version = "1.95"
 readme = "../../README.md"
@@ -43,20 +43,20 @@ chrono = "0.4.42"
 tracing = "0.1"
 anyhow = "1.0"
 
-# Text styling types (Line, Span, Style) the views build and the window draws as egui text.
-ratatui    = { version = "0.29", default-features = false }
 # Desktop GUI. OpenGL (glow) only: wgpu would reserve ~200 MB of VRAM next to the game.
-eframe     = { version = "0.36", default-features = false, features = ["glow", "default_fonts", "x11", "wayland"] }
-egui_extras = { version = "0.36", default-features = false }
+eframe     = { version = "0.37", default-features = false, features = ["glow", "default_fonts", "x11", "wayland"] }
+egui_extras = { version = "0.37", default-features = false }
 tokio      = { version = "1.47.1", features = ["full"] }
-reqwest    = { version = "0.12.23", features = ["blocking", "json", "gzip"] }
-opener     = "0.7.2"
+# As with 0.12's defaults: the system's TLS (0.13's own default is rustls with aws-lc-rs, more to cross-build for
+# Windows) and no ALPN, so HTTP/1.1 to the API as before ("native-tls" alone would switch it to HTTP/2).
+reqwest    = { version = "0.13", default-features = false, features = ["native-tls-no-alpn", "charset", "http2", "system-proxy", "blocking", "json", "gzip", "query"] }
+opener     = "0.9"
 # Reads the game's graphics override file (game_graphics.rs).
-roxmltree  = "0.20"
+roxmltree  = "0.21"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender   = "0.2"
 arboard    = "3"
 # Shader mods (shader_mods.rs): the 3DMigoto download is checked against its SHA-256 and unpacked.
-sha2       = "0.10"
-zip        = { version = "2", default-features = false, features = ["deflate"] }
+sha2       = "0.11"
+zip        = { version = "9", default-features = false, features = ["deflate"] }
 tts        = "0.26"

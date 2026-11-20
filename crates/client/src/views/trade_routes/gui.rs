@@ -5,7 +5,10 @@
 use eframe::egui::{self, pos2, vec2, Align, Color32, Layout, Painter, Rect, RichText, Sense, Shape, Stroke, Ui};
 use egui_extras::{Column, TableBuilder};
 
-use super::{format_num, pad_str, FocusArea, RouteType, TradeRoutesView, SUPERPOWER_OPTIONS, TYPE_OPTIONS};
+use super::{
+    field, format_num, pad_str, FocusArea, RouteType, TradeRoutesView, AGE_OPTIONS, ARRIVAL_OPTIONS, INCLUDE_OPTIONS, PAD_OPTIONS,
+    SUPERPOWER_OPTIONS, TYPE_OPTIONS,
+};
 use crate::api_client::ApiClient;
 use crate::event_shim::{KeyCode, KeyEvent};
 use crate::gui::theme::{self, accent, accent_dim, accent_hi, BG, GREY, TEXT, TEXT_DIM};
@@ -14,18 +17,32 @@ use crate::journal_reader::JournalData;
 use crate::views::util::fmt_ts;
 use crate::views::ViewEvent;
 
-const FILTER_HEIGHT: f32 = 86.0;
+const FILTER_HEIGHT: f32 = 146.0;
 const ROW_HEIGHT: f32 = 38.0;
 /// Profit column: the widest figure plus room for the scroll bar.
 const PROFIT_W: f32 = 112.0;
+const AGE_W: f32 = 46.0;
 
 impl TradeRoutesView {
     pub fn ui(&mut self, ui: &mut Ui, api: &ApiClient, journal: &JournalData) -> ViewEvent {
         let mut event = ViewEvent::None;
+        self.tick(api, journal);
+        if self.search_due.is_some() || self.loading() {
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(100));
+        }
 
         let filter_rect = Rect::from_min_size(ui.available_rect_before_wrap().min, vec2(ui.available_width(), FILTER_HEIGHT));
-        let hint = if self.focus == FocusArea::Filter { "w/s field · ←/→ change" } else { "Pre-computed · 500 Ly · Large pad · 15 min refresh" };
-        widgets::hud_panel_at(ui, filter_rect, "Filters", hint, |ui| self.filter_bar(ui, api, journal));
+        let hint = if self.focus == FocusArea::Filter {
+            "w/s field · ←/→ change".to_string()
+        } else if self.near.trim().is_empty() {
+            "No location yet · pre-computed bubble-wide lists".to_string()
+        } else {
+            match &self.searched {
+                Some((c, r, n, capped)) => format!("Near {c} · {r:.0} Ly{} · {} stations", if *capped { " (nearest)" } else { "" }, format_num(*n as i32)),
+                None => format!("Near {}", self.near.trim()),
+            }
+        };
+        widgets::hud_panel_at(ui, filter_rect, "Filters", &hint, |ui| self.filter_bar(ui, api, journal));
         if self.focus == FocusArea::Filter {
             focus_frame(ui.painter(), filter_rect);
         }
@@ -57,12 +74,14 @@ impl TradeRoutesView {
         event
     }
 
-    /// Type, superpower and minimum supply/demand, each editable by mouse, plus refresh.
+    /// Two rows of filters. The first row picks where to search, the second what counts.
+    /// Everything except Type and Superpower runs a new server search.
     fn filter_bar(&mut self, ui: &mut Ui, api: &ApiClient, journal: &JournalData) {
+        ui.spacing_mut().item_spacing.y = 8.0;
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 22.0;
 
-            self.filter_field_ui(ui, 0, "Type", |s, ui| {
+            self.filter_field_ui(ui, field::TYPE, "Type", |s, ui| {
                 let labels = [
                     format!("{}  {}", TYPE_OPTIONS[0], s.filtered_routes().len()),
                     format!("{}  {}", TYPE_OPTIONS[1], s.filtered_loops().len()),
@@ -80,7 +99,52 @@ impl TradeRoutesView {
                 }
             });
 
-            self.filter_field_ui(ui, 1, "Superpower", |s, ui| {
+            self.filter_field_ui(ui, field::NEAR, "Near system", |s, ui| {
+                let mut used = false;
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 4.0;
+                    let resp = widgets::text_field(ui, &mut s.near, "Current system", 210.0)
+                        .on_hover_text("Search around this system. Takes over your location when you open the tab, until you type another one.");
+                    if resp.changed() {
+                        s.near_typed = true;
+                        s.schedule_search();
+                        used = true;
+                    }
+                    if widgets::submitted(ui, &resp) {
+                        s.fetch_all(api, journal);
+                        used = true;
+                    }
+                    let here = journal.current_system.as_ref().map(|c| c.name.as_str()).unwrap_or_default();
+                    if widgets::hud_button_enabled(ui, "Here", !here.is_empty() && (s.near_typed || s.near != here))
+                        .on_hover_text("Search around your current system (lights up after you jump)")
+                        .clicked()
+                    {
+                        s.near_typed = false;
+                        s.follow_location(journal);
+                        s.schedule_search();
+                        used = true;
+                    }
+                });
+                used
+            });
+
+            self.filter_field_ui(ui, field::RADIUS, "Radius", |s, ui| {
+                let label = format!("{:.0} Ly", s.radius);
+                s.stepper(ui, field::RADIUS, &label, s.radius > super::MIN_RADIUS, s.radius < super::MAX_RADIUS, "10 Ly", api, journal)
+            });
+
+            self.filter_field_ui(ui, field::PAD, "Pad", |s, ui| match widgets::tab_strip(ui, PAD_OPTIONS, s.pad_idx) {
+                Some(i) => {
+                    if i != s.pad_idx {
+                        s.pad_idx = i;
+                        s.search_filter_changed();
+                    }
+                    true
+                }
+                None => false,
+            });
+
+            self.filter_field_ui(ui, field::SUPERPOWER, "Superpower", |s, ui| {
                 let mut touched = false;
                 egui::ComboBox::from_id_salt("trade-superpower")
                     .selected_text(RichText::new(SUPERPOWER_OPTIONS[s.superpower_idx]).font(theme::body_semi(15.0)).color(TEXT))
@@ -101,39 +165,104 @@ impl TradeRoutesView {
                 touched
             });
 
-            for (idx, label, value) in [(2, "Min supply", self.min_supply), (3, "Min demand", self.min_demand)] {
-                self.filter_field_ui(ui, idx, label, |s, ui| {
-                    let mut step = None;
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = 4.0;
-                        if step_button(ui, "−", value > 0).on_hover_text("−1,000  (←)").clicked() {
-                            step = Some(KeyCode::Left);
-                        }
-                        let (r, _) = ui.allocate_exact_size(vec2(72.0, 24.0), Sense::hover());
-                        ui.painter().rect_filled(r, 0.0, ui.visuals().extreme_bg_color);
-                        widgets::txt(ui.painter(), r.center(), egui::Align2::CENTER_CENTER, &format_num(value), theme::body_semi(16.0), TEXT, 0.0);
-                        if step_button(ui, "+", true).on_hover_text("+1,000  (→)").clicked() {
-                            step = Some(KeyCode::Right);
-                        }
-                    });
-                    if let Some(code) = step {
-                        s.focus = FocusArea::Filter;
-                        s.filter_field = idx;
-                        s.handle_key(&KeyEvent::from(code), api, journal);
-                        true
-                    } else {
-                        false
-                    }
-                });
-            }
-
             ui.with_layout(Layout::right_to_left(Align::Max), |ui| {
-                let loading = self.route_rx.is_some() || self.loop_rx.is_some();
-                if widgets::hud_button_enabled(ui, "Refresh", !loading).on_hover_text("Fetch the latest pre-computed routes and loops  (r)").clicked() {
-                    self.fetch_all(api);
+                if widgets::hud_button_enabled(ui, "Refresh", !self.loading()).on_hover_text("Search again  (r)").clicked() {
+                    self.fetch_all(api, journal);
                 }
             });
         });
+
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 22.0;
+            for (idx, label, value) in [(field::MIN_SUPPLY, "Min supply", self.min_supply), (field::MIN_DEMAND, "Min demand", self.min_demand)] {
+                self.filter_field_ui(ui, idx, label, |s, ui| s.stepper(ui, idx, &format_num(value), value > 0, true, "1,000", api, journal));
+            }
+
+            self.filter_field_ui(ui, field::MAX_AGE, "Prices newer than", |s, ui| {
+                let labels: Vec<&str> = AGE_OPTIONS.iter().map(|o| o.1).collect();
+                s.option_combo(ui, "trade-age", &labels, field::MAX_AGE, "Skip prices older than this (fleet carriers: 7 days at most)")
+            });
+
+            self.filter_field_ui(ui, field::ARRIVAL, "Max arrival", |s, ui| {
+                let labels: Vec<&str> = ARRIVAL_OPTIONS.iter().map(|o| o.1).collect();
+                s.option_combo(ui, "trade-arrival", &labels, field::ARRIVAL, "Skip stations farther than this from the arrival star, and those of unknown distance (fleet carriers)")
+            });
+
+            for (idx, label, on, tip) in [
+                (field::PLANETARY, "Planetary", self.include_planetary, "Ports and outposts on planets"),
+                (field::SETTLEMENTS, "Settlements", self.include_settlements, "Odyssey settlements"),
+                (field::CARRIERS, "Fleet carriers", self.include_carriers, "Carrier routes are mostly carriers with trap prices that only let their own squadron dock"),
+            ] {
+                self.filter_field_ui(ui, idx, label, |s, ui| {
+                    let resp = ui.scope(|ui| widgets::tab_strip(ui, INCLUDE_OPTIONS, on as usize));
+                    resp.response.on_hover_text(tip);
+                    match resp.inner {
+                        Some(i) => {
+                            s.set_toggle(idx, i == 1, api, journal);
+                            true
+                        }
+                        None => false,
+                    }
+                });
+            }
+        });
+    }
+
+    /// A −/+ stepper around `label` for filter `idx`. Returns whether the mouse used it.
+    #[allow(clippy::too_many_arguments)]
+    fn stepper(&mut self, ui: &mut Ui, idx: usize, label: &str, can_dec: bool, can_inc: bool, step: &str, api: &ApiClient, journal: &JournalData) -> bool {
+        let mut forward = None;
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 4.0;
+            if step_button(ui, "−", can_dec).on_hover_text(format!("−{step}  (←)")).clicked() {
+                forward = Some(false);
+            }
+            let (r, _) = ui.allocate_exact_size(vec2(72.0, 24.0), Sense::hover());
+            ui.painter().rect_filled(r, 0.0, ui.visuals().extreme_bg_color);
+            widgets::txt(ui.painter(), r.center(), egui::Align2::CENTER_CENTER, label, theme::body_semi(16.0), TEXT, 0.0);
+            if step_button(ui, "+", can_inc).on_hover_text(format!("+{step}  (→)")).clicked() {
+                forward = Some(true);
+            }
+        });
+        match forward {
+            Some(f) => {
+                self.step_filter(idx, f, api, journal);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// A drop-down over an option list for filter `idx` (Max age or Max arrival).
+    fn option_combo(&mut self, ui: &mut Ui, salt: &str, labels: &[&str], idx: usize, tip: &str) -> bool {
+        let current = if idx == field::MAX_AGE { self.age_idx } else { self.arrival_idx };
+        let mut picked = None;
+        egui::ComboBox::from_id_salt(salt)
+            .selected_text(RichText::new(labels[current]).font(theme::body_semi(15.0)).color(TEXT))
+            .width(96.0)
+            .show_ui(ui, |ui| {
+                for (i, l) in labels.iter().enumerate() {
+                    if ui.selectable_label(i == current, *l).clicked() {
+                        picked = Some(i);
+                    }
+                }
+            })
+            .response
+            .on_hover_text(tip);
+        match picked {
+            Some(i) => {
+                if i != current {
+                    if idx == field::MAX_AGE {
+                        self.age_idx = i;
+                    } else {
+                        self.arrival_idx = i;
+                    }
+                    self.search_filter_changed();
+                }
+                true
+            }
+            None => false,
+        }
     }
 
     /// One filter: caption over its control, outlined while the keyboard cursor is on it.
@@ -160,24 +289,28 @@ impl TradeRoutesView {
     /// The filtered routes or loops as a table, with the status line below. Returns whether
     /// the panel's empty space was clicked.
     fn list(&mut self, ui: &mut Ui, api: &ApiClient, journal: &JournalData, event: &mut ViewEvent) -> bool {
-        let loading = self.route_rx.is_some() || self.loop_rx.is_some();
+        let loading = self.loading();
         let count = self.current_count();
         let full = ui.available_rect_before_wrap();
         let status_h = 22.0;
         let table_rect = Rect::from_min_max(full.min, pos2(full.right(), full.bottom() - status_h - 4.0));
         let status_rect = Rect::from_min_max(pos2(full.left(), full.bottom() - status_h), full.max);
 
-        let bg = ui.interact(table_rect, ui.id().with("trade-list-bg"), Sense::click());
+        let bg = ui.interact(table_rect, ui.scope_id().with("trade-list-bg"), Sense::click());
         let mut table_ui = ui.new_child(egui::UiBuilder::new().max_rect(table_rect).layout(Layout::top_down(Align::Min)));
         if count == 0 {
             if loading && self.routes.is_empty() && self.loops.is_empty() {
                 table_ui.add_space(24.0);
                 table_ui.vertical_centered(|ui| {
                     ui.add(egui::Spinner::new().size(22.0).color(accent()));
-                    widgets::hint(ui, "Loading pre-computed trade data…");
+                    widgets::hint(ui, "Loading trade data…");
                 });
-            } else if self.routes.is_empty() && self.loops.is_empty() {
+            } else if let Some(e) = self.search_error.as_deref().filter(|_| self.routes.is_empty() && self.loops.is_empty()) {
+                widgets::empty_state(&mut table_ui, &format!("The search failed: {e}."));
+            } else if self.routes.is_empty() && self.loops.is_empty() && self.near.trim().is_empty() {
                 widgets::empty_state(&mut table_ui, "No data yet — the server cache may still be computing. Refresh (r) in a minute.");
+            } else if self.routes.is_empty() && self.loops.is_empty() {
+                widgets::empty_state(&mut table_ui, "No routes here with these filters — widen the radius, allow older prices or include more station types.");
             } else {
                 widgets::empty_state(&mut table_ui, "Nothing matches these filters — lower Min supply / Min demand or pick another superpower.");
             }
@@ -195,7 +328,7 @@ impl TradeRoutesView {
         }
         // The status line also carries terminal key hints after a `|`; the status bar has those.
         let msg = self.status_msg.split('|').next().unwrap_or_default().trim();
-        let col = crate::views::util::status_style(msg).fg.map(theme::from_ratatui).unwrap_or(TEXT_DIM);
+        let col = crate::views::util::status_style(msg).fg.map(theme::hud_color).unwrap_or(TEXT_DIM);
         let col = if col == GREY { TEXT_DIM } else { col };
         status_ui.add(egui::Label::new(RichText::new(msg).font(theme::body(14.5)).color(col)).truncate());
         bg.clicked()
@@ -207,10 +340,11 @@ impl TradeRoutesView {
             .into_iter()
             .map(|r| RouteRow {
                 commodity: title_case(&r.commodity),
-                from: (r.from_station_name.clone(), r.from_system_name.clone()),
-                to: (r.to_station_name.clone(), r.to_system_name.clone()),
+                from: (r.from_station_name.clone(), system_line(&r.from_system_name, r.from_station_type.as_deref())),
+                to: (r.to_station_name.clone(), system_line(&r.to_system_name, r.to_station_type.as_deref())),
                 distance: r.distance_ly,
                 profit: r.profit,
+                age: short_age(oldest(r.from_updated_at.as_ref(), r.to_updated_at.as_ref())),
             })
             .collect();
         let selected = self.selected_idx;
@@ -221,12 +355,14 @@ impl TradeRoutesView {
             b.column(Column::exact(lead_w).clip(true))
                 .column(Column::remainder().clip(true))
                 .column(Column::remainder().clip(true))
+                .column(Column::exact(AGE_W))
                 .column(Column::exact(66.0))
                 .column(Column::exact(PROFIT_W))
                 .header(20.0, |mut h| {
                     h.col(|ui| _ = widgets::th(ui, "Commodity"));
                     h.col(|ui| _ = widgets::th(ui, "Buy at"));
                     h.col(|ui| _ = widgets::th(ui, "Sell at"));
+                    h.col(|ui| right(ui, |ui| _ = widgets::th(ui, "Age")));
                     h.col(|ui| right(ui, |ui| _ = widgets::th(ui, "Dist")));
                     h.col(|ui| right(ui, |ui| {
                         ui.add_space(10.0);
@@ -242,6 +378,7 @@ impl TradeRoutesView {
                         row.col(|ui| _ = ui.add(egui::Label::new(RichText::new(&r.commodity).font(theme::body_semi(16.0)).color(widgets::row_text_color(sel, TEXT))).truncate()));
                         row.col(|ui| two_line(ui, &r.from.0, &r.from.1, sel));
                         row.col(|ui| two_line(ui, &r.to.0, &r.to.1, sel));
+                        row.col(|ui| right(ui, |ui| age_cell(ui, r.age.as_ref(), sel)));
                         row.col(|ui| right(ui, |ui| _ = ui.label(ly(r.distance, sel))));
                         row.col(|ui| right(ui, |ui| {
                             ui.add_space(10.0);
@@ -261,10 +398,11 @@ impl TradeRoutesView {
             .map(|l| LoopRow {
                 out: title_case(&l.commodity_out),
                 back: title_case(&l.commodity_back),
-                a: (l.station_name_a.clone(), l.system_name_a.clone()),
-                b: (l.station_name_b.clone(), l.system_name_b.clone()),
+                a: (l.station_name_a.clone(), system_line(&l.system_name_a, l.station_type_a.as_deref())),
+                b: (l.station_name_b.clone(), system_line(&l.system_name_b, l.station_type_b.as_deref())),
                 distance: l.distance_ly,
                 profit: l.total_profit,
+                age: short_age(l.updated_at.as_ref()),
             })
             .collect();
         let selected = self.selected_idx;
@@ -275,12 +413,14 @@ impl TradeRoutesView {
             b.column(Column::exact(lead_w).clip(true))
                 .column(Column::remainder().clip(true))
                 .column(Column::remainder().clip(true))
+                .column(Column::exact(AGE_W))
                 .column(Column::exact(66.0))
                 .column(Column::exact(PROFIT_W))
                 .header(20.0, |mut h| {
                     h.col(|ui| _ = widgets::th(ui, "Out / back"));
                     h.col(|ui| _ = widgets::th(ui, "Station A"));
                     h.col(|ui| _ = widgets::th(ui, "Station B"));
+                    h.col(|ui| right(ui, |ui| _ = widgets::th(ui, "Age")));
                     h.col(|ui| right(ui, |ui| _ = widgets::th(ui, "Dist")));
                     h.col(|ui| right(ui, |ui| {
                         ui.add_space(10.0);
@@ -296,6 +436,7 @@ impl TradeRoutesView {
                         row.col(|ui| two_line(ui, &format!("→ {}", r.out), &format!("← {}", r.back), sel));
                         row.col(|ui| two_line(ui, &r.a.0, &r.a.1, sel));
                         row.col(|ui| two_line(ui, &r.b.0, &r.b.1, sel));
+                        row.col(|ui| right(ui, |ui| age_cell(ui, r.age.as_ref(), sel)));
                         row.col(|ui| right(ui, |ui| _ = ui.label(ly(r.distance, sel))));
                         row.col(|ui| right(ui, |ui| {
                             ui.add_space(10.0);
@@ -323,7 +464,7 @@ impl TradeRoutesView {
 
     /// The selected route or loop. Returns whether the panel's empty space was clicked.
     fn detail(&mut self, ui: &mut Ui, api: &ApiClient, journal: &JournalData, event: &mut ViewEvent) -> bool {
-        let bg = ui.interact(ui.available_rect_before_wrap(), ui.id().with("trade-detail-bg"), Sense::click());
+        let bg = ui.interact(ui.available_rect_before_wrap(), ui.scope_id().with("trade-detail-bg"), Sense::click());
         let mut pick = None;
         let mut copy = None;
         let mut copy_both = false;
@@ -342,25 +483,29 @@ impl TradeRoutesView {
                     widgets::section(ui, "Buy from", None);
                     leg_row(ui, &r.from_system_name, pad_str(&r.from_max_pad), focused && cursor == 0, 0, &mut pick, &mut copy);
                     station_line(ui, &r.from_station_name, r.from_allegiance.as_deref());
-                    leg_grid(ui, "trade-buy", &[
+                    let mut buy = vec![
                         ("Buy price", credits(r.buy_price, 15.0, theme::GREEN, false)),
                         ("Supply", widgets::value(format!("{} t", format_num(r.supply))).into()),
-                    ]);
+                    ];
+                    station_facts(&mut buy, r.from_station_type.as_deref(), r.from_arrival_ls, r.from_updated_at.as_ref());
+                    leg_grid(ui, "trade-buy", &buy);
 
                     ui.add_space(6.0);
                     widgets::section(ui, "Sell at", None);
                     leg_row(ui, &r.to_system_name, pad_str(&r.to_max_pad), focused && cursor == 1, 1, &mut pick, &mut copy);
                     station_line(ui, &r.to_station_name, r.to_allegiance.as_deref());
-                    leg_grid(ui, "trade-sell", &[
+                    let mut sell = vec![
                         ("Sell price", credits(r.sell_price, 15.0, theme::YELLOW, false)),
                         ("Demand", widgets::value(format!("{} t", format_num(r.demand))).into()),
-                    ]);
+                    ];
+                    station_facts(&mut sell, r.to_station_type.as_deref(), r.to_arrival_ls, r.to_updated_at.as_ref());
+                    leg_grid(ui, "trade-sell", &sell);
 
                     ui.add_space(6.0);
                     widgets::section(ui, "Route", None);
                     leg_grid(ui, "trade-route", &[
                         ("Distance", widgets::value(format!("{:.2} Ly", r.distance_ly)).into()),
-                        ("Cached", RichText::new(fmt_ts(r.cached_at.as_ref())).color(TEXT_DIM).font(theme::body(15.0)).into()),
+                        (if r.from_updated_at.is_some() { "Searched" } else { "Cached" }, RichText::new(fmt_ts(r.cached_at.as_ref())).color(TEXT_DIM).font(theme::body(15.0)).into()),
                     ]);
                 }
                 RouteType::Loops => {
@@ -394,11 +539,23 @@ impl TradeRoutesView {
 
                     ui.add_space(6.0);
                     widgets::section(ui, "Route", None);
-                    leg_grid(ui, "loop-route", &[
+                    let mut route = vec![
                         ("Distance", widgets::value(format!("{:.2} Ly", l.distance_ly)).into()),
                         ("Pad", widgets::value(pad_str(&l.max_pad)).into()),
-                        ("Cached", RichText::new(fmt_ts(l.cached_at.as_ref())).color(TEXT_DIM).font(theme::body(15.0)).into()),
-                    ]);
+                    ];
+                    if l.arrival_ls_a.is_some() || l.arrival_ls_b.is_some() {
+                        let a = l.arrival_ls_a.map(ls_text).unwrap_or_else(|| "?".into());
+                        let b = l.arrival_ls_b.map(ls_text).unwrap_or_else(|| "?".into());
+                        route.push(("Arrival A / B", widgets::value(format!("{a} / {b}")).into()));
+                    }
+                    if let Some(a) = age(l.updated_at.as_ref()) {
+                        route.push(("Oldest price", widgets::value(a).into()));
+                    }
+                    route.push((
+                        if l.updated_at.is_some() { "Searched" } else { "Cached" },
+                        RichText::new(fmt_ts(l.cached_at.as_ref())).color(TEXT_DIM).font(theme::body(15.0)).into(),
+                    ));
+                    leg_grid(ui, "loop-route", &route);
                 }
             }
             ui.add_space(10.0);
@@ -430,6 +587,8 @@ struct RouteRow {
     to: (String, String),
     distance: f32,
     profit: i32,
+    /// Age of the older price, and whether it is old enough to warn about.
+    age: Option<(String, bool)>,
 }
 
 struct LoopRow {
@@ -439,12 +598,13 @@ struct LoopRow {
     b: (String, String),
     distance: f32,
     profit: i32,
+    age: Option<(String, bool)>,
 }
 
 /// A striped, clickable table filling `ui`, with the selection drawn as a solid accent bar and
 /// scrolled into view when it moved since the last frame.
 fn table(ui: &mut Ui, salt: &str, selected: usize, build: impl FnOnce(TableBuilder<'_>)) {
-    let id = ui.id().with(salt).with("last-selected");
+    let id = ui.scope_id().with(salt).with("last-selected");
     let moved = ui.data(|d| d.get_temp::<usize>(id)) != Some(selected);
     ui.data_mut(|d| d.insert_temp(id, selected));
     ui.scope(|ui| {
@@ -575,6 +735,74 @@ fn station_line(ui: &mut Ui, station: &str, allegiance: Option<&str>) {
             ui.label(RichText::new(format!("· {a}")).font(theme::body(14.0)).color(GREY));
         }
     });
+}
+
+/// Station type, arrival distance and price age, when the server sent them (searches do,
+/// the pre-computed lists do not).
+fn station_facts(rows: &mut Vec<(&str, egui::WidgetText)>, kind: Option<&str>, arrival_ls: Option<f32>, updated: Option<&chrono::DateTime<chrono::Utc>>) {
+    if let Some(k) = kind.filter(|k| !k.is_empty()) {
+        rows.push(("Station type", widgets::value(station_kind(k)).into()));
+    }
+    if let Some(ls) = arrival_ls {
+        rows.push(("Arrival", widgets::value(ls_text(ls)).into()));
+    }
+    if let Some(a) = age(updated) {
+        rows.push(("Price from", widgets::value(a).into()));
+    }
+}
+
+/// The journal's station type as players say it.
+fn station_kind(k: &str) -> String {
+    match k {
+        "OnFootSettlement" => "Settlement".into(),
+        "CraterOutpost" => "Planetary outpost".into(),
+        "CraterPort" | "SurfaceStation" => "Planetary port".into(),
+        "AsteroidBase" => "Asteroid base".into(),
+        "FleetCarrier" => "Fleet carrier".into(),
+        "MegaShip" => "Megaship".into(),
+        other => other.into(),
+    }
+}
+
+fn ls_text(ls: f32) -> String {
+    format!("{} Ls", format_num(ls.round() as i32))
+}
+
+/// Prices older than this get the warning colour in the table.
+const OLD_PRICE_DAYS: i64 = 7;
+
+/// A station's system for the table's second line, marked when the station is a
+/// fleet carrier (it may have moved on, or let only its squadron dock).
+fn system_line(system: &str, kind: Option<&str>) -> String {
+    if kind == Some("FleetCarrier") { format!("{system} · Fleet carrier") } else { system.to_string() }
+}
+
+/// The older of two timestamps (either may be missing).
+fn oldest<'a>(a: Option<&'a chrono::DateTime<chrono::Utc>>, b: Option<&'a chrono::DateTime<chrono::Utc>>) -> Option<&'a chrono::DateTime<chrono::Utc>> {
+    match (a, b) {
+        (Some(a), Some(b)) => Some(a.min(b)),
+        (a, b) => a.or(b),
+    }
+}
+
+/// Short age for the Age column, and whether it is older than [`OLD_PRICE_DAYS`].
+fn short_age(t: Option<&chrono::DateTime<chrono::Utc>>) -> Option<(String, bool)> {
+    let mins = edcas_common::format::minutes_since(*t?);
+    Some((edcas_common::format::fmt_age(mins, true), mins >= OLD_PRICE_DAYS * 1440))
+}
+
+/// The Age cell: blank for the pre-computed lists, which carry no price times.
+fn age_cell(ui: &mut Ui, age: Option<&(String, bool)>, sel: bool) {
+    if let Some((text, old)) = age {
+        let col = if *old { theme::YELLOW } else { TEXT_DIM };
+        ui.label(RichText::new(text).font(theme::body(15.0)).color(widgets::row_text_color(sel, col)))
+            .on_hover_text("Age of the older of the two prices");
+    }
+}
+
+/// "12 min ago", "5 h ago", "3 days ago".
+fn age(t: Option<&chrono::DateTime<chrono::Utc>>) -> Option<String> {
+    Some(edcas_common::format::fmt_age(edcas_common::format::minutes_since(*t?), false))
 }
 
 /// Label/value rows under a leg, indented below its station line.
