@@ -40,9 +40,15 @@ pub struct Settings {
     /// EDDN upload gateway URL.
     #[serde(default = "default_eddn_url")]
     pub eddn_url: String,
-    /// When true, EDDN messages are sent to the test pipeline (`/test` schemaRef suffix).
+    /// When true, EDDN messages carry the `/test` schemaRef suffix: EDDN checks and relays
+    /// them, and other listeners leave them out. For developing the uploader only.
+    ///
+    /// The key was `eddn_test_mode` up to client 0.43.248, and the settings template set it
+    /// to `true`, so every install uploaded as test without having chosen to. That key is
+    /// no longer read: whatever an old settings file (or an old packaged template under
+    /// `/etc/edcas-client/`) holds for it, the upload is live unless this one is set.
     #[serde(default)]
-    pub eddn_test_mode: bool,
+    pub eddn_send_as_test: bool,
     /// In-app alert/notification toggles.
     #[serde(default)]
     pub alerts: AlertSettings,
@@ -245,7 +251,7 @@ impl Settings {
                 .collect();
             Some(crate::eddn::EddnConfig {
                 url: self.eddn_url.trim().to_string(),
-                test_mode: self.eddn_test_mode,
+                test_mode: self.eddn_send_as_test,
                 owned_carriers,
             })
         } else {
@@ -406,6 +412,37 @@ fn create_settings_in(cfg_dir: &std::path::Path) -> std::fs::File {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_fresh_install_uploads_to_eddn_live() {
+        let settings = Settings::template_defaults();
+        assert!(settings.eddn_enabled);
+        assert!(!settings.eddn_send_as_test);
+        assert!(!settings.eddn_config().expect("EDDN is on").test_mode);
+    }
+
+    /// Settings files written up to client 0.43.248 hold `"eddn_test_mode": true` from the
+    /// template of the time. Such a file must upload live, and lose the key at the next save.
+    #[test]
+    fn the_test_mode_of_an_old_settings_file_no_longer_counts() {
+        let mut old: serde_json::Value = serde_json::from_str(SETTINGS_TEMPLATE).unwrap();
+        let file = old.as_object_mut().unwrap();
+        file.remove("eddn_send_as_test");
+        file.insert("eddn_test_mode".into(), serde_json::json!(true));
+        let settings: Settings = serde_json::from_value(old).unwrap();
+        assert!(!settings.eddn_send_as_test);
+        assert!(!settings.eddn_config().expect("EDDN is on").test_mode);
+        let saved = serde_json::to_value(&settings).unwrap();
+        assert!(saved.get("eddn_test_mode").is_none());
+        assert_eq!(saved["eddn_send_as_test"], serde_json::json!(false));
+    }
+
+    #[test]
+    fn test_mode_can_still_be_chosen() {
+        let mut settings = Settings::template_defaults();
+        settings.eddn_send_as_test = true;
+        assert!(settings.eddn_config().expect("EDDN is on").test_mode);
+    }
 
     #[test]
     fn old_icon_settings_lose_what_nothing_reads() {

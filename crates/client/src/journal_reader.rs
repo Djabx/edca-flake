@@ -1817,14 +1817,17 @@ impl JournalReader {
 
         let upload_tx_opt = api_url.filter(|u| !u.is_empty()).map(|url| {
             let (upload_tx, upload_rx) = mpsc::channel::<String>();
+            let upload_journal_dir = journal_dir.clone();
             thread::spawn(move || {
+                let mut positions = crate::direct_upload::SystemPositions::from_latest_journal(&upload_journal_dir);
                 let client = reqwest::blocking::Client::builder()
                     .timeout(Duration::from_secs(5))
                     .build()
                     .unwrap();
                 let endpoint = format!("{}/api/v1/journal/event", url);
                 for raw_line in upload_rx {
-                    if let Ok(message) = serde_json::from_str::<serde_json::Value>(&raw_line) {
+                    if let Ok(mut message) = serde_json::from_str::<serde_json::Value>(&raw_line) {
+                        positions.apply(&mut message);
                         let wrapper = serde_json::json!({
                             "$schemaRef": "edcas-client-upload/v1",
                             "message": message
@@ -2003,6 +2006,8 @@ pub fn start_bulk_upload(
         let mut lines_done: u64 = 0;
         let mut send_errors: u64 = 0;
         const BATCH_SIZE: usize = 50;
+        // Oldest file first, so each scan follows the jump into its system.
+        let mut positions = crate::direct_upload::SystemPositions::default();
 
         for (i, file) in files.iter().enumerate() {
             let mut batch: Vec<serde_json::Value> = Vec::with_capacity(BATCH_SIZE);
@@ -2013,7 +2018,8 @@ pub fn start_bulk_upload(
                     if trimmed.is_empty() || trimmed.len() > 65_536 {
                         continue;
                     }
-                    if let Ok(message) = serde_json::from_str::<serde_json::Value>(trimmed) {
+                    if let Ok(mut message) = serde_json::from_str::<serde_json::Value>(trimmed) {
+                        positions.apply(&mut message);
                         batch.push(serde_json::json!({
                             "$schemaRef": "edcas-client-upload/v1",
                             "message": message

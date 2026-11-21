@@ -8,8 +8,9 @@
 //!   strings, lowercases commodity names, clamps influence/population into range,
 //!   and drops clearly-bad individual commodity rows (keeping the rest).
 //! - [`JournalEvent::validate`] *hard-rejects* an event (don't dispatch) when it
-//!   would corrupt the data: non-positive identifiers, impossible coordinates,
-//!   empty key names, or a market left with no valid commodities.
+//!   would corrupt the data: non-positive identifiers, impossible coordinates, a
+//!   position outside the cell its system address names, empty key names, or a market
+//!   left with no valid commodities.
 
 use super::types::Faction;
 use super::JournalEvent;
@@ -62,18 +63,9 @@ impl JournalEvent {
     /// to the derived tables (the raw event is still stored for provenance).
     pub fn validate(&self) -> Result<(), &'static str> {
         match self {
-            Self::FsdJump(e) => {
-                check_id(e.system_address)?;
-                check_coords(&e.star_pos)?;
-            }
-            Self::Location(e) => {
-                check_id(e.system_address)?;
-                check_coords(&e.star_pos)?;
-            }
-            Self::CarrierJump(e) => {
-                check_id(e.system_address)?;
-                check_coords(&e.star_pos)?;
-            }
+            Self::FsdJump(e) => check_system(e.system_address, &e.star_pos)?,
+            Self::Location(e) => check_system(e.system_address, &e.star_pos)?,
+            Self::CarrierJump(e) => check_system(e.system_address, &e.star_pos)?,
             Self::Docked(e) => {
                 check_id(e.market_id)?;
                 if e.station_name.trim().is_empty() {
@@ -88,7 +80,12 @@ impl JournalEvent {
             }
             Self::Outfitting(e) => check_id(e.market_id)?,
             Self::Shipyard(e) => check_id(e.market_id)?,
-            Self::Scan(e) => check_id(e.system_address)?,
+            // EDDN adds the system's position to every scan; a client's direct upload
+            // may leave it out, and then there is nothing to hold the address against.
+            Self::Scan(e) => match &e.star_pos {
+                Some(pos) => check_system(e.system_address, pos)?,
+                None => check_id(e.system_address)?,
+            },
             Self::ColonisationConstructionDepot(e) => check_id(e.market_id)?,
             _ => {}
         }
@@ -112,6 +109,20 @@ fn check_coords(pos: &[f32]) -> Result<(), &'static str> {
         return Err("coordinates out of range");
     }
     Ok(())
+}
+
+/// A system address with the position reported for it. The address names one cube of
+/// space ([`crate::system_address`]), so a position outside it means one of the two is
+/// invented: test messages with made-up addresses, or old scans replayed under address 1,
+/// which filed four systems' bodies under one fake system at Sol.
+fn check_system(address: i64, pos: &[f32]) -> Result<(), &'static str> {
+    check_id(address)?;
+    check_coords(pos)?;
+    if crate::system_address::matches_position(address, pos) {
+        Ok(())
+    } else {
+        Err("position outside the system address's cell")
+    }
 }
 
 fn commodity_ok(x: &super::station::Commodity) -> bool {
@@ -167,13 +178,51 @@ mod tests {
         e.sanitize();
         assert!(e.validate().is_err(), "system_address 0 must reject");
 
-        let mut e = ev(&format!(r#"{{{TS},"event":"FSDJump","StarSystem":"X","SystemAddress":1,"StarPos":[1e9,0.0,0.0]}}"#));
+        let mut e = ev(&format!(r#"{{{TS},"event":"FSDJump","StarSystem":"X","SystemAddress":10477373803,"StarPos":[1e9,0.0,0.0]}}"#));
         e.sanitize();
         assert!(e.validate().is_err(), "absurd coordinate must reject");
 
-        let mut e = ev(&format!(r#"{{{TS},"event":"FSDJump","StarSystem":"X","SystemAddress":1,"StarPos":[1.0,2.0,3.0]}}"#));
+        let mut e = ev(&format!(r#"{{{TS},"event":"FSDJump","StarSystem":"Sol","SystemAddress":10477373803,"StarPos":[0.0,0.0,0.0]}}"#));
         e.sanitize();
         assert!(e.validate().is_ok(), "normal jump must pass");
+    }
+
+    /// The messages that put fake systems into the database in 2026, by event type.
+    #[test]
+    fn rejects_a_position_outside_the_addresss_cell() {
+        let reject = |json: String, what: &str| {
+            let mut e = ev(&json);
+            e.sanitize();
+            assert_eq!(e.validate(), Err("position outside the system address's cell"), "{what}");
+        };
+        reject(
+            format!(r#"{{{TS},"event":"Location","StarSystem":"BioAtlas test fixture","SystemAddress":1,"StarPos":[0,0,0]}}"#),
+            "a test fixture at Sol's position",
+        );
+        reject(
+            format!(r#"{{{TS},"event":"FSDJump","StarSystem":"Sol","SystemAddress":1000,"StarPos":[0,0,0]}}"#),
+            "a second Sol under an invented address",
+        );
+        reject(
+            format!(r#"{{{TS},"event":"CarrierJump","StarSystem":"Target System","SystemAddress":5554443332221,"StarPos":[0,0,0]}}"#),
+            "a carrier jump to an invented system",
+        );
+        reject(
+            format!(r#"{{{TS},"event":"Scan","ScanType":"Detailed","BodyName":"LP 329-20 A 1","BodyID":8,"StarSystem":"LP 329-20","SystemAddress":1,"StarPos":[-36.4375,54.21875,31.375]}}"#),
+            "a real scan replayed under address 1",
+        );
+    }
+
+    #[test]
+    fn a_scan_passes_with_its_systems_position_and_without_one() {
+        // LP 329-20 under its own address.
+        let mut e = ev(&format!(r#"{{{TS},"event":"Scan","ScanType":"Detailed","BodyName":"LP 329-20 A 1","BodyID":8,"StarSystem":"LP 329-20","SystemAddress":18262603802033,"StarPos":[-36.4375,54.21875,31.375]}}"#));
+        e.sanitize();
+        assert_eq!(e.validate(), Ok(()));
+        // No position: nothing to check the address against.
+        let mut e = ev(&format!(r#"{{{TS},"event":"Scan","ScanType":"Detailed","BodyName":"LP 329-20 A 1","BodyID":8,"SystemAddress":18262603802033}}"#));
+        e.sanitize();
+        assert_eq!(e.validate(), Ok(()));
     }
 
     #[test]

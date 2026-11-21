@@ -877,6 +877,160 @@ pub struct GalaxySample {
     pub points: Vec<[f32; 4]>,
 }
 
+/// GET /api/v1/nearest/stars?star_type=&reference_system=|system_address=|x=&y=&z= — the
+/// known stars of the given types nearest to a point, nearest first.
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct NearestStars {
+    /// The point searched from.
+    pub reference: NearestReference,
+    /// The star types searched (groups resolved), as the journal and the database name them.
+    pub star_types: Vec<String>,
+    /// Stars of these types EDCAS knows at all, before the other filters. Coverage is
+    /// sparse (only scanned stars are known): this tells how thin the search was. 0 for a
+    /// short while after a server start, until the type counts are first computed.
+    pub known_total: i64,
+    pub results: Vec<NearestStar>,
+}
+
+/// The point a nearest-stars search measured from.
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct NearestReference {
+    /// Set when the reference was a system (by name or address).
+    pub system_address: Option<i64>,
+    pub name: Option<String>,
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+}
+
+/// One star found by a nearest-stars search.
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct NearestStar {
+    pub system_address: i64,
+    pub system_name: String,
+    /// The star's body id in its system.
+    pub star_id: i32,
+    pub star_name: String,
+    /// As the journal names it: `M`, `N`, `CN`, `M_RedGiant`, ...
+    pub star_type: String,
+    /// Luminosity class (`V`, `Va`, `III`, ...).
+    pub luminosity: Option<String>,
+    /// Solar masses.
+    pub stellar_mass: Option<f32>,
+    /// Kelvin.
+    pub surface_temperature: Option<f32>,
+    /// Million years.
+    pub age_my: Option<i32>,
+    /// The system's arrival star, judged by name (`<system>` or `<system> A`). Measured
+    /// against 231,884 raw scans: finds 99.76 % of arrival stars, wrong for 0.14 %.
+    pub main_star: bool,
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+    pub distance_ly: f32,
+    /// When the scan this row was last written from was made.
+    pub scanned_at: DateTime<Utc>,
+}
+
+/// GET /api/v1/nearest/stars/types — what `star_type` accepts, for pickers.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize)]
+pub struct StarTypeCatalog {
+    /// Group names and the star types each stands for.
+    pub groups: Vec<StarTypeGroup>,
+    /// Every star type present in the data with its count, most first. Empty for a short
+    /// while after a server start, until the counts are first computed.
+    pub types: Vec<CountEntry>,
+    pub computed_at: Option<DateTime<Utc>>,
+}
+
+/// A named group of star types (`scoopable`, `white_dwarf`, ...).
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct StarTypeGroup {
+    pub name: String,
+    pub types: Vec<String>,
+}
+
+/// GET /api/v1/nearest/bodies?planet_class=&reference_system=|system_address=|x=&y=&z= —
+/// the known planets (optionally of given classes and matching filters) nearest to a
+/// point, nearest first.
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct NearestBodies {
+    /// The point searched from.
+    pub reference: NearestReference,
+    /// The planet classes searched (groups resolved), as the journal names them; empty
+    /// when the search took any planet.
+    pub planet_classes: Vec<String>,
+    /// Planets of these classes (of any class when `planet_classes` is empty) EDCAS knows
+    /// at all, before the other filters. 0 for a short while after a server start, until
+    /// the class counts are first computed.
+    pub known_total: i64,
+    pub results: Vec<NearestBody>,
+}
+
+/// One planet found by a nearest-bodies search.
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct NearestBody {
+    pub system_address: i64,
+    pub system_name: String,
+    /// The body's id in its system.
+    pub body_id: i32,
+    pub body_name: String,
+    /// As the journal names it: `Earthlike body`, `High metal content body`, ...
+    pub planet_class: String,
+    pub landable: bool,
+    /// `Terraformable`, `Terraforming`, `Terraformed`; `None` when not terraformable.
+    pub terraform_state: Option<String>,
+    /// The journal's description, e.g. `thin sulphur dioxide atmosphere`.
+    pub atmosphere: Option<String>,
+    /// `None`, `CarbonDioxide`, `Ammonia`, ...
+    pub atmosphere_type: Option<String>,
+    pub volcanism: Option<String>,
+    /// Surface gravity in g.
+    pub gravity_g: Option<f32>,
+    /// Surface pressure in atmospheres.
+    pub pressure_atm: Option<f32>,
+    /// Kelvin.
+    pub surface_temperature: Option<f32>,
+    /// Light seconds from the system's arrival star.
+    pub distance_from_arrival_ls: Option<f32>,
+    /// Earth masses.
+    pub mass_em: Option<f32>,
+    /// The classes of the body's rings (`icy`, `rocky`, `metal_rich`, `metallic`),
+    /// distinct and sorted; empty without rings.
+    pub ring_classes: Vec<String>,
+    /// Biological / geological signals reported for the body (the larger of the FSS and
+    /// the surface-scan count), 0 when none were reported.
+    pub bio_signals: i32,
+    pub geo_signals: i32,
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+    pub distance_ly: f32,
+    /// When the scan this row was last written from was made.
+    pub scanned_at: DateTime<Utc>,
+}
+
+/// GET /api/v1/nearest/bodies/classes — what `planet_class` and `atmosphere_type`
+/// accept, for pickers.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize)]
+pub struct BodyClassCatalog {
+    /// Group and short names and the planet classes each stands for.
+    pub groups: Vec<BodyClassGroup>,
+    /// Every planet class present in the data with its count, most first. Empty for a
+    /// short while after a server start, until the counts are first computed.
+    pub classes: Vec<CountEntry>,
+    /// Every atmosphere type of the planets with its count, most first.
+    pub atmosphere_types: Vec<CountEntry>,
+    pub computed_at: Option<DateTime<Utc>>,
+}
+
+/// A named group of planet classes (`terrestrial`, `gas_giant`, `elw`, ...).
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct BodyClassGroup {
+    pub name: String,
+    pub classes: Vec<String>,
+}
+
 /// GET /api/v1/codex — every codex entry commanders logged, with how often and where.
 /// Served from a cache refreshed every few hours.
 #[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize)]

@@ -1,6 +1,6 @@
 [package]
 name = "edcas-client"
-version = "0.43.245"
+version = "0.43.254"
 edition = "2021"
 rust-version = "1.95"
 readme = "../../README.md"
@@ -44,7 +44,11 @@ tracing = "0.1"
 anyhow = "1.0"
 
 # Desktop GUI. OpenGL (glow) only: wgpu would reserve ~200 MB of VRAM next to the game.
-eframe     = { version = "0.37", default-features = false, features = ["glow", "default_fonts", "x11", "wayland"] }
+# The feature list is hand-picked (no wgpu), so every eframe default the window needs has
+# to be named. "clipboard" is the system clipboard for text fields: built in up to 0.36, a
+# default feature since 0.37. Without it copy and paste stay inside the client. At each
+# major update, compare this list with eframe's `default`.
+eframe     = { version = "0.37", default-features = false, features = ["glow", "default_fonts", "x11", "wayland", "clipboard"] }
 egui_extras = { version = "0.37", default-features = false }
 tokio      = { version = "1.47.1", features = ["full"] }
 # As with 0.12's defaults: the system's TLS (0.13's own default is rustls with aws-lc-rs, more to cross-build for

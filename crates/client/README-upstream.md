@@ -97,14 +97,17 @@ Both destinations are **on by default**; each toggles independently in **Setting
 |---|---|---|
 | `edcas_api_enabled` | `true` | Upload journal events to the edcas API (`api_url`) for search/trade features |
 | `eddn_enabled` | `true` | Upload to the public [EDDN](https://github.com/EDCD/EDDN) network |
-| `eddn_test_mode` | `true` | Send to EDDN's **test** pipeline (validated, not relayed) |
+| `eddn_send_as_test` | `false` | Mark EDDN uploads as **test** messages: EDDN relays them, other listeners leave them out. For developing the uploader only |
 
 Like EDMC/EDDiscovery, the client converts a curated, **sanitised** subset of the
 journal into EDDN schemas (`journal/1`, `commodity/3`, `outfitting/2`,
 `shipyard/2`); `_Localised` strings and Cmdr-specific fields are stripped. It
-identifies as `softwareName` `EDCAS` with a `0.4.0+<build>` version. There's no
-EDDN registration — turn off **EDDN Test Mode** once you've confirmed `HTTP 200`
-uploads to contribute to the live network.
+identifies as `softwareName` `EDCAS` with a `<version>+<build>` version. There's no
+EDDN registration, and uploads go to the live network.
+
+Up to client 0.43.248 the setting was called `eddn_test_mode` and was on in every
+install, so those clients uploaded as test. That key is no longer read: after the
+update a client uploads live, whatever its settings file holds for the old key.
 
 ## Alerts & voice
 

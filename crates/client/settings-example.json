@@ -13,7 +13,7 @@
   "edcas_api_enabled": true,
   "eddn_enabled": true,
   "eddn_url": "https://eddn.edcd.io:4430/upload/",
-  "eddn_test_mode": true,
+  "eddn_send_as_test": false,
   "alerts": {
     "enabled": true,
     "low_fuel": true,

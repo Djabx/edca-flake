@@ -7,6 +7,7 @@ pub mod build_info;
 pub mod carrier_log;
 pub mod cartography;
 pub mod diagnostics;
+pub mod direct_upload;
 pub mod eddn;
 pub mod game_graphics;
 pub mod ground_detail;

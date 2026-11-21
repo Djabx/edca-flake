@@ -667,7 +667,7 @@ impl SettingsView {
                 GridRow {
                     cells: vec![
                         CellType::Label("EDDN Test Mode".to_string()),
-                        CellType::BoolValue(settings.eddn_test_mode),
+                        CellType::BoolValue(settings.eddn_send_as_test),
                     ],
                 },
             ],
@@ -1585,8 +1585,8 @@ impl SettingsView {
                     info!("Toggled EDDN upload: {}", settings.eddn_enabled);
                 }
                 Some("EDDN Test Mode") => {
-                    settings.eddn_test_mode = !settings.eddn_test_mode;
-                    info!("Toggled EDDN test mode: {}", settings.eddn_test_mode);
+                    settings.eddn_send_as_test = !settings.eddn_send_as_test;
+                    info!("Toggled EDDN test mode: {}", settings.eddn_send_as_test);
                 }
                 _ => {}
             },

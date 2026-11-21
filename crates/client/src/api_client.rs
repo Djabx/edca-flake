@@ -4,11 +4,40 @@ use edcas_common::api::{
     GalaxySample, GalaxySystem, InfluencePoint, MultiCommodityQuery, MultiCommodityResult, NearestCommodityQuery,
     NearestCommodityResult, StationQuery, StationResponse, StationSearchResult, SystemResponse,
     SystemSuggestion, TradeLoopResponse, TradeRouteResponse, FactionRank, FactionSearchResult,
-    NearestModuleResult, OutfittingModuleInfo, PopularStation, PopularSystem, StationSuggestion,
+    NearestModuleResult, NearestStars, OutfittingModuleInfo, BodyClassCatalog, NearestBodies, StarTypeCatalog, PopularStation, PopularSystem, StationSuggestion,
     SystemSearchResult,
 };
 
 // ─── Native (async) implementation ────────────────────────────────────────────
+
+/// A request the server refused with a short plain-text reason (e.g. "unknown reference
+/// system"), to show the user instead of a bare status code.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ServerMessage {
+    pub status: u16,
+    pub text: String,
+}
+
+impl ServerMessage {
+    pub fn new(status: u16, body: &str) -> Self {
+        let body = body.trim();
+        // A proxy's HTML error page or an empty body says nothing useful.
+        let text = if body.is_empty() || body.starts_with('<') || body.len() > 200 {
+            format!("the server answered {status}")
+        } else {
+            body.to_string()
+        };
+        Self { status, text }
+    }
+}
+
+impl std::fmt::Display for ServerMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.text)
+    }
+}
+
+impl std::error::Error for ServerMessage {}
 
 use tracing::{debug, warn};
 
@@ -195,6 +224,74 @@ impl ApiClient {
         } else {
             warn!(url, %status, "API response: search_nearest_commodity failed");
             Ok(vec![])
+        }
+    }
+
+    /// `GET /api/v1/nearest/stars` with the query pairs `params` (see
+    /// [`crate::views::search::star_query`]). A refusal (400 bad parameter, 404 unknown
+    /// system, 503 too slow) comes back as a [`ServerMessage`] carrying the server's text.
+    pub async fn nearest_stars(&self, params: &[(&'static str, String)]) -> anyhow::Result<NearestStars> {
+        let url = format!("{}/api/v1/nearest/stars", self.base_url);
+        debug!(url, ?params, "API call: nearest_stars");
+        let resp = self.client.get(&url).query(params).send().await?;
+        let status = resp.status();
+        if status.is_success() {
+            let result: NearestStars = resp.json().await?;
+            debug!(url, count = result.results.len(), "API response: nearest_stars");
+            Ok(result)
+        } else {
+            let text = resp.text().await.unwrap_or_default();
+            warn!(url, %status, text, "API response: nearest_stars failed");
+            Err(ServerMessage::new(status.as_u16(), &text).into())
+        }
+    }
+
+    /// `GET /api/v1/nearest/stars/types`: the star type groups and every type in the data.
+    pub async fn star_types(&self) -> anyhow::Result<StarTypeCatalog> {
+        let url = format!("{}/api/v1/nearest/stars/types", self.base_url);
+        debug!(url, "API call: star_types");
+        let resp = self.client.get(&url).send().await?;
+        let status = resp.status();
+        if status.is_success() {
+            Ok(resp.json().await?)
+        } else {
+            warn!(url, %status, "API response: star_types failed");
+            anyhow::bail!("star types request failed: {status}")
+        }
+    }
+
+    /// `GET /api/v1/nearest/bodies` with the query pairs `params` (see
+    /// [`crate::views::search::body_query`]). A refusal (400 bad parameter, 404 unknown
+    /// system, 503 index being built or too slow) comes back as a [`ServerMessage`]
+    /// carrying the server's text.
+    pub async fn nearest_bodies(&self, params: &[(&'static str, String)]) -> anyhow::Result<NearestBodies> {
+        let url = format!("{}/api/v1/nearest/bodies", self.base_url);
+        debug!(url, ?params, "API call: nearest_bodies");
+        let resp = self.client.get(&url).query(params).send().await?;
+        let status = resp.status();
+        if status.is_success() {
+            let result: NearestBodies = resp.json().await?;
+            debug!(url, count = result.results.len(), "API response: nearest_bodies");
+            Ok(result)
+        } else {
+            let text = resp.text().await.unwrap_or_default();
+            warn!(url, %status, text, "API response: nearest_bodies failed");
+            Err(ServerMessage::new(status.as_u16(), &text).into())
+        }
+    }
+
+    /// `GET /api/v1/nearest/bodies/classes`: the planet class groups, every class and
+    /// every atmosphere type in the data, with counts.
+    pub async fn body_classes(&self) -> anyhow::Result<BodyClassCatalog> {
+        let url = format!("{}/api/v1/nearest/bodies/classes", self.base_url);
+        debug!(url, "API call: body_classes");
+        let resp = self.client.get(&url).send().await?;
+        let status = resp.status();
+        if status.is_success() {
+            Ok(resp.json().await?)
+        } else {
+            warn!(url, %status, "API response: body_classes failed");
+            anyhow::bail!("planet classes request failed: {status}")
         }
     }
 

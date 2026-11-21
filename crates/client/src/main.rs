@@ -14,6 +14,7 @@ mod carrier_log;
 mod cartography;
 mod cli;
 mod diagnostics;
+mod direct_upload;
 mod eddn;
 mod game_graphics;
 mod ground_detail;
