@@ -106,6 +106,26 @@ pub fn short_name(name: &str, system: &str) -> String {
         .to_string()
 }
 
+/// The Sun's radius in metres (IAU nominal), for star radii in solar radii.
+pub const SOLAR_RADIUS_M: f64 = 695_700_000.0;
+
+/// A star's radius (metres, as the journal gives it) for a table: in solar radii, or in
+/// kilometres below 0.05 R☉, where two decimals say little (white dwarfs, neutron stars, black holes):
+/// `"0.56 R☉"`, `"42.9 R☉"`, `"442 R☉"`, `"8,371 km"`.
+pub fn star_radius(metres: f32) -> String {
+    let m = f64::from(metres);
+    let sol = m / SOLAR_RADIUS_M;
+    if sol < 0.05 {
+        format!("{} km", group_thousands((m / 1000.0).round() as i64))
+    } else if sol < 10.0 {
+        format!("{sol:.2} R☉")
+    } else if sol < 100.0 {
+        format!("{sol:.1} R☉")
+    } else {
+        format!("{} R☉", group_thousands(sol.round() as i64))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -119,5 +139,14 @@ mod tests {
         assert_eq!(fmt_age(3 * 1440, true), "3d");
         assert_eq!(fmt_age(3 * 1440, false), "3 days ago");
         assert_eq!(fmt_age(-5, true), "0m");
+    }
+
+    #[test]
+    fn star_radii_read_in_solar_radii_or_km() {
+        assert_eq!(super::star_radius(389_600_000.0), "0.56 R☉");
+        assert_eq!(super::star_radius(29_850_000_000.0), "42.9 R☉");
+        assert_eq!(super::star_radius(307_700_000_000.0), "442 R☉");
+        assert_eq!(super::star_radius(8_371_000.0), "8,371 km");
+        assert_eq!(super::star_radius(11_000.0), "11 km");
     }
 }

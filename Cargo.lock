@@ -697,7 +697,7 @@ dependencies = [
 
 [[package]]
 name = "edcas-client"
-version = "0.43.254"
+version = "0.43.258"
 dependencies = [
  "anyhow",
  "arboard",
@@ -722,7 +722,7 @@ dependencies = [
 
 [[package]]
 name = "edcas-common"
-version = "0.13.6"
+version = "0.13.7"
 dependencies = [
  "chrono",
  "serde",

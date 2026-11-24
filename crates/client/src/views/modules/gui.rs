@@ -150,13 +150,18 @@ impl ModulesView {
                     widgets::kv(ui, "Cargo", widgets::value(format!("{} t", p.cargo_capacity)));
                 }
                 if p.fuel_capacity > 0.0 {
-                    let frac = p.fuel_level / p.fuel_capacity;
-                    let pct = (frac * 100.0) as u8;
-                    let col = if pct > 25 { GREEN } else { RED };
                     label(ui, "Fuel");
                     ui.vertical(|ui| {
-                        bar_value(ui, frac, col, &format!("{pct}%"));
-                        let mut t = format!("{:.1} / {:.1} t", p.fuel_level, p.fuel_capacity);
+                        let mut t = match p.fuel_level {
+                            Some(level) => {
+                                let frac = (level / p.fuel_capacity).clamp(0.0, 1.0);
+                                let pct = (frac * 100.0).round() as u8;
+                                let col = if pct > 25 { GREEN } else { RED };
+                                bar_value(ui, frac, col, &format!("{pct}%"));
+                                format!("{level:.1} / {:.1} t", p.fuel_capacity)
+                            }
+                            None => format!("{:.1} t tank", p.fuel_capacity),
+                        };
                         if p.reserve_fuel_capacity > 0.0 {
                             t.push_str(&format!("  + {:.2} t reserve", p.reserve_fuel_capacity));
                         }

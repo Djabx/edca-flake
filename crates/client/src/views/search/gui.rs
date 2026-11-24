@@ -5,7 +5,9 @@
 use eframe::egui::{self, pos2, vec2, Align, Color32, Id, Layout, Rect, RichText, Sense, Ui};
 use egui_extras::{Column, TableBuilder};
 
-use super::{known_bodies_line, known_line, BodyChoice, SearchTab, SearchView, StarChoice, Tri, ALL_PER_KIND, TAB_ROWS};
+use super::{known_bodies_line, known_line, star_search_label, BodyChoice, SearchTab, SearchView, StarChoice, Tri, ALL_PER_KIND, TAB_ROWS};
+use edcas_common::api::{star_size, STAR_SIZES};
+use edcas_common::format::star_radius;
 use crate::api_client::ApiClient;
 use crate::gui::theme::{self, accent, accent_hi, BG, GREY, TEXT, TEXT_DIM};
 use crate::gui::widgets;
@@ -27,6 +29,8 @@ enum Pick {
     /// Row `i` of a one-kind tab's list.
     Row(usize),
     Submit,
+    /// Put the commander's current system into the field.
+    CurrentSystem,
     /// Stars: search for this kind.
     Star(StarChoice),
     /// Stars: search again (the options changed).
@@ -62,7 +66,7 @@ impl SearchView {
         stations.embedded = true;
         factions.embedded = true;
         let mut picks = Vec::new();
-        self.top_bar(ui, &mut picks);
+        self.top_bar(ui, journal, &mut picks);
         ui.add_space(8.0);
 
         let mut event = ViewEvent::None;
@@ -107,6 +111,10 @@ impl SearchView {
                 Pick::Row(i) => self.open_row(i, api, journal, stations, factions),
                 Pick::Submit => {
                     self.submit(api, journal, stations, factions);
+                    ViewEvent::Consumed
+                }
+                Pick::CurrentSystem => {
+                    self.use_current_system(api, journal, stations, factions);
                     ViewEvent::Consumed
                 }
                 Pick::Star(choice) => {
@@ -157,15 +165,17 @@ impl SearchView {
         event
     }
 
-    /// The sub-tab strip, the field and the status line.
-    fn top_bar(&mut self, ui: &mut Ui, picks: &mut Vec<Pick>) {
+    /// The sub-tab strip, the field (with "Current system" where it takes a system's
+    /// name) and the status line.
+    fn top_bar(&mut self, ui: &mut Ui, journal: &JournalData, picks: &mut Vec<Pick>) {
         let labels: Vec<&str> = SearchTab::TABS.iter().map(|t| t.label()).collect();
         if let Some(i) = widgets::tab_strip(ui, &labels, self.tab.index()) {
             picks.push(Pick::Tab(SearchTab::TABS[i]));
         }
         ui.add_space(6.0);
         ui.horizontal(|ui| {
-            let w = (ui.available_width() - 96.0).max(120.0);
+            let here = self.tab.takes_system().then(|| journal.current_system.as_ref().map(|s| s.name.trim().to_string()));
+            let w = (ui.available_width() - if here.is_some() { 260.0 } else { 96.0 }).max(120.0);
             let id = Id::unique(FIELD_ID);
             // On Stars and Bodies the field is the reference system, kept apart from the query.
             let reference = self.tab.takes_reference();
@@ -213,6 +223,15 @@ impl SearchView {
             }
             if widgets::hud_button(ui, "Search").on_hover_text("Search  (Enter)").clicked() {
                 picks.push(Pick::Submit);
+            }
+            if let Some(here) = here {
+                let tip = match &here {
+                    Some(name) => format!("Put the system you are in, {name}, into the field"),
+                    None => "Your current system isn't known yet: the game's journal hasn't named it".to_string(),
+                };
+                if widgets::hud_button_enabled(ui, "Current system", here.is_some()).on_hover_text(tip).clicked() {
+                    picks.push(Pick::CurrentSystem);
+                }
             }
             self.field_text = shown;
         });
@@ -472,7 +491,10 @@ impl SearchView {
                         widgets::section(ui, "Single types", None);
                     }
                     let on = self.star_choice.as_ref() == Some(choice) || (picking && self.star_choice.is_none() && i == self.star_pick);
-                    let note = count.map(|n| format!("{} known", group(n))).unwrap_or_default();
+                    let note = match (choice, count) {
+                        (StarChoice::Any, _) => "by size".to_string(),
+                        (_, n) => n.map(|n| format!("{} known", group(n))).unwrap_or_default(),
+                    };
                     if kind_row(ui, on, &choice.label(), &note) {
                         picks.push(Pick::Star(choice.clone()));
                     }
@@ -481,7 +503,7 @@ impl SearchView {
         });
 
         let title = match &self.star_choice {
-            Some(c) => format!("Nearest {} stars", c.label()),
+            Some(c) => format!("Nearest {} stars", star_search_label(c, self.star_size)),
             None => "Nearest stars".to_string(),
         };
         let from = self.stars.as_ref().and_then(|s| s.reference.name.clone()).unwrap_or_else(|| self.star_system.trim().to_string());
@@ -515,10 +537,45 @@ impl SearchView {
         });
     }
 
-    /// "Main star only", max distance, and Search / Copy system.
+    /// Size, "Main star only", max distance, and Search / Copy system.
     fn star_options(&mut self, ui: &mut Ui, picks: &mut Vec<Pick>) {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 10.0;
+            ui.label(RichText::new("Size").font(theme::body(15.0)).color(theme::CYAN)).on_hover_text(
+                "The luminosity class the game gives the star: Ia0 hypergiant, I supergiant, II bright giant, \
+                 III giant, IV subgiant, V main sequence, VI subdwarf, VII white dwarf, neutron star or black hole",
+            );
+            let current = self.star_size.and_then(star_size).map(|s| s.label).unwrap_or("any");
+            let counts = self.star_catalog.as_ref().map(|c| c.sizes.as_slice()).unwrap_or_default();
+            let mut picked: Option<Option<&'static str>> = None;
+            egui::ComboBox::from_id_salt("search-stars-size")
+                .selected_text(RichText::new(current).font(theme::body_semi(15.0)).color(TEXT))
+                .width(170.0)
+                .height(420.0)
+                .show_ui(ui, |ui| {
+                    if ui.selectable_label(self.star_size.is_none(), "any").clicked() {
+                        picked = Some(None);
+                    }
+                    // Largest first: a scale keeps its order.
+                    for size in STAR_SIZES {
+                        let text = match counts.iter().find(|c| c.label == size.key) {
+                            Some(c) => format!("{} · {}", size.label, group(c.count)),
+                            None => size.label.to_string(),
+                        };
+                        if ui.selectable_label(self.star_size == Some(size.key), text).clicked() {
+                            picked = Some(Some(size.key));
+                        }
+                    }
+                });
+            if let Some(size) = picked {
+                if size != self.star_size {
+                    self.star_size = size;
+                    if self.star_choice.is_some() {
+                        picks.push(Pick::StarSearch);
+                    }
+                }
+            }
+            ui.add_space(8.0);
             let main = ui
                 .checkbox(&mut self.star_main_only, RichText::new("Main star only").font(theme::body(15.0)).color(TEXT))
                 .on_hover_text("Only a system's arrival star: one to scoop or boost at as you drop in  (m)");
@@ -552,7 +609,7 @@ impl SearchView {
         });
     }
 
-    /// The results: distance, system, star, type and class, main star, scan date.
+    /// The results: distance, system, star, type and class, radius, main star, scan date.
     fn stars_table(&mut self, ui: &mut Ui, picks: &mut Vec<Pick>) {
         let Some(stars) = &self.stars else { return };
         let selected = self.selected;
@@ -575,7 +632,8 @@ impl SearchView {
                 .column(Column::exact(96.0))
                 .column(Column::remainder().clip(true))
                 .column(Column::remainder().clip(true))
-                .column(Column::exact(150.0))
+                .column(Column::exact(215.0))
+                .column(Column::exact(92.0))
                 .column(Column::exact(60.0))
                 .column(Column::exact(100.0));
             if moved {
@@ -586,6 +644,7 @@ impl SearchView {
                 h.col(|ui| _ = widgets::th(ui, "System"));
                 h.col(|ui| _ = widgets::th(ui, "Star"));
                 h.col(|ui| _ = widgets::th(ui, "Type · class"));
+                h.col(|ui| right(ui, |ui| _ = widgets::th(ui, "Radius")));
                 h.col(|ui| _ = widgets::th(ui, "Main"));
                 h.col(|ui| _ = widgets::th(ui, "Scanned"));
             })
@@ -604,6 +663,8 @@ impl SearchView {
                         None => r.star_type.clone(),
                     };
                     row.col(|ui| _ = ui.add(egui::Label::new(RichText::new(class).font(theme::body(15.5)).color(c(theme::YELLOW))).truncate()));
+                    let radius = r.radius.map(star_radius).unwrap_or_default();
+                    row.col(|ui| right(ui, |ui| _ = ui.label(RichText::new(radius).font(theme::body(15.0)).color(c(TEXT)))));
                     row.col(|ui| {
                         if r.main_star {
                             widgets::badge(ui, "Main", if sel { BG } else { theme::GREEN }).on_hover_text("The system's arrival star");

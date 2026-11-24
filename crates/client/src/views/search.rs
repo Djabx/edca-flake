@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use edcas_common::api::{
-    FactionRank, FactionSearchResult, NearestCommodityQuery, NearestCommodityResult, NearestModuleResult,
+    star_size, FactionRank, FactionSearchResult, NearestCommodityQuery, NearestCommodityResult, NearestModuleResult,
     BodyClassCatalog, NearestBodies, NearestStars, OutfittingModuleInfo, StarTypeCatalog, StarTypeGroup, PopularStation, PopularSystem, StationSuggestion, SystemSearchResult, SystemSuggestion,
 };
 
@@ -92,6 +92,12 @@ impl SearchTab {
         matches!(self, SearchTab::Stars | SearchTab::Bodies)
     }
 
+    /// Whether the field takes a system's name (a search for systems, or the reference
+    /// system of a nearest search): those tabs offer "Current system".
+    pub fn takes_system(self) -> bool {
+        matches!(self, SearchTab::All | SearchTab::Systems | SearchTab::Stars | SearchTab::Bodies)
+    }
+
     fn index(self) -> usize {
         Self::TABS.iter().position(|t| *t == self).unwrap_or(0)
     }
@@ -116,23 +122,26 @@ pub struct Overview {
 // ------------------------------------------------------------------- Stars
 
 /// What the Stars sub-tab searches for: a group of star types or one type, by the name
-/// the server takes in `star_type`.
+/// the server takes in `star_type`, or every type (with a size only).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StarChoice {
+    Any,
     Group(String),
     Type(String),
 }
 
 impl StarChoice {
-    /// The `star_type` token.
-    pub fn token(&self) -> &str {
+    /// The `star_type` token; none for every type.
+    pub fn token(&self) -> Option<&str> {
         match self {
-            StarChoice::Group(g) | StarChoice::Type(g) => g,
+            StarChoice::Any => None,
+            StarChoice::Group(g) | StarChoice::Type(g) => Some(g),
         }
     }
 
     pub fn label(&self) -> String {
         match self {
+            StarChoice::Any => "Any kind".into(),
             StarChoice::Group(g) => group_label(g),
             StarChoice::Type(t) => t.clone(),
         }
@@ -143,6 +152,7 @@ impl StarChoice {
     /// (giants, white dwarfs, carbon stars …) are worth a detour to any star of the system.
     pub fn main_star_default(&self) -> bool {
         match self {
+            StarChoice::Any => false,
             StarChoice::Group(g) => matches!(g.as_str(), "scoopable" | "neutron"),
             StarChoice::Type(t) => ["O", "B", "A", "F", "G", "K", "M", "N"].iter().any(|s| s.eq_ignore_ascii_case(t)),
         }
@@ -180,10 +190,21 @@ fn spaced_title(name: &str) -> String {
     c.next().map(|f| f.to_uppercase().chain(c).collect()).unwrap_or_default()
 }
 
-/// The picker's entries: the groups, then every single type the data has with its count
-/// (`None` for a group). Each of the two parts is in alphabetical order of what the list
-/// shows, whatever order the server sends (it sends the types by count). Without a catalog
-/// (the request failed) it falls back to the known groups.
+/// What a search is for, as the Stars sub-tab names it: the kind, the size, or both
+/// ("Supergiant", "Scoopable (KGBFOAM) giant").
+pub fn star_search_label(choice: &StarChoice, size: Option<&str>) -> String {
+    match (choice, size.and_then(star_size)) {
+        (StarChoice::Any, Some(s)) => s.label.to_string(),
+        (c, Some(s)) => format!("{} {}", c.label(), s.label.to_lowercase()),
+        (c, None) => c.label(),
+    }
+}
+
+/// The picker's entries: "Any kind" (searches by size), the groups, then every single type
+/// the data has with its count (`None` for a group). Groups and types are each in
+/// alphabetical order of what the list shows, whatever order the server sends (it sends
+/// the types by count). Without a catalog (the request failed) it falls back to the known
+/// groups.
 pub fn star_choices(catalog: Option<&StarTypeCatalog>) -> Vec<(StarChoice, Option<i64>)> {
     let groups: Vec<StarTypeGroup> = match catalog {
         Some(c) if !c.groups.is_empty() => c.groups.clone(),
@@ -192,6 +213,7 @@ pub fn star_choices(catalog: Option<&StarTypeCatalog>) -> Vec<(StarChoice, Optio
     let by_label = |entries: &mut Vec<(StarChoice, Option<i64>)>| entries.sort_by_cached_key(|(c, _)| c.label().to_lowercase());
     let mut out: Vec<(StarChoice, Option<i64>)> = groups.into_iter().map(|g| (StarChoice::Group(g.name), None)).collect();
     by_label(&mut out);
+    out.insert(0, (StarChoice::Any, None));
     if let Some(c) = catalog {
         let mut types: Vec<(StarChoice, Option<i64>)> = c.types.iter().map(|t| (StarChoice::Type(t.label.clone()), Some(t.count))).collect();
         by_label(&mut types);
@@ -201,18 +223,30 @@ pub fn star_choices(catalog: Option<&StarTypeCatalog>) -> Vec<(StarChoice, Optio
 }
 
 /// The query pairs for `GET /api/v1/nearest/stars`, or what is wrong with the input.
-/// `system` is the reference system (already defaulted to the current one); `max_distance`
-/// is the field's text, empty for no limit.
-pub fn star_query(choice: &StarChoice, system: &str, main_star: bool, max_distance: &str, limit: usize) -> Result<Vec<(&'static str, String)>, String> {
+/// `size` is a key of `STAR_SIZES`; `system` is the reference system (already defaulted to
+/// the current one); `max_distance` is the field's text, empty for no limit.
+pub fn star_query(
+    choice: &StarChoice,
+    size: Option<&str>,
+    system: &str,
+    main_star: bool,
+    max_distance: &str,
+    limit: usize,
+) -> Result<Vec<(&'static str, String)>, String> {
+    if choice.token().is_none() && size.is_none() {
+        return Err("Pick a size to search stars of any kind".into());
+    }
     let system = system.trim();
     if system.is_empty() {
         return Err("Your current system isn't known yet — type a reference system".into());
     }
-    let mut q = vec![
-        ("star_type", choice.token().to_string()),
-        ("reference_system", system.to_string()),
-        ("limit", limit.to_string()),
-    ];
+    let mut q = vec![("reference_system", system.to_string()), ("limit", limit.to_string())];
+    if let Some(t) = choice.token() {
+        q.push(("star_type", t.to_string()));
+    }
+    if let Some(s) = size {
+        q.push(("size", s.to_string()));
+    }
     if main_star {
         q.push(("main_star", "true".into()));
     }
@@ -539,6 +573,8 @@ pub struct SearchView {
     star_catalog_slot: Slot<StarTypeCatalog>,
     star_catalog_asked: bool,
     star_choice: Option<StarChoice>,
+    /// The size filter, a key of `STAR_SIZES`; `None` for any size.
+    star_size: Option<&'static str>,
     star_main_only: bool,
     /// Max distance in ly as typed; empty for none.
     star_max_distance: String,
@@ -626,6 +662,7 @@ impl SearchView {
             star_catalog_slot: slot(),
             star_catalog_asked: false,
             star_choice: None,
+            star_size: None,
             star_main_only: false,
             star_max_distance: String::new(),
             stars: None,
@@ -733,7 +770,7 @@ impl SearchView {
             }
         }
         let system = self.star_system.trim().to_string();
-        let q = match star_query(&choice, &system, self.star_main_only, &self.star_max_distance, STAR_ROWS) {
+        let q = match star_query(&choice, self.star_size, &system, self.star_main_only, &self.star_max_distance, STAR_ROWS) {
             Ok(q) => q,
             Err(e) => {
                 self.status = e;
@@ -743,7 +780,7 @@ impl SearchView {
         self.stars = None;
         self.selected = 0;
         self.loading = true;
-        self.status = format!("{} stars nearest {system}…", choice.label());
+        self.status = format!("{} stars nearest {system}…", star_search_label(&choice, self.star_size));
         fetch(api, &self.stars_slot, move |api| async move {
             api.nearest_stars(&q).await.map_err(|e| anyhow::anyhow!(star_error(&e, &system)))
         });
@@ -842,6 +879,34 @@ impl SearchView {
     }
 
     /// Enter in the field, or a sub-tab opened with something typed.
+    /// "Current system": the commander's system goes into the field. A search for systems
+    /// runs with it; a nearest search runs from it once a kind is picked.
+    fn use_current_system(&mut self, api: &ApiClient, journal: &JournalData, stations: &mut StationsView, factions: &mut FactionsView) {
+        let Some(name) = journal.current_system.as_ref().map(|s| s.name.trim().to_string()).filter(|n| !n.is_empty()) else {
+            self.status = "Your current system isn't known yet".into();
+            return;
+        };
+        match self.tab {
+            SearchTab::Stars => {
+                self.star_system = name;
+                if self.star_choice.is_some() {
+                    self.search_stars(api, journal);
+                }
+            }
+            SearchTab::Bodies => {
+                self.body_system = name;
+                if self.body_choice.is_some() {
+                    self.search_bodies(api, journal);
+                }
+            }
+            SearchTab::All | SearchTab::Systems => {
+                self.query = name;
+                self.submit(api, journal, stations, factions);
+            }
+            _ => {}
+        }
+    }
+
     fn submit(&mut self, api: &ApiClient, journal: &JournalData, stations: &mut StationsView, factions: &mut FactionsView) {
         self.edited = None;
         let q = self.query.trim().to_string();
@@ -1029,7 +1094,7 @@ impl SearchView {
             match r {
                 Ok(s) => {
                     self.status = if s.results.is_empty() {
-                        let label = self.star_choice.as_ref().map(StarChoice::label).unwrap_or_default();
+                        let label = self.star_choice.as_ref().map(|c| star_search_label(c, self.star_size)).unwrap_or_default();
                         let main = if self.star_main_only { " as a main star" } else { "" };
                         match self.star_max_distance.trim() {
                             "" => format!("No {label} star is known{main}"),
@@ -1366,6 +1431,12 @@ mod tests {
     }
 
     #[test]
+    fn current_system_is_offered_where_the_field_takes_a_system() {
+        let offered: Vec<SearchTab> = SearchTab::TABS.iter().copied().filter(|t| t.takes_system()).collect();
+        assert_eq!(offered, [SearchTab::All, SearchTab::Systems, SearchTab::Stars, SearchTab::Bodies]);
+    }
+
+    #[test]
     fn the_picker_lists_groups_then_types_each_in_alphabetical_order() {
         use edcas_common::api::CountEntry;
         let catalog = StarTypeCatalog {
@@ -1385,12 +1456,15 @@ mod tests {
                 CountEntry { label: "D".into(), count: 10 },
                 CountEntry { label: "A".into(), count: 309_151 },
             ],
+            sizes: vec![],
             computed_at: None,
         };
-        let tokens: Vec<(String, Option<i64>)> = star_choices(Some(&catalog)).into_iter().map(|(c, n)| (c.token().to_string(), n)).collect();
+        let tokens: Vec<(String, Option<i64>)> =
+            star_choices(Some(&catalog)).into_iter().map(|(c, n)| (c.token().unwrap_or("(any)").to_string(), n)).collect();
         assert_eq!(
             tokens,
             [
+                ("(any)".into(), None),
                 // By the label shown: Carbon, Neutron, New kind, Scoopable (KGBFOAM).
                 ("carbon".into(), None),
                 ("neutron".into(), None),
@@ -1407,26 +1481,40 @@ mod tests {
         );
         // Without the server's list: the known groups, nothing else.
         let fallback = star_choices(None);
-        assert_eq!(fallback.len(), STAR_GROUP_LABELS.len());
-        assert_eq!(fallback[0].0, StarChoice::Group("black_hole".into()));
-        assert!(fallback.iter().all(|(c, n)| matches!(c, StarChoice::Group(_)) && n.is_none()));
+        assert_eq!(fallback.len(), 1 + STAR_GROUP_LABELS.len());
+        assert_eq!(fallback[0].0, StarChoice::Any);
+        assert_eq!(fallback[1].0, StarChoice::Group("black_hole".into()));
+        assert!(fallback[1..].iter().all(|(c, n)| matches!(c, StarChoice::Group(_)) && n.is_none()));
     }
 
     #[test]
     fn star_query_carries_only_what_is_set() {
         let n = StarChoice::Group("neutron".into());
-        let q = star_query(&n, " Sol ", true, "", 25).unwrap();
+        let q = star_query(&n, None, " Sol ", true, "", 25).unwrap();
         assert_eq!(
             q,
-            [("star_type", "neutron".into()), ("reference_system", "Sol".into()), ("limit", "25".into()), ("main_star", "true".into())]
+            [("reference_system", "Sol".into()), ("limit", "25".into()), ("star_type", "neutron".into()), ("main_star", "true".into())]
         );
-        let q = star_query(&StarChoice::Type("CN".into()), "Sol", false, " 500 ly", 25).unwrap();
+        let q = star_query(&StarChoice::Type("CN".into()), None, "Sol", false, " 500 ly", 25).unwrap();
         assert_eq!(q.last(), Some(&("max_distance", "500".to_string())));
         assert!(!q.iter().any(|(k, _)| *k == "main_star"));
-        assert_eq!(star_query(&n, "Sol", false, "12,5", 25).unwrap().last(), Some(&("max_distance", "12.5".to_string())));
-        assert!(star_query(&n, "Sol", false, "far", 25).unwrap_err().contains("far"));
-        assert!(star_query(&n, "Sol", false, "1,000", 25).unwrap_err().contains("without separators"));
-        assert!(star_query(&n, "  ", false, "", 25).unwrap_err().contains("current system"));
+        assert_eq!(star_query(&n, None, "Sol", false, "12,5", 25).unwrap().last(), Some(&("max_distance", "12.5".to_string())));
+        assert!(star_query(&n, None, "Sol", false, "far", 25).unwrap_err().contains("far"));
+        assert!(star_query(&n, None, "Sol", false, "1,000", 25).unwrap_err().contains("without separators"));
+        assert!(star_query(&n, None, "  ", false, "", 25).unwrap_err().contains("current system"));
+    }
+
+    #[test]
+    fn any_kind_searches_by_size_only() {
+        let q = star_query(&StarChoice::Any, Some("supergiant"), "Sol", false, "", 25).unwrap();
+        assert_eq!(q, [("reference_system", "Sol".into()), ("limit", "25".into()), ("size", "supergiant".into())]);
+        assert!(star_query(&StarChoice::Any, None, "Sol", false, "", 25).unwrap_err().contains("size"));
+        let g = star_query(&StarChoice::Type("G".into()), Some("giant"), "Sol", false, "", 25).unwrap();
+        assert!(g.contains(&("star_type", "G".into())) && g.contains(&("size", "giant".into())));
+        assert_eq!(star_search_label(&StarChoice::Any, Some("supergiant")), "Supergiant");
+        assert_eq!(star_search_label(&StarChoice::Group("scoopable".into()), Some("giant")), "Scoopable (KGBFOAM) giant");
+        assert_eq!(star_search_label(&StarChoice::Type("N".into()), None), "N");
+        assert!(!StarChoice::Any.main_star_default());
     }
 
     #[test]

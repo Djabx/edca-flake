@@ -63,7 +63,9 @@ impl PilotView {
 
         if journal.status.valid {
             let title = if journal.status.on_foot() { "Suit status" } else { "Ship status" };
-            card(ui, "status", title, "live", |ui| ship_status(ui, journal));
+            // After a Shutdown, Status.json holds the moment the game was closed.
+            let when = if journal.latest_event == "Shutdown" { "last session" } else { "live" };
+            card(ui, "status", title, when, |ui| ship_status(ui, journal));
         }
 
         if !p.power.is_empty() {

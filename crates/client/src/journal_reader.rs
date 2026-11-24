@@ -345,7 +345,10 @@ pub struct PilotData {
     /// Minimum landing pad size required by the current ship: 'S', 'M', or 'L'.
     /// Defaults to 'S' (no restriction) until a Loadout event is processed.
     pub ship_pad_size: char,
-    pub fuel_level: f32,
+    /// Fuel in the main tank, in tons, as the last event told it: `LoadGame`, `FSDJump`,
+    /// `FuelScoop`, a refuel, or Status.json while the commander sits in the ship. None
+    /// after a ship swap until one of them comes.
+    pub fuel_level: Option<f32>,
     pub fuel_capacity: f32,
     pub reserve_fuel_capacity: f32,
     pub hull_health: f32,
@@ -390,7 +393,7 @@ impl Default for PilotData {
             ship_name: String::new(),
             ship_ident: String::new(),
             ship_pad_size: 'S',
-            fuel_level: 0.0,
+            fuel_level: None,
             fuel_capacity: 0.0,
             reserve_fuel_capacity: 0.0,
             hull_health: 0.0,
@@ -442,6 +445,8 @@ pub struct StatusData {
     pub firegroup: u8,
     /// Current main-tank fuel in tons.
     pub fuel_main: f32,
+    /// Whether Status.json held `Fuel` (in a ship; not on foot or at the main menu).
+    pub fuel_known: bool,
     /// Cargo currently carried, in tons.
     pub cargo_tons: f32,
     pub legal_state: String,
@@ -726,6 +731,34 @@ impl JournalData {
 
     /// Takes a fresh Status.json snapshot. Targeting a body of the current system in the
     /// game focuses it; a station or another system's target doesn't.
+    /// Keeps [`PilotData::fuel_level`] with the journal's fuel events.
+    fn track_fuel(&mut self, v: &serde_json::Value) {
+        let p = &mut self.pilot;
+        match v["event"].as_str() {
+            Some("LoadGame" | "FSDJump") => {
+                if let Some(level) = v["FuelLevel"].as_f64() {
+                    p.fuel_level = Some(level as f32);
+                }
+            }
+            Some("FuelScoop") => {
+                if let Some(total) = v["Total"].as_f64() {
+                    p.fuel_level = Some(total as f32);
+                }
+            }
+            Some("RefuelAll") if p.fuel_capacity > 0.0 => p.fuel_level = Some(p.fuel_capacity),
+            Some("RefuelPartial") => {
+                let amount = v["Amount"].as_f64().unwrap_or(0.0) as f32;
+                p.fuel_level = p.fuel_level.map(|level| {
+                    let full = level + amount;
+                    if p.fuel_capacity > 0.0 { full.min(p.fuel_capacity) } else { full }
+                });
+            }
+            // Another ship: its tank is unknown until the next fuel event or Status.json.
+            Some("ShipyardSwap" | "ShipyardNew") => p.fuel_level = None,
+            _ => {}
+        }
+    }
+
     pub fn take_status(&mut self, status: StatusData) {
         let retargeted = (status.destination_system, status.destination_body, &status.destination)
             != (self.status.destination_system, self.status.destination_body, &self.status.destination);
@@ -733,6 +766,10 @@ impl JournalData {
         let a_body = self.bodies.iter().any(|b| b.body_id == status.destination_body && b.body_name == status.destination);
         if retargeted && here && a_body {
             self.focus_body(status.destination_body);
+        }
+        // In an SRV, fighter or taxi Status.json's fuel is that vehicle's, not the ship's.
+        if status.fuel_known && !status.in_srv() && !status.in_fighter() && !status.on_foot() && !status.in_taxi() {
+            self.pilot.fuel_level = Some(status.fuel_main);
         }
         let before = self.body_name_here().to_string();
         self.status = status;
@@ -776,6 +813,8 @@ impl JournalData {
             }
             _ => {}
         }
+
+        self.track_fuel(&value);
 
         // Loadout carries per-module health and detailed ship stats not in the typed event system.
         // Extract it before from_json consumes value.
@@ -1140,7 +1179,6 @@ impl JournalData {
                             self.pilot.ship_pad_size = ship_pad_size(ship_internal);
                             self.pilot.ship_name = v["ShipName"].as_str().unwrap_or("").to_string();
                             self.pilot.ship_ident = v["ShipIdent"].as_str().unwrap_or("").to_string();
-                            self.pilot.fuel_level = v["FuelLevel"].as_f64().unwrap_or(0.0) as f32;
                             self.pilot.game_mode = v["GameMode"].as_str().unwrap_or("").to_string();
                             self.pilot.horizons = v["Horizons"].as_bool().unwrap_or(false);
                             self.pilot.odyssey = v["Odyssey"].as_bool().unwrap_or(false);
@@ -2298,6 +2336,7 @@ fn load_status_file(path: &Path) -> Option<StatusData> {
         pips_wep: pip(2),
         firegroup: v["FireGroup"].as_u64().unwrap_or(0) as u8,
         fuel_main: v["Fuel"]["FuelMain"].as_f64().unwrap_or(0.0) as f32,
+        fuel_known: v["Fuel"]["FuelMain"].is_number(),
         cargo_tons: v["Cargo"].as_f64().unwrap_or(0.0) as f32,
         legal_state: v["LegalState"].as_str().unwrap_or("").to_string(),
         body_name: v["BodyName"].as_str().unwrap_or("").to_string(),
@@ -2332,21 +2371,56 @@ fn load_existing_files(
     // during backfill to avoid double-counting events already included in the snapshot.
     let seeded_ids = seed_my_carrier_cargo(data);
 
+    let session = last_session_len(&files);
+
     // Backfill carrier cargo from previous sessions before processing the current
-    // file so that chronological order is preserved for correct running totals.
-    let prev_files: Vec<PathBuf> = files.iter().skip(1).take(15).rev().cloned().collect();
+    // one so that chronological order is preserved for correct running totals.
+    let prev_files: Vec<PathBuf> = files.iter().skip(session).take(15).rev().cloned().collect();
     if !prev_files.is_empty() {
         info!("Backfilling carrier cargo from {} previous journal files", prev_files.len());
         backfill_carrier_cargo(&prev_files, data, &seeded_ids);
     }
 
-    info!("Loading journal file: {}", files[0].display());
-    read_file_lines(&files[0], data, None, None);
+    for file in files[..session].iter().rev() {
+        info!("Loading journal file: {}", file.display());
+        read_file_lines(file, data, None, None);
+    }
     // After replaying the journal the skip-window is no longer needed; live events must
     // always be applied unconditionally.
     data.carrier_cargo_skip_before = None;
 
     backfill_current_system(dir, data);
+}
+
+/// Most journals [`last_session_len`] walks back for the start of the last session.
+const SESSION_MAX_FILES: usize = 30;
+
+/// How many of the newest journals (`files`, newest first) make up the last play session:
+/// those up to and including the newest one with a `LoadGame`, the game loading into the
+/// galaxy. Replaying them gives the commander, ship, cargo, materials and place where the
+/// last session left them, with the game closed too.
+///
+/// The newest journal alone isn't that. Starting the game and quitting at the main menu
+/// writes a journal of a `Fileheader`, a few `Friends` and a `Shutdown` (130 of one
+/// commander's 1,962 journals had no `LoadGame` on 2026-11-23, 121 of them 6 lines or
+/// fewer), and a long session goes on in a second part (`Journal.<time>.02.log`)
+/// without the `LoadGame` and `Location` of the first. With no
+/// `LoadGame` among the [`SESSION_MAX_FILES`] newest, the newest journal alone.
+fn last_session_len(files: &[PathBuf]) -> usize {
+    files
+        .iter()
+        .take(SESSION_MAX_FILES)
+        .position(|f| journal_loads_game(f))
+        .map_or(1, |i| i + 1)
+        .min(files.len())
+}
+
+/// Whether the journal at `path` holds a `LoadGame`.
+fn journal_loads_game(path: &Path) -> bool {
+    let Ok(file) = File::open(path) else {
+        return false;
+    };
+    BufReader::new(file).lines().map_while(Result::ok).any(|line| line.contains("\"event\":\"LoadGame\""))
 }
 
 /// Most older journals [`backfill_current_system`] walks back when it can't find the
@@ -2934,9 +3008,10 @@ pub fn find_all_journal_files(dir: &Path) -> Vec<PathBuf> {
         })
         .filter_map(|e| {
             let name = e.file_name().to_string_lossy().to_string();
-            parse_journal_timestamp(&name).map(|ts| (e.path(), ts))
+            parse_journal_timestamp(&name).map(|ts| (e.path(), (ts, journal_part(&name))))
         })
         .collect();
+    // A session's parts share its start time: `.02` comes after `.01`.
     files.sort_by(|a, b| b.1.cmp(&a.1));
     files.into_iter().map(|(path, _)| path).collect()
 }
@@ -3127,6 +3202,15 @@ fn load_previous_scans_for_system(
             }
             _ => {}
         }
+    }
+}
+
+/// The part number of a journal's name (`Journal.<time>.02.log` is 2), 0 when it has none.
+fn journal_part(filename: &str) -> u32 {
+    let parts: Vec<&str> = filename.split('.').collect();
+    match parts.as_slice() {
+        [_, _, part, "log"] => part.parse().unwrap_or(0),
+        _ => 0,
     }
 }
 
@@ -3780,6 +3864,136 @@ mod restart_backfill_tests {
         let last = last.expect("watcher sent data");
         let names: Vec<&str> = last.bodies.iter().map(|b| b.body_name.as_str()).collect();
         assert_eq!(names, ["S42 5"]);
+    }
+
+    fn journal_folder(name: &str, journals: &[(&str, Vec<String>)]) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("edcas-{name}-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).unwrap();
+        for (file, lines) in journals {
+            std::fs::write(dir.join(file), lines.join("\n")).unwrap();
+        }
+        dir
+    }
+    const FILEHEADER: &str = r#"{ "timestamp":"2026-10-27T08:00:00Z", "event":"Fileheader", "part":1 }"#;
+    const SHUTDOWN: &str = r#"{ "timestamp":"2026-10-27T08:00:30Z", "event":"Shutdown" }"#;
+
+    // Starting the game and quitting at the main menu writes a journal without the
+    // commander, ship or place: the session before it is what the client shows.
+    #[test]
+    fn a_menu_only_journal_keeps_the_last_session() {
+        let dir = journal_folder(
+            "menu-only",
+            &[
+                ("Journal.2026-10-26T120000.01.log", vec![LOAD_GAME.into(), location_in("2026-10-26T12:00:01Z", 42), SHUTDOWN.into()]),
+                ("Journal.2026-10-27T080000.01.log", vec![FILEHEADER.into(), SHUTDOWN.into()]),
+            ],
+        );
+        let mut data = JournalData::new();
+        load_existing_files(&dir, &mut data);
+        std::fs::remove_dir_all(&dir).ok();
+        assert_eq!(data.pilot.name, "Test");
+        assert_eq!(data.pilot.credits, 1);
+        assert_eq!(data.current_system.as_ref().map(|s| s.system_address), Some(42));
+        assert_eq!(data.latest_event, "Shutdown");
+    }
+
+    // A long session goes on in a second part, which has no LoadGame or Location.
+    #[test]
+    fn a_sessions_second_part_is_read_after_its_first() {
+        let dir = journal_folder(
+            "parts",
+            &[
+                ("Journal.2026-10-26T080000.01.log", vec![jump_to("2026-10-26T08:00:00Z", 41)]),
+                ("Journal.2026-10-26T120000.01.log", vec![LOAD_GAME.into(), location_in("2026-10-26T12:00:01Z", 42)]),
+                ("Journal.2026-10-26T120000.02.log", vec![jump_to("2026-10-26T15:00:00Z", 43)]),
+            ],
+        );
+        let files = find_all_journal_files(&dir);
+        let names: Vec<_> = files.iter().map(|f| f.file_name().unwrap().to_string_lossy().into_owned()).collect();
+        assert_eq!(names, ["Journal.2026-10-26T120000.02.log", "Journal.2026-10-26T120000.01.log", "Journal.2026-10-26T080000.01.log"]);
+        assert_eq!(last_session_len(&files), 2);
+        let mut data = JournalData::new();
+        load_existing_files(&dir, &mut data);
+        std::fs::remove_dir_all(&dir).ok();
+        assert_eq!(data.pilot.name, "Test");
+        assert_eq!(data.current_system.as_ref().map(|s| s.system_address), Some(43));
+    }
+
+    #[test]
+    fn without_a_load_game_the_newest_journal_alone_is_read() {
+        let dir = journal_folder(
+            "no-load-game",
+            &[
+                ("Journal.2026-10-26T080000.01.log", vec![jump_to("2026-10-26T08:00:00Z", 41)]),
+                ("Journal.2026-10-26T120000.01.log", vec![jump_to("2026-10-26T12:00:00Z", 42)]),
+            ],
+        );
+        let files = find_all_journal_files(&dir);
+        std::fs::remove_dir_all(&dir).ok();
+        assert_eq!(last_session_len(&files), 1);
+    }
+
+    #[test]
+    fn journal_part_numbers() {
+        assert_eq!(journal_part("Journal.2026-10-26T120000.02.log"), 2);
+        assert_eq!(journal_part("Journal.2026-10-26T120000.01.log"), 1);
+        assert_eq!(journal_part("Journal.2026-10-26T120000.log"), 0);
+    }
+}
+
+#[cfg(test)]
+mod fuel_tests {
+    use super::*;
+
+    fn feed(data: &mut JournalData, lines: &[&str]) {
+        for line in lines {
+            data.process_line(line);
+        }
+    }
+    const LOAD_CORSAIR: &str = r#"{ "timestamp":"2026-11-23T08:20:49Z", "event":"LoadGame", "Commander":"Test", "Ship":"Corsair", "ShipID":153, "FuelLevel":96.0, "FuelCapacity":96.0, "Credits":1 }"#;
+    const LOADOUT_MANDALAY: &str = r#"{ "timestamp":"2026-11-23T08:40:00Z", "event":"Loadout", "Ship":"mandalay", "ShipID":150, "FuelCapacity":{ "Main":32.0, "Reserve":0.5 }, "Modules":[] }"#;
+
+    // 2026-11-23: a swap from the Corsair (96 t) to the Mandalay (32 t) showed 96 of 32 t.
+    #[test]
+    fn a_ship_swap_forgets_the_old_ships_fuel() {
+        let mut data = JournalData::new();
+        feed(&mut data, &[
+            LOAD_CORSAIR,
+            r#"{ "timestamp":"2026-11-23T08:39:00Z", "event":"ShipyardSwap", "ShipType":"mandalay", "ShipID":150, "StoreOldShip":"Corsair", "StoreShipID":153 }"#,
+            LOADOUT_MANDALAY,
+        ]);
+        assert_eq!(data.pilot.fuel_capacity, 32.0);
+        assert_eq!(data.pilot.fuel_level, None);
+        data.take_status(StatusData { valid: true, fuel_main: 24.7, fuel_known: true, ..Default::default() });
+        assert_eq!(data.pilot.fuel_level, Some(24.7));
+    }
+
+    #[test]
+    fn jumps_scooping_and_refuels_move_the_fuel() {
+        let mut data = JournalData::new();
+        feed(&mut data, &[LOAD_CORSAIR, LOADOUT_MANDALAY.replace("08:40", "08:21").as_str()]);
+        assert_eq!(data.pilot.fuel_level, Some(96.0));
+        feed(&mut data, &[r#"{ "timestamp":"2026-11-23T09:00:00Z", "event":"FSDJump", "StarSystem":"A", "SystemAddress":1, "StarPos":[0.0,0.0,0.0], "FuelUsed":4.0, "FuelLevel":20.5 }"#]);
+        assert_eq!(data.pilot.fuel_level, Some(20.5));
+        feed(&mut data, &[r#"{ "timestamp":"2026-11-23T09:01:00Z", "event":"FuelScoop", "Scooped":5.0, "Total":25.5 }"#]);
+        assert_eq!(data.pilot.fuel_level, Some(25.5));
+        feed(&mut data, &[r#"{ "timestamp":"2026-11-23T09:02:00Z", "event":"RefuelPartial", "Cost":100, "Amount":10.0 }"#]);
+        assert_eq!(data.pilot.fuel_level, Some(32.0));
+        feed(&mut data, &[r#"{ "timestamp":"2026-11-23T09:03:00Z", "event":"FSDJump", "StarSystem":"B", "SystemAddress":2, "StarPos":[0.0,0.0,0.0], "FuelUsed":4.0, "FuelLevel":28.0 }"#,
+            r#"{ "timestamp":"2026-11-23T09:04:00Z", "event":"RefuelAll", "Cost":100, "Amount":4.0 }"#]);
+        assert_eq!(data.pilot.fuel_level, Some(32.0));
+    }
+
+    // In the SRV Status.json's fuel is the SRV's.
+    #[test]
+    fn status_fuel_counts_only_in_the_ship() {
+        let mut data = JournalData::new();
+        feed(&mut data, &[LOAD_CORSAIR]);
+        data.take_status(StatusData { valid: true, flags: 1 << 26, fuel_main: 0.4, fuel_known: true, ..Default::default() });
+        assert_eq!(data.pilot.fuel_level, Some(96.0));
+        data.take_status(StatusData { valid: true, flags2: 1, ..Default::default() });
+        assert_eq!(data.pilot.fuel_level, Some(96.0));
     }
 }
 

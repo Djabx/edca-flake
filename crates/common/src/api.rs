@@ -913,10 +913,13 @@ pub struct NearestStar {
     pub star_name: String,
     /// As the journal names it: `M`, `N`, `CN`, `M_RedGiant`, ...
     pub star_type: String,
-    /// Luminosity class (`V`, `Va`, `III`, ...).
+    /// Luminosity class (`V`, `Va`, `III`, ...): the star's size, see [`STAR_SIZES`].
     pub luminosity: Option<String>,
     /// Solar masses.
     pub stellar_mass: Option<f32>,
+    /// Metres, as the journal gives it. Absent from servers before 0.9.16.
+    #[serde(default)]
+    pub radius: Option<f32>,
     /// Kelvin.
     pub surface_temperature: Option<f32>,
     /// Million years.
@@ -940,7 +943,51 @@ pub struct StarTypeCatalog {
     /// Every star type present in the data with its count, most first. Empty for a short
     /// while after a server start, until the counts are first computed.
     pub types: Vec<CountEntry>,
+    /// Stars of each size ([`STAR_SIZES`], by key) in the data, in that table's order. Empty
+    /// until the counts are first computed, and from servers before 0.9.16.
+    #[serde(default)]
+    pub sizes: Vec<CountEntry>,
     pub computed_at: Option<DateTime<Utc>>,
+}
+
+/// A star's size, by the Morgan–Keenan luminosity classes the journal gives every star
+/// (`Luminosity` in a star's Scan): the `size` filter of `GET /api/v1/nearest/stars`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StarSize {
+    /// The `size` token.
+    pub key: &'static str,
+    /// What the pickers show.
+    pub label: &'static str,
+    /// The luminosity classes it stands for, as the journal writes them.
+    pub classes: &'static [&'static str],
+}
+
+/// The sizes, largest first: an ordinal scale, so the pickers keep this order. The class
+/// is Elite's own label and does not always follow the radius: of 9.4 M stars in the
+/// database (2026-11-23) the median radius was 389 – 497 R☉ for Ia0, 41 – 53 R☉ for the
+/// other supergiant classes of the `*SuperGiant` types, 10 – 52 R☉ for giants (III), 1 – 3
+/// R☉ for subgiants and 0.25 – 2 R☉ on the main sequence; but Elite gives every
+/// Wolf-Rayet star class I (6.5 R☉) and 11,471 `M_RedGiant` stars class IVb (0.5 R☉).
+/// Class VII is every stellar remnant: white dwarfs, neutron stars and black holes.
+pub const STAR_SIZES: &[StarSize] = &[
+    StarSize { key: "hypergiant", label: "Hypergiant", classes: &["Ia0"] },
+    StarSize { key: "supergiant", label: "Supergiant", classes: &["I", "Ia", "Iab", "Ib"] },
+    StarSize { key: "bright_giant", label: "Bright giant", classes: &["II", "IIa", "IIab", "IIb"] },
+    StarSize { key: "giant", label: "Giant", classes: &["III", "IIIa", "IIIab", "IIIb"] },
+    StarSize { key: "subgiant", label: "Subgiant", classes: &["IV", "IVa", "IVab", "IVb"] },
+    StarSize { key: "main_sequence", label: "Main sequence", classes: &["V", "Va", "Vab", "Vb", "Vz"] },
+    StarSize { key: "subdwarf", label: "Subdwarf", classes: &["VI"] },
+    StarSize { key: "remnant", label: "Stellar remnant", classes: &["VII"] },
+];
+
+/// The size a `size` token names (case-insensitive).
+pub fn star_size(key: &str) -> Option<&'static StarSize> {
+    STAR_SIZES.iter().find(|s| s.key.eq_ignore_ascii_case(key.trim()))
+}
+
+/// The size a luminosity class belongs to.
+pub fn size_of_class(class: &str) -> Option<&'static StarSize> {
+    STAR_SIZES.iter().find(|s| s.classes.contains(&class))
 }
 
 /// A named group of star types (`scoopable`, `white_dwarf`, ...).
@@ -1184,4 +1231,31 @@ pub struct CodexEntryStat {
     pub last_seen: Option<DateTime<Utc>>,
     /// Finds per galactic region (`$Codex_RegionName_18;`), most first.
     pub regions: Vec<CountEntry>,
+}
+
+#[cfg(test)]
+mod star_size_tests {
+    use super::*;
+
+    /// Every luminosity class in the database (2026-11-23) has exactly one size; the
+    /// stray `O` (8 stars, a type, not a class) has none.
+    #[test]
+    fn every_class_seen_has_one_size() {
+        let seen = [
+            "Va", "V", "Vab", "VI", "VII", "Vb", "Vz", "IVb", "I", "IIIb", "III", "IVa", "IVab", "IV", "IIIab", "IIab",
+            "Iab", "Ib", "IIIa", "Ia0", "II", "IIa", "Ia", "IIb",
+        ];
+        for class in seen {
+            let n = STAR_SIZES.iter().filter(|s| s.classes.contains(&class)).count();
+            assert_eq!(n, 1, "{class}");
+        }
+        assert!(size_of_class("O").is_none());
+        assert_eq!(size_of_class("IIIab").unwrap().key, "giant");
+    }
+
+    #[test]
+    fn sizes_are_found_by_key_in_any_case() {
+        assert_eq!(star_size(" Bright_Giant").unwrap().label, "Bright giant");
+        assert!(star_size("dwarf").is_none());
+    }
 }
