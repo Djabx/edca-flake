@@ -38,6 +38,8 @@ use tracing::{info, warn};
 use crate::journal_reader::{BodyScan, JournalData, Place};
 use crate::planet_clouds::{self, Clouds, Forecast};
 use crate::planet_dust::{self, Dust};
+use crate::black_hole;
+use crate::post_effects::PostLook;
 use crate::star_light::{self, StarLight};
 use crate::settings::game_graphics::{FadeWay, GameGraphicsSettings, GaugeLook, PartLook, TintMode, DUST_REACH_RANGE, FOG_DEPTH_RANGE, MAX_LOOK_PERCENT};
 use crate::settings::Settings;
@@ -182,7 +184,7 @@ impl Tint {
 /// is no tint) stay as they were.
 pub fn params_text(existing: &str, look: &Look) -> String {
     let ours = look.assignments();
-    let mut text = String::from("; written by EDCAS: planet ground tint (x500 y500 z500 w500), ground detail (x511, z511, $ground_type) and its ice look's switches (x520, w520), clouds (x503 to w504, z505, x501 to w501, x502, y502, their shadow z502, the air's Rayleigh depth x550 y550 z550 and methane w550, x507, w507, y507, x508, x509, w509, x521 to w521, the waves x529 y529, the deck's cells and rows z529 w529, the fall streaks x530, the smooth veil and its halo y530 z530, a droplet layer's edges w530, the haze x522 to w522 and x528 to z528), dust (x515 to z516, x519 to w519, the haze x531 y531), the star's light (x526 y526 z526 w526, x527 the witch-space rainbow), the HUD (the gauges x533 to w533 and x535 to w539, the colour's turn and brightness x534 y534 on the panels, x542 y542 on the head-up lines, x543 y543 on the radar, a part's own colour y z w of 544 to 546, the holograms' colours y540 z540 w540 and y541 z541 w541)\n");
+    let mut text = String::from("; written by EDCAS: planet ground tint (x500 y500 z500 w500), ground detail (x511, z511, $ground_type) and its ice look's switches (x520, w520), clouds (x503 to w504, z505, x501 to w501, x502, y502, their shadow z502, the air's Rayleigh depth x550 y550 z550 and methane w550, x507, w507, y507, x508, x509, w509, x521 to w521, the waves x529 y529, the deck's cells and rows z529 w529, the fall streaks x530, the smooth veil and its halo y530 z530, a droplet layer's edges w530, the haze x522 to w522 and x528 to z528), dust (x515 to z516, x519 to w519, the haze x531 y531), the star's light (x526 y526 z526 w526, x527 the witch-space rainbow), the HUD (the gauges x533 to w533 and x535 to w539, the colour's turn and brightness x534 y534 on the panels, x542 y542 on the head-up lines, x543 y543 on the radar, a part's own colour y z w of 544 to 546, the holograms' colours y540 z540 w540 and y541 z541 w541), a black hole's accretion disc (x551 to w551, x552 to z552, the blackbody table x560 to z591) whether EDCAS's lens is on (x553) and the post effects (x600 to z611)\n");
     for (name, value) in &ours {
         text.push_str(&format!("{name} = {value}\n"));
     }
@@ -293,6 +295,11 @@ pub struct Look {
     /// The ship's HUD in other colours (see [`crate::shader_mods::hud`]): the player's choice,
     /// whatever the place.
     pub hud: HudLook,
+    /// The accretion disc of the black hole the commander is at (see [`crate::black_hole`]).
+    pub disc: black_hole::Disc,
+    /// The post effects on the tonemapped picture (see [`crate::post_effects`]): the player's
+    /// choice, whatever the place.
+    pub post: PostLook,
 }
 
 /// The rows of the HUD's shader copies ([`crate::shader_mods::hud`]).
@@ -405,7 +412,7 @@ impl HudLook {
 }
 
 impl Look {
-    pub const NONE: Look = Look { tint: Tint::NONE, clouds: Clouds::NONE, dust: Dust::NONE, detail: Detail::NONE, star: StarLight::NONE, hud: HudLook::NONE };
+    pub const NONE: Look = Look { tint: Tint::NONE, clouds: Clouds::NONE, dust: Dust::NONE, detail: Detail::NONE, star: StarLight::NONE, hud: HudLook::NONE, disc: black_hole::Disc::NONE, post: PostLook::NONE };
 
     /// The values file's lines for it.
     pub fn assignments(&self) -> Vec<(&'static str, String)> {
@@ -415,6 +422,8 @@ impl Look {
         ours.extend(self.detail.assignments());
         ours.extend(self.star.assignments());
         ours.extend(self.hud.assignments());
+        ours.extend(self.disc.assignments());
+        ours.extend(self.post.assignments());
         ours
     }
 }
@@ -455,10 +464,10 @@ fn look_scale(percent: u16) -> f32 {
 }
 
 /// The clouds for `body` (where the commander is), given the settings: none while they
-/// are off or the commander is at no scanned body.
+/// are off or the commander is at no scanned body; while off, the body's radius and air still.
 fn clouds_at(g: &GameGraphicsSettings, body: Option<&BodyScan>) -> Forecast {
     if !g.planet_clouds {
-        return Forecast::AIRLESS;
+        return body.map_or(Forecast::AIRLESS, |b| planet_clouds::for_body(b, 0.0).body_only());
     }
     let strength = f32::from(g.planet_clouds_strength) / 100.0;
     let mut forecast = body.map_or(Forecast::AIRLESS, |b| planet_clouds::for_body(b, strength));
@@ -525,7 +534,8 @@ fn star_at(g: &GameGraphicsSettings, near: Option<&BodyScan>, lists: &[&[BodySca
 /// and the server's), for the stars that light it.
 fn look_at(g: &GameGraphicsSettings, body: Option<&BodyScan>, near: Option<&BodyScan>, lists: &[&[BodyScan]], jump: Option<&str>) -> Look {
     let dust = dust_at(g, body);
-    Look { tint: tint_at(g, body), clouds: clouds_at(g, body).clouds, dust, detail: detail_at(g, body), star: star_at(g, near, lists, jump), hud: HudLook::of(g) }
+    let disc = black_hole::at(near, lists);
+    Look { tint: tint_at(g, body), clouds: clouds_at(g, body).clouds, dust, detail: detail_at(g, body), star: star_at(g, near, lists, jump), hud: HudLook::of(g), disc, post: PostLook::of(g) }
 }
 
 /// What the GUI and the journal reader hand to the background thread. Each part is its
@@ -680,6 +690,11 @@ pub fn tick(feed: &Feed, updater: &mut Updater) {
         (place.body_name.clone(), look_at(&config.graphics, body, near, &lists, place.jump.as_deref()))
     };
     let dir = game_dir_of(&config.graphics.game_folder, &config.journal_directory).filter(|d| installed(d));
+    // EDCAS's lens only with the star lens's copy in place (else Elite's stars stand in the physical shadow).
+    let mut wanted = wanted;
+    if let Some(d) = dir.as_deref() {
+        wanted.disc.hole = crate::shader_mods::black_hole_lens(d, wanted.disc.hole, crate::shader_mods::Wanted::of(&config.graphics));
+    }
     let keep_tint_on_close = config.graphics.ground_tint && config.graphics.ground_tint_mode == TintMode::Fixed;
     updater.step(dir.as_deref(), keep_tint_on_close, &body_name, wanted);
 }
@@ -778,12 +793,12 @@ impl Updater {
 impl Drop for Updater {
     /// Without EDCAS running nobody would change a planet's tint, clouds, dust or ground detail
     /// at the next planet, nor the star's light (or the witch-space rainbow) at the next system,
-    /// so they go; a fixed colour stays, and so do the HUD's colours, a choice of the
-    /// player's that no place changes.
+    /// so they go; a fixed colour stays, and so do the HUD's colours and the post effects,
+    /// choices of the player's that no place changes.
     fn drop(&mut self) {
         if let Some(w) = &self.written {
             let tint = if w.keep_tint_on_close { self.target.map_or(Tint::NONE, |t| t.tint) } else { Tint::NONE };
-            let reset = Look { tint, hud: self.target.map_or(HudLook::NONE, |t| t.hud), ..Look::NONE };
+            let reset = Look { tint, hud: self.target.map_or(HudLook::NONE, |t| t.hud), post: self.target.map_or(PostLook::NONE, |t| t.post), ..Look::NONE };
             if w.ours != reset.assignments() {
                 let text = params_text(&std::fs::read_to_string(&w.path).unwrap_or_default(), &reset);
                 let _ = write_atomically(&w.path, &text);
@@ -952,16 +967,16 @@ mod tests {
         // With clouds and a tint all eighteen are written (and the dust's x515) and x505 stays; stale x, x503, y503 don't double up.
         let tinted = Tint { strength: 0.5, colour: [1.1, 1.3, 1.6] };
         let star = StarLight { colour: [1.9, 0.8, 0.2], strength: 1.0, rainbow: false };
-        let text = params_text(existing, &Look { tint: tinted, clouds: cloudy, dust: Dust::NONE, detail: Detail::NONE, star, hud: HudLook { gauges: [[1.0, 0.0, 0.0, 0.0], [0.0; 4], [0.0; 4], [0.0; 4], [0.0; 4], [0.0; 4]], ..HudLook::NONE } });
+        let text = params_text(existing, &Look { tint: tinted, clouds: cloudy, dust: Dust::NONE, detail: Detail::NONE, star, hud: HudLook { gauges: [[1.0, 0.0, 0.0, 0.0], [0.0; 4], [0.0; 4], [0.0; 4], [0.0; 4], [0.0; 4]], ..HudLook::NONE }, disc: black_hole::Disc::NONE, post: PostLook::NONE });
         let names: Vec<_> = text.lines().filter_map(|l| l.split_once(" = ")).map(|(n, _)| n).collect();
-        assert_eq!(names, ["x500", "y500", "z500", "w500", "x503", "y503", "z503", "w503", "x504", "y504", "w504", "z505", "x501", "y501", "z501", "w501", "x502", "y502", "z502", "x550", "y550", "z550", "w550", "x507", "w507", "y507", "x508", "x509", "w509", "x521", "y521", "z521", "w521", "x529", "y529", "z529", "w529", "x530", "y530", "z530", "w530", "x522", "x515", "x531", "x511", "z511", "x520", "w520", "x526", "y526", "z526", "w526", "x527", "x533", "y533", "z533", "w533", "x535", "y535", "z535", "w535", "x536", "y536", "z536", "w536", "x537", "y537", "z537", "w537", "x538", "y538", "z538", "w538", "x539", "y539", "z539", "w539", "x534", "y534", "x542", "y542", "x543", "y543", "y540", "z540", "w540", "y541", "z541", "w541", "y544", "z544", "w544", "y545", "z545", "w545", "y546", "z546", "w546", "x547", "y547", "z547", "w547", "x548", "y548", "z548", "w548", "x549", "y549", "z549", "w549", "x505", "X1"], "{text}");
+        assert_eq!(names, ["x500", "y500", "z500", "w500", "x503", "y503", "z503", "w503", "x504", "y504", "w504", "z505", "x501", "y501", "z501", "w501", "x502", "y502", "z502", "x550", "y550", "z550", "w550", "x507", "w507", "y507", "x508", "x509", "w509", "x521", "y521", "z521", "w521", "x529", "y529", "z529", "w529", "x530", "y530", "z530", "w530", "x522", "x515", "x531", "x511", "z511", "x520", "w520", "x526", "y526", "z526", "w526", "x527", "x533", "y533", "z533", "w533", "x535", "y535", "z535", "w535", "x536", "y536", "z536", "w536", "x537", "y537", "z537", "w537", "x538", "y538", "z538", "w538", "x539", "y539", "z539", "w539", "x534", "y534", "x542", "y542", "x543", "y543", "y540", "z540", "w540", "y541", "z541", "w541", "y544", "z544", "w544", "y545", "z545", "w545", "y546", "z546", "w546", "x547", "y547", "z547", "w547", "x548", "y548", "z548", "w548", "x549", "y549", "z549", "w549", "x551", "x553", "$\\ShaderFixes\\edcas.ini\\post_w602", "$\\ShaderFixes\\edcas.ini\\post_x602", "$\\ShaderFixes\\edcas.ini\\post_y602", "$\\ShaderFixes\\edcas.ini\\post_z602", "$\\ShaderFixes\\edcas.ini\\post_z611", "$\\ShaderFixes\\edcas.ini\\post_w600", "$\\ShaderFixes\\edcas.ini\\post_y603", "$\\ShaderFixes\\edcas.ini\\post_z603", "$\\ShaderFixes\\edcas.ini\\post_y600", "$\\ShaderFixes\\edcas.ini\\post_w603", "$\\ShaderFixes\\edcas.ini\\post_z600", "$\\ShaderFixes\\edcas.ini\\post_x601", "$\\ShaderFixes\\edcas.ini\\post_z601", "$\\ShaderFixes\\edcas.ini\\post_x600", "$\\ShaderFixes\\edcas.ini\\post_x603", "$\\ShaderFixes\\edcas.ini\\post_y601", "$\\ShaderFixes\\edcas.ini\\post_x607", "$\\ShaderFixes\\edcas.ini\\post_z609", "$\\ShaderFixes\\edcas.ini\\post_x610", "$\\ShaderFixes\\edcas.ini\\post_y610", "$\\ShaderFixes\\edcas.ini\\post_z610", "$\\ShaderFixes\\edcas.ini\\post_x609", "$\\ShaderFixes\\edcas.ini\\post_y609", "$\\ShaderFixes\\edcas.ini\\post_x611", "$\\ShaderFixes\\edcas.ini\\post_y611", "$\\ShaderFixes\\edcas.ini\\post_x604", "$\\ShaderFixes\\edcas.ini\\post_y604", "$\\ShaderFixes\\edcas.ini\\post_z604", "$\\ShaderFixes\\edcas.ini\\post_x605", "$\\ShaderFixes\\edcas.ini\\post_y605", "$\\ShaderFixes\\edcas.ini\\post_z605", "$\\ShaderFixes\\edcas.ini\\post_x606", "$\\ShaderFixes\\edcas.ini\\post_y606", "$\\ShaderFixes\\edcas.ini\\post_z606", "$\\ShaderFixes\\edcas.ini\\post_w609", "$\\ShaderFixes\\edcas.ini\\daltonize_type", "$\\ShaderFixes\\edcas.ini\\post_x608", "x505", "X1"], "{text}");
         assert!(text.contains("x533 = 1.000\n"), "the fuel bar in the spectrum: {text}");
         assert!(text.contains("x505 = 0.35\n") && text.contains("y503 = 8.000\n"), "{text}");
 
-        // Without clouds only x503 and x507 are ours: the old look of the clouds (y503) is kept, the fog goes.
+        // Without clouds the switches and the body's rows are ours: the old look of the clouds (y503) is kept, the fog goes.
         let text = params_text(existing, &Look::NONE);
         assert!(text.contains("x503 = 0.000\n") && !text.contains("x503 = 0.5"), "{text}");
-        assert!(text.contains("x507 = 0.000\n") && !text.contains("x507 = 0.3") && !text.contains("w507 =") && !text.contains("y507 =") && !text.contains("x508 =") && !text.contains("x509 ="), "{text}");
+        assert!(text.contains("x507 = 0.000\n") && !text.contains("x507 = 0.3") && text.contains("w507 = 0\n") && !text.contains("y507 =") && !text.contains("x508 =") && !text.contains("x509 ="), "{text}");
         assert!(text.contains("y503 = 9\n") && text.contains("x505 = 0.35\n"), "{text}");
         assert_eq!((text.matches("x503 =").count(), text.matches("x507 =").count()), (1, 1));
         // The same for the tint: x = 0 is ours, the colour (y) stays as the file had it.
@@ -1334,11 +1349,13 @@ mod tests {
         tick(&feed, &mut updater);
         assert_eq!(value(&read(), "x507"), 0.094);
 
-        // An airless body: x503 and x507 go to 0, so the fog doesn't stay on it; the radius is left.
+        // An airless body: x503 and x507 go to 0, so the fog doesn't stay on it, and the radius and
+        // air are its own (its scan has no radius here: 0), not 6 e's.
         feed.place().lock().unwrap().body_name = "Rock".to_string();
         tick(&feed, &mut updater);
         let text = read();
-        assert_eq!((value(&text, "x503"), value(&text, "x507"), value(&text, "w507")), (0.0, 0.0, 564_697.0), "{text}");
+        assert_eq!((value(&text, "x503"), value(&text, "x507"), value(&text, "w507")), (0.0, 0.0, 0.0), "{text}");
+        assert_eq!((value(&text, "z550"), value(&text, "y502")), (0.0, 0.0), "{text}");
 
         drop(updater);
         std::fs::remove_dir_all(&game).unwrap();
@@ -1402,9 +1419,9 @@ mod tests {
         g.planet_canopy_frost = true;
         assert_eq!(get(&g, "x509"), "1.000");
 
-        // Without a body nothing of it is written: x503, x507, x521 and x522 alone.
+        // Without a body nothing of it is written but the switches and the body's rows at 0.
         let none = clouds_at(&g, None).clouds.assignments();
-        assert_eq!(none.iter().map(|(n, _)| *n).collect::<Vec<_>>(), ["x503", "x507", "x521", "x522"]);
+        assert_eq!(none.iter().map(|(n, _)| *n).collect::<Vec<_>>(), ["x503", "x507", "x521", "y502", "x550", "y550", "z550", "w550", "w507", "x522"]);
     }
 
     #[test]

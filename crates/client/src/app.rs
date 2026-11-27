@@ -721,6 +721,7 @@ pub fn body_from_api(br: &edcas_common::api::BodyResponse) -> BodyScan {
     BodyScan {
         body_id: br.id,
         body_name: br.name.clone(),
+        orbit: None,
         planet_class: if br.is_star {
             String::new()
         } else {

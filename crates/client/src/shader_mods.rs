@@ -260,6 +260,157 @@ pub const EDCAS_INI: &str = include_str!("../shader_mods/edcas.ini");
 /// scratch names, `{src}` and `{normal}` for the registers. A copy like the others: a test fails when it differs.
 pub const GROUND_DETAIL: &str = include_str!("../shader_mods/edcas_ground_detail.asm");
 
+/// Elite's star vertex shader, which draws every star twice and bends them round a black hole in a way
+/// of its own (README-ELITE.md, "Black holes"). The game makes it only in a system with a black hole.
+pub const STAR_VS: &str = "6add85f7c9adc0b0";
+/// The star lens spliced into [`STAR_VS`] (`scripts/ed-shader/star_lens.py` from `edcas_star_lens.hlsl`):
+/// the first line says how many temporaries it takes, `{r0}` ... are its scratch registers, `{d}` the image's
+/// direction and whether it is drawn, `{m}` the magnification. A copy like the others.
+pub const STAR_LENS: &str = include_str!("../shader_mods/edcas_star_lens.asm");
+/// Where the lens goes in [`STAR_VS`]: Elite has the star's direction in `r0`, its flags in `r1.xy` and the
+/// star's magnitude in `r1.w`, and turns `r0` into the camera's frame here.
+const STAR_LENS_ANCHOR: &str = "dp3 r2.x, cb1[64].xyzx, r0.xyzx";
+/// The IniParams' declaration the lens's switch (`x553`) needs in [`STAR_VS`].
+const STAR_LENS_T120: &str = "dcl_resource_texture1d (float,float,float,float) t120";
+/// What marks EDCAS's copy of [`STAR_VS`].
+const STAR_LENS_MARK: &str = "// EDCAS star lens";
+
+/// Elite's star vertex shader with the stars' images of a black hole's lens (`star_lens.py --patch`, its twin):
+/// the image's direction in place of Elite's (hidden behind the camera when not drawn), Elite's own flags for its
+/// mirror image cleared, and the magnification added to the star's magnitude (-2.5 log10, so that Elite's
+/// photometry fades a demagnified image as a fainter star).
+pub fn star_lens(asm: &str) -> Result<String, String> {
+    if asm.contains(STAR_LENS_MARK) {
+        return Err("already has the star lens".into());
+    }
+    let mut lines: Vec<String> = asm.lines().map(str::to_string).collect();
+    let temps: Vec<usize> = lines.iter().enumerate().filter(|(_, l)| l.trim().starts_with("dcl_temps ")).map(|(i, _)| i).collect();
+    let anchor: Vec<usize> = lines.iter().enumerate().filter(|(_, l)| l.trim() == STAR_LENS_ANCHOR).map(|(i, _)| i).collect();
+    let ([t], [a]) = (temps.as_slice(), anchor.as_slice()) else {
+        return Err("not the star vertex shader EDCAS knows (dcl_temps or the anchor)".into());
+    };
+    let n: u32 = lines[*t].trim()["dcl_temps ".len()..].trim().parse().map_err(|_| "bad dcl_temps".to_string())?;
+    let mut block = STAR_LENS.lines();
+    let head = block.next().unwrap_or_default();
+    let k: u32 = head.split("temps ").nth(1).and_then(|s| s.split(';').next()).and_then(|s| s.trim().parse().ok()).ok_or("bad star lens template")?;
+    let (d, m, h) = (format!("r{}", n + k), format!("r{}", n + k + 1), format!("r{n}"));
+    // Only while the body Elite bends the stars round is a black hole (x553 = 1): round a neutron star Elite's
+    // constant is not r_s / r, and Elite's own code stays.
+    let mut out = vec![
+        head.to_string(),
+        format!("ld_indexable(texture1d)(float,float,float,float) {h}.x, l(553, 0, 0, 0), t120.xyzw"),
+        format!("ge {h}.x, {h}.x, l(0.500000)"),
+        format!("if_nz {h}.x"),
+    ];
+    for line in block {
+        let mut l = line.replace("{d}", &d).replace("{m}", &m);
+        for i in (0..k).rev() {
+            l = l.replace(&format!("{{r{i}}}"), &format!("r{}", n + i));
+        }
+        out.push(l);
+    }
+    out.extend([
+        "// EDCAS star lens: the image in place of Elite's, hidden behind the camera when not drawn".to_string(),
+        format!("mad {h}.xyz, -cb1[279].xyzx, l(10.000000, 10.000000, 10.000000, 0.000000), cb1[275].xyzx"),
+        format!("movc r0.xyz, {d}.wwww, {d}.xyzx, {h}.xyzx"),
+        "mov r1.x, l(0)".to_string(),
+        format!("mov r1.y, {d}.w"),
+        "mov r0.w, l(0)".to_string(),
+        format!("log {h}.w, {m}.x"),
+        format!("mad r1.w, {h}.w, l(-0.752575), r1.w"),
+        "endif".to_string(),
+    ]);
+    let a = *a;
+    lines.splice(a..a, out);
+    lines[*t] = format!("dcl_temps {}", n + k + 2);
+    if !lines.iter().any(|l| l.trim() == STAR_LENS_T120) {
+        if let Some(last) = lines.iter().rposition(|l| l.trim().starts_with("dcl_constantbuffer")) {
+            lines.insert(last + 1, STAR_LENS_T120.to_string());
+        }
+    }
+    Ok(lines.join("\n") + "\n")
+}
+
+/// How the copy of [`STAR_VS`] stands after [`finish_game_shaders`]. Its export is never waited for: the game
+/// makes the shader only near a black hole, and an export left on until then would cost every player hitches;
+/// the copy is made whenever an export is at hand (another copy's export, or the player's own).
+#[derive(Clone, Debug, PartialEq)]
+pub enum StarLens {
+    Done,
+    /// No export of the shader and no copy yet: Elite's own bending of the stars stays.
+    NoExport,
+    Failed(String),
+}
+
+/// Writes the star lens's copy of [`STAR_VS`] from its export: anew whenever the export is there.
+fn make_star_lens(dir: &Path) -> StarLens {
+    let out = dir.join(FIXES).join(format!("{STAR_VS}-vs.txt"));
+    let export = dir.join("ShaderCache").join(format!("{STAR_VS}-vs.txt"));
+    if !export.is_file() {
+        return if out.is_file() { StarLens::Done } else { StarLens::NoExport };
+    }
+    match fs::read_to_string(&export).map_err(|e| io_error("read", &export, &e)).and_then(|asm| star_lens(&asm)) {
+        Ok(text) => match fs::write(&out, text) {
+            Ok(()) => StarLens::Done,
+            Err(e) => StarLens::Failed(io_error("write", &out, &e)),
+        },
+        Err(e) => StarLens::Failed(format!("{STAR_VS}-vs.txt: {e}")),
+    }
+}
+
+/// Whether EDCAS's copy of [`STAR_VS`], the star lens, is in `ShaderFixes`.
+pub fn star_lens_installed(dir: &Path) -> bool {
+    fs::read_to_string(dir.join(FIXES).join(format!("{STAR_VS}-vs.txt"))).is_ok_and(|t| t.contains(STAR_LENS_MARK))
+}
+
+/// The game folders whose commander is in a system with a black hole (the params writer's last word,
+/// [`black_hole_lens`]): one per folder, so that tests of their own folders do not meet.
+static BLACK_HOLE_DIRS: std::sync::Mutex<Vec<PathBuf>> = std::sync::Mutex::new(Vec::new());
+
+fn in_black_hole_system(dir: &Path) -> bool {
+    BLACK_HOLE_DIRS.lock().unwrap_or_else(|p| p.into_inner()).iter().any(|d| d == dir)
+}
+
+/// Whether the game must export its shaders for the star lens's copy: the commander is in a system with a black
+/// hole (the only place the game makes [`STAR_VS`]) and the copy is not there yet. Off again once it is.
+fn star_lens_wanted(dir: &Path) -> bool {
+    in_black_hole_system(dir) && !star_lens_installed(dir)
+}
+
+/// The switch of EDCAS's lens (`x553`) for the params writer: `hole` (the body Elite bends the light round is a
+/// black hole) and the star lens's copy in `ShaderFixes`. Without the copy Elite's own star shader would place the
+/// stars for Elite's small dark disc, inside the larger physical shadow: so the sky's lens waits for it. Entering
+/// or leaving such a system sets the game's shader export for the copy (`d3dx.ini` is read at the game's start: it
+/// counts from the next start there; the copy is made when the game closes, [`maintain`]).
+pub fn black_hole_lens(dir: &Path, hole: bool, want: Wanted) -> bool {
+    let changed = {
+        let mut dirs = BLACK_HOLE_DIRS.lock().unwrap_or_else(|p| p.into_inner());
+        let was = dirs.iter().any(|d| d == dir);
+        if hole && !was {
+            dirs.push(dir.to_path_buf());
+        } else if !hole && was {
+            dirs.retain(|d| d != dir);
+        }
+        was != hole
+    };
+    if changed && !star_lens_installed(dir) {
+        if let Ok(_guard) = JOB_LOCK.try_lock() {
+            let on = export_needed(dir, want);
+            match set_export(dir, on) {
+                Ok(true) => info!("Shader mods: the game's shader export is {} from its next start (a black hole's star lens)", if on { "on" } else { "off" }),
+                Ok(false) => {}
+                Err(e) => warn!("Shader mods: could not set the game's shader export for the star lens: {e}"),
+            }
+        }
+    }
+    hole && star_lens_installed(dir)
+}
+
+/// Whether an export of [`STAR_VS`] waits to become the star lens's copy.
+fn star_lens_pending(dir: &Path) -> bool {
+    !dir.join(FIXES).join(format!("{STAR_VS}-vs.txt")).is_file() && dir.join("ShaderCache").join(format!("{STAR_VS}-vs.txt")).is_file()
+}
+
 /// Scratch registers the detail block uses, by their names in the template, in register order
 /// (`ground_tint.py` `DETAIL_TEMPS`; `{m}` holds the snow's mask, `{n}` to `{z}` are the hex-tiling's).
 const DETAIL_NAMES: &str = "abcdefghijkqmnoprstuvwz";
@@ -278,7 +429,7 @@ const OLD_TEXTURES: [&str; 4] = ["edcas_ground_detail.dds", "edcas_ground_relief
 
 /// Every shader `edcas.ini` runs or they include, as `SKY_SHADERS` in `install.py` (a test
 /// checks they are the same list).
-pub const SKY_SHADERS: [(&str, &str); 21] = [
+pub const SKY_SHADERS: [(&str, &str); 49] = [
     ("edcas_noise.hlsl", include_str!("../shader_mods/edcas_noise.hlsl")),
     ("edcas_clouds.hlsl", include_str!("../shader_mods/edcas_clouds.hlsl")),
     ("edcas_clouds_final.hlsl", include_str!("../shader_mods/edcas_clouds_final.hlsl")),
@@ -298,8 +449,43 @@ pub const SKY_SHADERS: [(&str, &str); 21] = [
     ("edcas_cockpit_light.hlsl", include_str!("../shader_mods/edcas_cockpit_light.hlsl")),
     ("edcas_fullscreen_vs.hlsl", include_str!("../shader_mods/edcas_fullscreen_vs.hlsl")),
     ("edcas_sky_vs.hlsl", include_str!("../shader_mods/edcas_sky_vs.hlsl")),
+    ("edcas_black_hole.hlsl", include_str!("../shader_mods/edcas_black_hole.hlsl")),
+    ("edcas_lens.hlsl", include_str!("../shader_mods/edcas_lens.hlsl")),
     ("edcas_copy.hlsl", include_str!("../shader_mods/edcas_copy.hlsl")),
     ("edcas_debug_overlay.hlsl", include_str!("../shader_mods/edcas_debug_overlay.hlsl")),
+    ("edcas_post.hlsl", include_str!("../shader_mods/edcas_post.hlsl")),
+    ("edcas_post_colour.hlsl", include_str!("../shader_mods/edcas_post_colour.hlsl")),
+    ("edcas_post_blur.hlsl", include_str!("../shader_mods/edcas_post_blur.hlsl")),
+    ("edcas_post_blur_v.hlsl", include_str!("../shader_mods/edcas_post_blur_v.hlsl")),
+    ("edcas_post_lens.hlsl", include_str!("../shader_mods/edcas_post_lens.hlsl")),
+    ("edcas_post_deband.hlsl", include_str!("../shader_mods/edcas_post_deband.hlsl")),
+    ("edcas_smaa.hlsl", include_str!("../shader_mods/edcas_smaa.hlsl")),
+    ("edcas_smaa_ref.hlsl", include_str!("../shader_mods/edcas_smaa_ref.hlsl")),
+    ("edcas_post_smaa_edges.hlsl", include_str!("../shader_mods/edcas_post_smaa_edges.hlsl")),
+    ("edcas_post_smaa_weights.hlsl", include_str!("../shader_mods/edcas_post_smaa_weights.hlsl")),
+    ("edcas_post_smaa_blend.hlsl", include_str!("../shader_mods/edcas_post_smaa_blend.hlsl")),
+    ("edcas_post_sharpen.hlsl", include_str!("../shader_mods/edcas_post_sharpen.hlsl")),
+    ("edcas_downscale.hlsl", include_str!("../shader_mods/edcas_downscale.hlsl")),
+    ("edcas_post_lenslight.hlsl", include_str!("../shader_mods/edcas_post_lenslight.hlsl")),
+    ("edcas_fullscreen_uv_vs.hlsl", include_str!("../shader_mods/edcas_fullscreen_uv_vs.hlsl")),
+    ("edcas_post_clarity.hlsl", include_str!("../shader_mods/edcas_post_clarity.hlsl")),
+    ("edcas_post_clarity_down.hlsl", include_str!("../shader_mods/edcas_post_clarity_down.hlsl")),
+    ("edcas_post_clarity_h.hlsl", include_str!("../shader_mods/edcas_post_clarity_h.hlsl")),
+    ("edcas_post_clarity_v.hlsl", include_str!("../shader_mods/edcas_post_clarity_v.hlsl")),
+    ("edcas_post_dirtlight.hlsl", include_str!("../shader_mods/edcas_post_dirtlight.hlsl")),
+    ("edcas_post_dirtblur_h.hlsl", include_str!("../shader_mods/edcas_post_dirtblur_h.hlsl")),
+    ("edcas_post_dirtblur_v.hlsl", include_str!("../shader_mods/edcas_post_dirtblur_v.hlsl")),
+    ("edcas_star_mask.hlsl", include_str!("../shader_mods/edcas_star_mask.hlsl")),
+    ("edcas_post_starlight.hlsl", include_str!("../shader_mods/edcas_post_starlight.hlsl")),
+    ("edcas_post_flaregrid.hlsl", include_str!("../shader_mods/edcas_post_flaregrid.hlsl")),
+    ("edcas_post_flaresum.hlsl", include_str!("../shader_mods/edcas_post_flaresum.hlsl")),
+];
+
+/// SMAA's lookup textures for the post effects' anti-aliasing (`scripts/ed-shader/smaa_textures.py`, from SMAA's
+/// repository, MIT), as `SMAA_TEXTURES` in `install.py`; `edcas.ini` loads them.
+pub const SMAA_TEXTURES: [(&str, &[u8]); 2] = [
+    ("edcas_smaa_area.dds", include_bytes!("../shader_mods/edcas_smaa_area.dds")),
+    ("edcas_smaa_search.dds", include_bytes!("../shader_mods/edcas_smaa_search.dds")),
 ];
 
 // ------------------------------------------------------------------ status
@@ -1588,6 +1774,7 @@ pub struct Patched {
     pub ground_tint: GroundTint,
     pub star_light: StarLightShaders,
     pub hud: Hud,
+    pub star_lens: StarLens,
 }
 
 /// Which copies of the game's own shaders the settings ask for. 3DMigoto can only get the game's
@@ -1802,14 +1989,15 @@ pub fn finish_game_shaders(dir: &Path, want: Wanted) -> Result<Patched, String> 
     };
     let star_light = make_star_light(dir);
     let hud = make_hud(dir, want.hud);
-    let export = (want.ground && ground_tint == GroundTint::NeedsLanding) || (want.star_light && !star_light.done()) || hud == Hud::NeedsExport;
+    let star_lens = make_star_lens(dir);
+    let export = (want.ground && ground_tint == GroundTint::NeedsLanding) || (want.star_light && !star_light.done()) || hud == Hud::NeedsExport || star_lens_wanted(dir);
     set_export(dir, export)?;
-    Ok(Patched { ground_tint, star_light, hud })
+    Ok(Patched { ground_tint, star_light, hud, star_lens })
 }
 
 /// Whether the game has to export its shaders for `want`: a copy asked for is not in `ShaderFixes`.
 fn export_needed(dir: &Path, want: Wanted) -> bool {
-    (want.ground && !ground_tint_done(dir)) || (want.star_light && star_light_made(dir) < StarLightShaders::TOTAL) || hud_state(dir, want.hud) == Hud::NeedsExport
+    (want.ground && !ground_tint_done(dir)) || (want.star_light && star_light_made(dir) < StarLightShaders::TOTAL) || hud_state(dir, want.hud) == Hud::NeedsExport || star_lens_wanted(dir)
 }
 
 /// Writes `export_shaders` in `d3dx.ini`, only when it says something else. Returns whether it changed.
@@ -1948,6 +2136,19 @@ pub fn comment_out(ini: &str, key: &str) -> String {
     ini.split('\n').map(|l| if is_assignment(l, key, false) { format!(";{l}") } else { l.to_string() }).collect::<Vec<_>>().join("\n")
 }
 
+/// Comments out the lines that bind `key` to a key press without Ctrl, Alt or Shift (`reload_config = no_modifiers
+/// VK_F10`); a binding with a modifier stays. The release's `d3dx.ini` binds plain F10 to `reload_fixes` and
+/// `reload_config`, and 3DMigoto registers `reload_config` with hunting off too: F10 is Elite's screenshot key, so
+/// every screenshot compiled all of EDCAS's shaders again and froze the game for some 30 s (a player's report,
+/// 2026-11-26).
+pub fn unbind_plain(ini: &str, key: &str) -> String {
+    let plain = |l: &str| {
+        is_assignment(l, key, false)
+            && l.split_once('=').is_some_and(|(_, v)| !v.split_whitespace().any(|t| ["ctrl", "alt", "shift"].iter().any(|m| t.eq_ignore_ascii_case(m))))
+    };
+    ini.split('\n').map(|l| if plain(l) { format!(";{l}") } else { l.to_string() }).collect::<Vec<_>>().join("\n")
+}
+
 /// Makes `d3dx.ini` include `ShaderFixes\edcas.ini`, once.
 pub fn add_include(ini: &str) -> String {
     if ini.split('\n').any(is_include) {
@@ -2065,7 +2266,8 @@ pub fn verify_checksum(data: &[u8], sums: &str, name: &str) -> Result<(), String
 /// 3. EDCAS's shaders and `edcas.ini` into `ShaderFixes`, `edcas_params.txt` only if
 ///    missing, and the ground detail's textures ([`ground_detail`]), made here.
 /// 4. `d3dx.ini` edited: `params_file`, `params_fade`, the include, `hunting = 0`, no
-///    `analyse_frame` (F8, which crashes Elite on Proton).
+///    `analyse_frame` (F8, which crashes Elite on Proton), no reload on a plain key (F10, Elite's
+///    screenshot key).
 /// 5. The copies of the game's shaders ([`finish_game_shaders`]).
 /// 6. `edcas_version.txt`, last: an interrupted install shows as an update.
 pub fn install(dir: &Path, bundle: &Bundle, version: &str, want: Wanted, mut progress: impl FnMut(&str)) -> Result<Patched, String> {
@@ -2117,6 +2319,9 @@ pub fn update_shaders(dir: &Path, version: &str, want: Wanted, progress: &mut im
     for (name, text) in SKY_SHADERS.iter().chain([&(INI_FILE, EDCAS_INI)]) {
         write_file(&fixes.join(name), text.as_bytes())?;
     }
+    for (name, bytes) in SMAA_TEXTURES {
+        write_file(&fixes.join(name), bytes)?;
+    }
     let params = fixes.join(PARAMS_FILE);
     if !params.exists() {
         write_file(&params, b"; written by EDCAS: planet ground tint\nx500 = 0\n")?;
@@ -2130,7 +2335,7 @@ pub fn update_shaders(dir: &Path, version: &str, want: Wanted, progress: &mut im
     let patched = finish_game_shaders(dir, want)?;
 
     write_file(&fixes.join(VERSION_FILE), format!("{version}\n").as_bytes())?;
-    info!("Shader mods {version} installed in {} (ground tint: {:?}, star light: {:?}, HUD: {:?})", dir.display(), patched.ground_tint, patched.star_light, patched.hud);
+    info!("Shader mods {version} installed in {} (ground tint: {:?}, star light: {:?}, HUD: {:?}, star lens: {:?})", dir.display(), patched.ground_tint, patched.star_light, patched.hud, patched.star_lens);
     Ok(patched)
 }
 
@@ -2147,7 +2352,9 @@ fn setup_ini(dir: &Path) -> Result<(), String> {
         let ini = set_option(&ini, "System", "params_fade", PARAMS_FADE);
         let ini = add_include(&ini);
         let ini = set_option(&ini, "Hunting", "hunting", "0");
-        comment_out(&ini, "analyse_frame")
+        let ini = comment_out(&ini, "analyse_frame");
+        // F10 is Elite's screenshot key: no reload of every shader on it.
+        unbind_plain(&unbind_plain(&ini, "reload_fixes"), "reload_config")
     })
 }
 
@@ -2196,14 +2403,15 @@ pub fn maintain(settings: &crate::settings::Settings) {
         }
         if !update_due(&dir) {
             if matches!(status(&dir, VERSION), Status::Installed { .. }) {
-                if star_light_pending(&dir) || hud_pending(&dir, want.hud) {
+                if star_light_pending(&dir) || hud_pending(&dir, want.hud) || star_lens_pending(&dir) {
                     match finish_game_shaders(&dir, want) {
                         Ok(p) => info!(
-                            "Shader mods: shader copies made from the game's exports: star light {} of {}{}, HUD {:?}",
+                            "Shader mods: shader copies made from the game's exports: star light {} of {}{}, HUD {:?}, star lens {:?}",
                             p.star_light.made,
                             StarLightShaders::TOTAL,
                             failures(&p.star_light),
-                            p.hud
+                            p.hud,
+                            p.star_lens
                         ),
                         Err(e) => warn!("Shader mods: making the copies of the game's shaders failed: {e}"),
                     }
@@ -2592,8 +2800,11 @@ pub fn remove(dir: &Path) -> Result<String, String> {
     doomed.extend(STALE_SHADERS.iter().map(|n| fixes.join(n)));
     // EDCAS's copies of the HUD's shaders, not another mod's files of those names (EDHM's).
     doomed.extend(HudWanted::ALL.every().iter().map(|h| fixes.join(format!("{h}-ps.txt"))).filter(|path| fs::read_to_string(path).is_ok_and(|text| is_hud_copy(&text))));
+    // EDCAS's copy of the star vertex shader (the star lens), not another mod's.
+    doomed.extend([fixes.join(format!("{STAR_VS}-vs.txt"))].into_iter().filter(|path| fs::read_to_string(path).is_ok_and(|text| text.contains(STAR_LENS_MARK))));
     // Every embedded shader by name: the game-shader replacements are not named edcas*.hlsl.
     doomed.extend(SKY_SHADERS.iter().map(|(n, _)| fixes.join(n)));
+    doomed.extend(SMAA_TEXTURES.iter().map(|(n, _)| fixes.join(n)));
     doomed.extend(ground_detail::file_names().iter().map(|n| fixes.join(n)));
     doomed.push(fixes.join(GROUND_TEXTURE_MARK));
     doomed.extend(OLD_TEXTURES.iter().map(|n| fixes.join(n)));
@@ -3224,6 +3435,53 @@ ret\n";
         }
     }
 
+    // ---- the star lens
+
+    /// A stand-in for Elite's star vertex shader: its temporaries, the anchor and the lines round it.
+    const STAR_VS_SAMPLE: &str = "vs_5_0\ndcl_constantbuffer CB1[280], immediateIndexed\ndcl_temps 4\nadd r1.w, r1.w, v2.w\nmov r1.xy, l(0,1.000000,0,0)\ndp3 r2.x, cb1[64].xyzx, r0.xyzx\nmul o1.xyz, v3.xyzx, cb1[72].wwww\nret\n";
+
+    #[test]
+    fn star_lens_goes_in_before_the_anchor_with_registers_of_its_own() {
+        let text = star_lens(STAR_VS_SAMPLE).unwrap();
+        let k: u32 = STAR_LENS.lines().next().unwrap().split("temps ").nth(1).unwrap().split(';').next().unwrap().trim().parse().unwrap();
+        assert!(text.contains(&format!("dcl_temps {}", 4 + k + 2)), "{text}");
+        let mark = text.find(STAR_LENS_MARK).unwrap();
+        let anchor = text.find(STAR_LENS_ANCHOR).unwrap();
+        assert!(mark < anchor);
+        assert!(!text.contains('{'), "a placeholder is left");
+        // Elite's own registers are not the block's scratch: it writes none of r0 to r3 (it reads r1.w, the star's
+        // magnitude), but for the lines after it.
+        let block: Vec<&str> = text[mark..anchor].lines().collect();
+        let tail = &block[block.len() - 9..];
+        assert_eq!(tail[2], format!("movc r0.xyz, r{0}.wwww, r{0}.xyzx, r4.xyzx", 4 + k));
+        assert_eq!(tail[7], "mad r1.w, r4.w, l(-0.752575), r1.w");
+        assert_eq!(tail[8], "endif");
+        // the whole of it only while x553 says a black hole
+        assert_eq!(block[1], "ld_indexable(texture1d)(float,float,float,float) r4.x, l(553, 0, 0, 0), t120.xyzw");
+        assert_eq!(block[3], "if_nz r4.x");
+        assert!(text.contains(&format!("immediateIndexed\n{STAR_LENS_T120}\n")), "{text}");
+        for line in &block[4..block.len() - 9] {
+            let dest = line.split_whitespace().nth(1).unwrap_or("");
+            assert!(!["r0.", "r1.", "r2.", "r3."].iter().any(|r| dest.starts_with(r)), "{line}");
+        }
+        assert!(block.iter().any(|l| l.contains("r1.w")), "the star's magnitude is read");
+        assert!(star_lens(&text).is_err(), "patched twice");
+        assert!(star_lens("vs_5_0\ndcl_temps 4\nret\n").is_err());
+    }
+
+    #[test]
+    fn star_lens_is_what_star_lens_py_makes() {
+        let Some(dir) = scripts_dir() else { return };
+        let tmp = std::env::temp_dir().join(format!("edcas-star-lens-{}", std::process::id()));
+        fs::create_dir_all(&tmp).unwrap();
+        fs::write(tmp.join("in.txt"), STAR_VS_SAMPLE).unwrap();
+        let Ok(out) = std::process::Command::new("python3").arg(dir.join("star_lens.py")).arg("--patch").arg(tmp.join("in.txt")).arg(tmp.join("out.txt")).output() else { return };
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        assert_eq!(star_lens(STAR_VS_SAMPLE).unwrap(), fs::read_to_string(tmp.join("out.txt")).unwrap());
+        assert_eq!(STAR_LENS, fs::read_to_string(dir.join("edcas_star_lens.asm")).unwrap(), "cp scripts/ed-shader/edcas_star_lens.asm crates/client/shader_mods/");
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
     // ---- d3dx.ini
 
     #[test]
@@ -3281,6 +3539,9 @@ ret\n";
     fn comment_out_only_touches_active_lines_of_that_key() {
         let out = comment_out("analyse_frame = 1\n;analyse_frame = 2\nanalyse_frame_x = 3\n", "analyse_frame");
         assert_eq!(out, ";analyse_frame = 1\n;analyse_frame = 2\nanalyse_frame_x = 3\n");
+        // a reload key without a modifier goes, one with a modifier (the owner's Ctrl+F12) stays
+        let out = unbind_plain("reload_config = no_modifiers VK_F10\nreload_config=F10\nreload_config = ctrl VK_F12\nreload_config = no_ctrl SHIFT F10\nreload_config_x = F10\n", "reload_config");
+        assert_eq!(out, ";reload_config = no_modifiers VK_F10\n;reload_config=F10\nreload_config = ctrl VK_F12\nreload_config = no_ctrl SHIFT F10\nreload_config_x = F10\n");
     }
 
     #[test]
@@ -3348,7 +3609,7 @@ ret\n";
     const STOCK_DLL: &[u8] = b"MZ stock 3dmigoto";
     /// edloader's d3d11.dll: its list file's name as a wide string.
     const EDLOADER_DLL: &[u8] = b"MZ loader \\\0e\0d\0l\0o\0a\0d\0e\0r\0.\0t\0x\0t\0\0\0";
-    const D3DX: &str = "; the release's d3dx.ini\r\n[Logging]\r\n[System]\r\n[Hunting]\r\nhunting = 1\r\n[Rendering]\r\n;export_shaders = 1\r\n[Include]\r\n; none\r\n[KeyAnalyse]\r\nanalyse_frame = 1\r\n";
+    const D3DX: &str = "; the release's d3dx.ini\r\n[Logging]\r\n[System]\r\n[Hunting]\r\nhunting = 1\r\nreload_fixes = no_modifiers VK_F10\r\nreload_config = no_modifiers VK_F10\r\nwipe_user_config = ctrl alt no_shift VK_F10\r\n[Rendering]\r\n;export_shaders = 1\r\n[Include]\r\n; none\r\n[KeyAnalyse]\r\nanalyse_frame = 1\r\n";
 
     /// The zip CI builds: the release's files with EDCAS's d3d11.dll, at the root.
     fn bundle(dll: &[u8]) -> Bundle {
@@ -4183,6 +4444,7 @@ ret\n";
         assert_eq!(get_option(&ini, "Rendering", "export_shaders").as_deref(), Some("1"), "the export is on until the shaders are there");
         assert_eq!(ini.matches("include = ShaderFixes\\edcas.ini").count(), 1);
         assert!(ini.contains(";analyse_frame = 1"));
+        assert!(ini.contains(";reload_fixes = no_modifiers VK_F10\n;reload_config = no_modifiers VK_F10\nwipe_user_config = ctrl alt no_shift VK_F10"), "F10 is Elite's screenshot key: {ini}");
 
         // Installed, ground tint to come: the exports aren't there.
         assert_eq!(status(&dir, "1.0.0"), Status::Installed { ground_tint: false, star_light: 0 });
@@ -4360,6 +4622,38 @@ ret\n";
         let msg = remove(&dir).unwrap();
         assert!(msg.contains("stays"), "{msg}");
         assert_eq!(fs::read(dir.join("d3d11.dll")).unwrap(), STOCK_DLL);
+    }
+
+    #[test]
+    fn the_lens_waits_for_the_star_copy_and_the_export_is_on_for_it_only_at_a_black_hole() {
+        let export = |dir: &Path| get_option(&read(dir, "d3dx.ini").replace("\r\n", "\n"), "Rendering", "export_shaders");
+        let nothing = Wanted { ground: false, star_light: false, hud: HudWanted::NOTHING };
+        let dir = game("star-lens-export");
+        install(&dir, &bundle(EDCAS_DLL), "1.0.0", nothing, |_| {}).unwrap();
+        assert_eq!(export(&dir).as_deref(), Some("0"));
+        // Elsewhere: no lens, no export.
+        assert!(!black_hole_lens(&dir, false, nothing));
+        assert_eq!(export(&dir).as_deref(), Some("0"));
+        // At a black hole without the copy: the lens stays off (Elite's stars would stand in the shadow), and the
+        // game is asked to export from its next start.
+        assert!(!black_hole_lens(&dir, true, nothing));
+        assert_eq!(export(&dir).as_deref(), Some("1"));
+        assert!(export_needed(&dir, nothing));
+        // Leaving the system before the export came: off again.
+        assert!(!black_hole_lens(&dir, false, nothing));
+        assert_eq!(export(&dir).as_deref(), Some("0"));
+        // Back there, the game exports the star shader; at the game's close the copy is made, the export goes off,
+        // and the lens is on.
+        assert!(!black_hole_lens(&dir, true, nothing));
+        fs::create_dir_all(dir.join("ShaderCache")).unwrap();
+        fs::write(dir.join("ShaderCache").join(format!("{STAR_VS}-vs.txt")), STAR_VS_SAMPLE).unwrap();
+        assert!(star_lens_pending(&dir));
+        let p = finish_game_shaders(&dir, nothing).unwrap();
+        assert_eq!(p.star_lens, StarLens::Done);
+        assert_eq!(export(&dir).as_deref(), Some("0"));
+        assert!(black_hole_lens(&dir, true, nothing));
+        assert!(!black_hole_lens(&dir, false, nothing), "not a black hole: Elite's own lens");
+        assert!(!export_needed(&dir, nothing));
     }
 
     #[test]

@@ -12,7 +12,7 @@
 use eframe::egui::{self, pos2, vec2, Align, Align2, Color32, Id, Rect, RichText, Sense, Shape, Stroke, Ui};
 use egui_extras::{Column, Size, StripBuilder, TableBuilder};
 
-use super::{mods_installed, CellType, FocusArea, SettingsSection, SettingsView, GRAPHICS_TOPICS, MOD_TOPICS};
+use super::{mods_installed, CellType, GridRow, FocusArea, SettingsSection, SettingsView, GRAPHICS_TOPICS, MOD_TOPICS};
 use crate::event_shim::{KeyCode, KeyEvent};
 use crate::gui::theme::{self, accent, accent_dim, accent_hi, accent_mute, alpha, BG, CYAN, GREEN, GREY, RED, TEXT, TEXT_DIM};
 use crate::gui::widgets;
@@ -27,6 +27,53 @@ const SIDEBAR_W: f32 = 200.0;
 /// Where the Game Graphics page keeps which topic it shows at its top, for the sidebar's mark.
 const TOPIC_SHOWN: &str = "settings-graphics-topic";
 const LABEL_W: f32 = 240.0;
+/// The width (points) from which the Post Effects topic's groups flow into two columns, and the gap between them.
+const TWO_COLUMNS_MIN_W: f32 = 1250.0;
+const COLUMN_GAP: f32 = 28.0;
+
+/// What the rows of a page share while it is drawn.
+struct RowState {
+    /// A line a little under the view's top: the topic whose header lies above it is the one shown.
+    view_top: f32,
+    /// The furthest Game Graphics topic whose header has scrolled past `view_top`.
+    shown: usize,
+    graphics: bool,
+    locked: bool,
+    moved: bool,
+}
+
+/// The groups of the Post Effects topic (each group header with its rows), for its two columns.
+fn groups_of(grid: &[GridRow], rows: std::ops::Range<usize>) -> Vec<std::ops::Range<usize>> {
+    let mut blocks = Vec::new();
+    let mut start = rows.start;
+    for i in rows.clone() {
+        if i > start && matches!(grid[i].cells.first(), Some(CellType::Header(_))) {
+            blocks.push(start..i);
+            start = i;
+        }
+    }
+    if start < rows.end {
+        blocks.push(start..rows.end);
+    }
+    blocks
+}
+
+/// How many of the groups go into the first column: the split, at a group's edge, that comes nearest
+/// to half of the rows.
+fn column_split(blocks: &[std::ops::Range<usize>]) -> usize {
+    let weight = |r: &std::ops::Range<usize>| r.len() as f32;
+    let total: f32 = blocks.iter().map(weight).sum();
+    let (mut best, mut best_diff, mut acc) = (1, f32::INFINITY, 0.0);
+    for (i, b) in blocks.iter().enumerate().take(blocks.len() - 1) {
+        acc += weight(b);
+        let diff = (acc - total / 2.0).abs();
+        if diff < best_diff {
+            best_diff = diff;
+            best = i + 1;
+        }
+    }
+    best
+}
 const ROW_H: f32 = 30.0;
 /// Named accents `crate::theme::parse_rgb` knows, offered as swatches.
 const ACCENTS: [&str; 10] = ["orange", "purple", "white", "red", "green", "blue", "yellow", "cyan", "magenta", "teal"];
@@ -265,78 +312,17 @@ impl SettingsView {
             .auto_shrink([false, false])
             .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
             .show(ui, |ui| {
-                // The topic shown at the top of the view: the last whose header lies above a line a
-                // little under the view's top edge.
-                let view_top = ui.clip_rect().top() + 40.0;
-                let mut shown = 0;
-                let mut topic: Option<&str> = None;
                 // The game graphics take the window's width: beside each override stands what it does
                 // and what it costs, which on a wide screen is one line (the owner, 2026-11-18).
-                let widest = if self.section == SettingsSection::GameGraphics { f32::INFINITY } else { 900.0 };
+                let widest = if graphics { f32::INFINITY } else { 900.0 };
                 ui.set_max_width(ui.available_width().min(widest));
                 ui.add_space(2.0);
                 widgets::hint(ui, "Switches, choices, sliders, swatches and picked colours save at once. Text fields save on Enter or when you click elsewhere; Esc cancels.");
                 ui.add_space(6.0);
-                for (idx, row) in grid.iter().enumerate() {
-                    match row.cells.first() {
-                        Some(CellType::Header(title)) if graphics && !GRAPHICS_TOPICS.contains(title) => {
-                            // A group of the override file, under its topic.
-                            ui.add_space(4.0);
-                            ui.horizontal(|ui| {
-                                ui.add_space(10.0);
-                                ui.label(RichText::new(*title).font(theme::body_semi(14.5)).color(accent_hi()));
-                            });
-                        }
-                        Some(CellType::Header(title)) => {
-                            if let Some(done) = topic.take() {
-                                topic_hint(ui, done);
-                            }
-                            ui.add_space(8.0);
-                            let at = ui.next_widget_position();
-                            widgets::section(ui, title, None);
-                            if let Some(t) = GRAPHICS_TOPICS.iter().position(|t| t == title).filter(|_| graphics) {
-                                topic = Some(GRAPHICS_TOPICS[t]);
-                                if at.y <= view_top {
-                                    shown = t;
-                                }
-                                if self.jump_to == Some(GRAPHICS_TOPICS[t]) {
-                                    self.jump_to = None;
-                                    ui.scroll_to_rect(Rect::from_min_size(at, vec2(1.0, 24.0)), Some(Align::TOP));
-                                }
-                                if locked && MOD_TOPICS.contains(&GRAPHICS_TOPICS[t]) {
-                                    ui.horizontal(|ui| {
-                                        ui.add_space(10.0);
-                                        ui.label(RichText::new("Install the shader mods (Shader Mods, above) to change these.").font(theme::body(14.5)).color(TEXT_DIM));
-                                    });
-                                }
-                            }
-                        }
-                        Some(CellType::Info(msg, warning)) => {
-                            ui.horizontal(|ui| {
-                                ui.add_space(LABEL_W);
-                                let col = if *warning { RED } else { GREEN };
-                                ui.label(RichText::new(msg.trim()).color(col).font(theme::body(14.5)));
-                            });
-                        }
-                        Some(CellType::Label(label)) => {
-                            let values = row.cells[1..].to_vec();
-                            if locked && topic.is_some_and(|t| MOD_TOPICS.contains(&t)) {
-                                ui.add_enabled_ui(false, |ui| {
-                                    ui.multiply_opacity(0.45);
-                                    self.field_row(ui, idx, label, values, moved, settings, ev);
-                                });
-                            } else {
-                                self.field_row(ui, idx, label, values, moved, settings, ev);
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-                if let Some(done) = topic {
-                    topic_hint(ui, done);
-                }
+                let mut state = RowState { view_top: ui.clip_rect().top() + 40.0, shown: 0, graphics, locked, moved };
+                self.section_ui(ui, &grid, 0..grid.len(), &mut state, settings, ev);
                 if graphics {
-                    ui.ctx().data_mut(|d| d.insert_temp(Id::unique(TOPIC_SHOWN), shown));
+                    ui.ctx().data_mut(|d| d.insert_temp(Id::unique(TOPIC_SHOWN), state.shown));
                     // Room under the last topic, so that a jump to it can bring its header to the top.
                     ui.add_space(ui.clip_rect().height() * 0.6);
                 }
@@ -354,6 +340,110 @@ impl SettingsView {
                 }
                 ui.add_space(8.0);
             });
+    }
+
+    /// One section of the page: its header (if it has one), its rows, and its topic's note after them.
+    /// The page's rows in one column, but for the Post Effects topic's groups, which flow into two columns on a
+    /// wide window (the owner, 2026-11-26: the whole page in two columns was confusing; only the post effects'
+    /// long list gains from it). The keyboard still walks the rows in order: the first column down, then the second.
+    fn section_ui(&mut self, ui: &mut Ui, grid: &[GridRow], rows: std::ops::Range<usize>, state: &mut RowState, settings: &mut Settings, ev: &mut ViewEvent) {
+        let mut topic: Option<&str> = None;
+        let mut idx = rows.start;
+        while idx < rows.end {
+            if state.graphics && topic == Some(crate::views::settings::POST_EFFECTS) && ui.available_width() >= TWO_COLUMNS_MIN_W {
+                // the topic's rows up to the next topic
+                let end = (idx..rows.end).find(|&i| matches!(grid[i].cells.first(), Some(CellType::Header(t)) if GRAPHICS_TOPICS.contains(&&**t))).unwrap_or(rows.end);
+                let blocks = groups_of(grid, idx..end);
+                if blocks.len() > 1 {
+                    let (left, right) = blocks.split_at(column_split(&blocks));
+                    let width = (ui.available_width() - COLUMN_GAP) / 2.0;
+                    ui.horizontal_top(|ui| {
+                        for (i, side) in [left, right].into_iter().enumerate() {
+                            if i == 1 {
+                                ui.add_space(COLUMN_GAP);
+                            }
+                            ui.vertical(|ui| {
+                                ui.set_width(width);
+                                for block in side {
+                                    for r in block.clone() {
+                                        self.row_ui(ui, grid, r, state, &mut topic, settings, ev);
+                                    }
+                                }
+                            });
+                        }
+                    });
+                    idx = end;
+                    continue;
+                }
+            }
+            self.row_ui(ui, grid, idx, state, &mut topic, settings, ev);
+            idx += 1;
+        }
+        if let Some(done) = topic {
+            topic_hint(ui, done);
+        }
+    }
+
+    /// One row of the page; `topic` is the Game Graphics topic it stands under (set at a topic's header, whose
+    /// note is drawn when the next topic starts).
+    #[allow(clippy::too_many_arguments)]
+    fn row_ui(&mut self, ui: &mut Ui, grid: &[GridRow], idx: usize, state: &mut RowState, topic: &mut Option<&'static str>, settings: &mut Settings, ev: &mut ViewEvent) {
+        {
+            let row = &grid[idx];
+            match row.cells.first() {
+                Some(CellType::Header(title)) if state.graphics && !GRAPHICS_TOPICS.contains(title) => {
+                    // A group under its topic (the override file's groups, the post effects' kinds).
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        ui.add_space(10.0);
+                        ui.label(RichText::new(*title).font(theme::body_semi(14.5)).color(accent_hi()));
+                    });
+                }
+                Some(CellType::Header(title)) => {
+                    if let Some(done) = topic.take() {
+                        topic_hint(ui, done);
+                    }
+                    ui.add_space(8.0);
+                    let at = ui.next_widget_position();
+                    widgets::section(ui, title, None);
+                    if let Some(t) = GRAPHICS_TOPICS.iter().position(|t| t == title).filter(|_| state.graphics) {
+                        *topic = Some(GRAPHICS_TOPICS[t]);
+                        if at.y <= state.view_top {
+                            state.shown = state.shown.max(t);
+                        }
+                        if self.jump_to == Some(GRAPHICS_TOPICS[t]) {
+                            self.jump_to = None;
+                            ui.scroll_to_rect(Rect::from_min_size(at, vec2(1.0, 24.0)), Some(Align::TOP));
+                        }
+                        if state.locked && MOD_TOPICS.contains(&GRAPHICS_TOPICS[t]) {
+                            ui.horizontal(|ui| {
+                                ui.add_space(10.0);
+                                ui.label(RichText::new("Install the shader mods (Shader Mods, above) to change these.").font(theme::body(14.5)).color(TEXT_DIM));
+                            });
+                        }
+                    }
+                }
+                Some(CellType::Info(msg, warning)) => {
+                    ui.horizontal(|ui| {
+                        ui.add_space(LABEL_W);
+                        let col = if *warning { RED } else { GREEN };
+                        ui.add(egui::Label::new(RichText::new(msg.trim()).color(col).font(theme::body(14.5))).wrap());
+                    });
+                }
+                Some(CellType::Label(label)) => {
+                    let values = row.cells[1..].to_vec();
+                    if state.locked && topic.is_some_and(|t| MOD_TOPICS.contains(&t)) {
+                        ui.add_enabled_ui(false, |ui| {
+                            ui.multiply_opacity(0.45);
+                            self.field_row(ui, idx, label, values, state.moved, settings, ev);
+                        });
+                    } else {
+                        self.field_row(ui, idx, label, values, state.moved, settings, ev);
+                    }
+                }
+                _ => {}
+            }
+        }
     }
 
     /// One labelled setting: the label column, its control, and the error under it when the
@@ -578,6 +668,30 @@ impl SettingsView {
                     let v = settings.game_graphics.planet_canopy_frost_strength;
                     self.ranged_slider(ui, idx, v, 0..=MAX_LOOK_PERCENT, " %", "How strong the frost on the cockpit glass is in cloud and fog, 100 % the usual (0 is practically none) — drag, or click the number to type", settings, ev);
                 }
+                _ if self.section == SettingsSection::GameGraphics && crate::post_effects::EFFECTS.iter().any(|e| e.strength_label == Some(label)) => {
+                    if let Some(e) = crate::post_effects::EFFECTS.iter().find(|e| e.strength_label == Some(label)) {
+                        let v = settings.game_graphics.post.list().iter().find(|(n, _)| *n == e.name).map_or(100, |(_, x)| x.strength);
+                        self.ranged_slider(ui, idx, v.min(e.max), 0..=e.max, " %", &format!("{}. 100 % is the effect's usual strength — drag, or click the number to type", e.about), settings, ev);
+                    }
+                }
+                crate::post_effects::TEMPERATURE_LABEL => {
+                    let v = settings.game_graphics.post.colour_temperature;
+                    self.ranged_slider(ui, idx, v, crate::post_effects::TEMPERATURE_RANGE, " K", "The light the picture looks lit by: under 6500 K warmer (sunset 3000, a light bulb 3200), above it cooler (overcast 7000, blue sky 10000) — drag, or click the number to type", settings, ev);
+                }
+                crate::post_effects::COLOUR_BLINDNESS_LABEL => {
+                    let names = crate::settings::game_graphics::ColourBlindness::ALL.map(|c| c.name());
+                    let current = names.iter().position(|m| *m == value).unwrap_or(0);
+                    let resp = ui.scope(|ui| widgets::tab_strip(ui, &names, current));
+                    if let Some(i) = resp.inner {
+                        if i != current {
+                            keep(ev, self.commit_value(idx, col, names[i].to_string(), settings));
+                        }
+                    }
+                    resp.response.on_hover_text("Which colours your eyes mix up: red (protanopia), green (deuteranopia, the most common) or blue (tritanopia)");
+                }
+                crate::post_effects::LIFT_LABEL | crate::post_effects::GAMMA_LABEL | crate::post_effects::GAIN_LABEL => {
+                    self.text_cell(ui, idx, col, &value, 160.0, "r, g, b (0 to 2, 1 neutral)", settings, ev);
+                }
                 "  Bio Threshold" | "  Geo Threshold" => self.number_field(ui, idx, label, &value, settings, ev),
                 _ if self.section == SettingsSection::Appearance => {
                     let stored = crate::theme::parse_rgb(&value).unwrap_or_else(crate::theme::accent_rgb);
@@ -608,8 +722,14 @@ impl SettingsView {
                 }
             },
             CellType::BoolValue(on) => {
-                if switch(ui, on, cursor).on_hover_text("Click to toggle (space)").clicked() {
+                let about = if self.section == SettingsSection::GameGraphics { crate::post_effects::about(label) } else { None };
+                let tip = about.map_or_else(|| "Click to toggle (space)".to_string(), |a| format!("{a} — click to toggle (space)"));
+                if switch(ui, on, cursor).on_hover_text(tip).clicked() {
                     keep(ev, self.press_cell(idx, col, settings));
+                }
+                if let Some(a) = about {
+                    ui.add_space(10.0);
+                    widgets::hint(ui, a);
                 }
             }
             CellType::Button(text) => {

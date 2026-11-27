@@ -530,6 +530,7 @@ impl Clouds {
     pub fn assignments(&self) -> Vec<(&'static str, String)> {
         if self.coverage <= 0.0 {
             let mut lines = vec![("x503", "0.000".to_string()), ("x507", "0.000".to_string()), ("x521", "0.000".to_string())];
+            lines.extend(self.body_assignments());
             lines.extend(self.haze.assignments());
             return lines;
         }
@@ -582,6 +583,22 @@ impl Clouds {
         ])
         .chain(self.haze.assignments())
         .collect()
+    }
+
+    /// The body's own rows, written with or without clouds: the scale height `y502`, the air's
+    /// column (row 550) and the radius `w507` (0 where unknown). They describe the body, not the
+    /// clouds' look, so none may stay from the last one: on a moon without clouds (Outorns EH-S
+    /// d5-2 A 2 b, 425.6 km) its neighbour's 7,392.5 km radius and thick ammonia air stayed, and
+    /// the dust haze took its sunlight's colour from that air (ed_frame133319, 2026-11-23).
+    fn body_assignments(&self) -> [(&'static str, String); 6] {
+        [
+            ("y502", format!("{:.0}", self.scale_height_m)),
+            ("x550", format!("{:.4}", self.air_depth[0])),
+            ("y550", format!("{:.4}", self.air_depth[1])),
+            ("z550", format!("{:.4}", self.air_depth[2])),
+            ("w550", format!("{:.4}", self.methane_kmam)),
+            ("w507", format!("{:.0}", self.radius_m)),
+        ]
     }
 }
 
@@ -738,8 +755,12 @@ pub struct Forecast {
 impl Forecast {
     pub const AIRLESS: Forecast = Forecast { clouds: Clouds::NONE, source: Err(NoClouds::Airless), regime: None, high: None, droplets: false, smooth_veil: false };
 
-    fn none(reason: NoClouds, haze: Haze) -> Forecast {
-        Forecast { clouds: Clouds { haze, ..Clouds::NONE }, source: Err(reason), ..Forecast::AIRLESS }
+    /// No clouds and no haze, but the body's own rows (Clouds::body_assignments): for the clouds
+    /// switched off, so the dust haze still has the body's air.
+    pub fn body_only(&self) -> Forecast {
+        let c = &self.clouds;
+        let clouds = Clouds { radius_m: c.radius_m, scale_height_m: c.scale_height_m, air_depth: c.air_depth, methane_kmam: c.methane_kmam, ..Clouds::NONE };
+        Forecast { clouds, ..Forecast::AIRLESS }
     }
 
     /// One line for the settings, e.g. "Clouds: sulphur dioxide ice, cirrus-like veil, sparse".
@@ -857,6 +878,8 @@ pub fn forecast(air: &Air, strength: f32) -> Forecast {
     // In metres over the ground where the scale height is known.
     let scale_height = if air.gravity_ms2 > 0.0 { R * surface / (mean_molar * f64::from(air.gravity_ms2)) } else { 0.0 };
     let haze = haze(air, strength, scale_height);
+    let air_depth = rayleigh_depth(air.gases, pressure, air.gravity_ms2);
+    let methane_kmam = methane_column(air.gases, pressure, air.gravity_ms2);
     let top = TOP_OF_AIR * surface;
     let cold = COLD_SIDE * surface;
     let main_gas = air.gases.iter().fold(None, |best: Option<(&str, f32)>, &(name, percent)| match best {
@@ -894,7 +917,8 @@ pub fn forecast(air: &Air, strength: f32) -> Forecast {
     // gas makes any, else they are the second layer above.
     let lowest = |high: bool| candidates.iter().filter(|c| (c.regime == Regime::High) == high).min_by(|a, b| a.margin.total_cmp(&b.margin));
     let Some(c) = lowest(false).or_else(|| lowest(true)) else {
-        return Forecast::none(if freezers == 0 { NoClouds::NothingFreezes } else { NoClouds::TooWarm }, haze);
+        let clouds = Clouds { haze, scale_height_m: scale_height as f32, air_depth, methane_kmam, ..Clouds::NONE };
+        return Forecast { clouds, source: Err(if freezers == 0 { NoClouds::NothingFreezes } else { NoClouds::TooWarm }), ..Forecast::AIRLESS };
     };
     let (m, percent) = (c.m, c.percent);
 
@@ -964,8 +988,8 @@ pub fn forecast(air: &Air, strength: f32) -> Forecast {
         reddening: if air.gravity_ms2 > 0.0 { (pressure / f64::from(air.gravity_ms2) / DENSE_COLUMN).clamp(0.01, 1.0) as f32 } else { 0.0 },
         scale_height_m: scale_height as f32,
         shadows: true,
-        air_depth: rayleigh_depth(air.gases, pressure, air.gravity_ms2),
-        methane_kmam: methane_column(air.gases, pressure, air.gravity_ms2),
+        air_depth,
+        methane_kmam,
         high: high_row,
         haze,
         // The waves need the layer's height in scale heights, so the gravity (none where unknown).
@@ -1033,9 +1057,8 @@ fn base_gas(atmosphere_type: &str) -> Option<&str> {
     ICES.iter().any(|i| i.name == gas).then_some(gas)
 }
 
-/// The clouds of a scanned body. Bodies the commander hasn't scanned (only known from the
-/// server) have no atmosphere data, so no clouds.
-pub fn for_body(body: &BodyScan, strength: f32) -> Forecast {
+/// The forecast of a body's air, without its radius ([`for_body`]).
+fn air_forecast(body: &BodyScan, strength: f32) -> Forecast {
     let Some(exo) = &body.exo else { return Forecast::AIRLESS };
     let gases: Vec<(&str, f32)> = if exo.composition.is_empty() {
         match base_gas(&exo.atmosphere_type) {
@@ -1046,10 +1069,15 @@ pub fn for_body(body: &BodyScan, strength: f32) -> Forecast {
         exo.composition.iter().map(|g| (g.name.as_str(), g.percent)).collect()
     };
     let air = Air { tidal_lock: body.tidal_lock, ..Air::new(&gases, exo.surface_pressure, body.surface_temperature).with_gravity(body.surface_gravity) };
-    let mut forecast = forecast(&air, strength);
-    if forecast.source.is_ok() {
-        forecast.clouds.radius_m = body.radius;
-    }
+    forecast(&air, strength)
+}
+
+/// The clouds of a scanned body. Bodies the commander hasn't scanned (only known from the
+/// server) have no atmosphere data, so no clouds.
+pub fn for_body(body: &BodyScan, strength: f32) -> Forecast {
+    let mut forecast = air_forecast(body, strength);
+    // The radius with or without clouds (Clouds::body_assignments).
+    forecast.clouds.radius_m = body.radius;
     if forecast.clouds.haze.depth > 0.0 {
         forecast.clouds.haze.radius_m = body.radius;
     }
@@ -1447,9 +1475,10 @@ mod tests {
     }
 
     #[test]
-    fn no_clouds_write_x3_and_x7_alone() {
-        // x507 too, so the fog of the last planet doesn't stay on an airless one.
-        let none = vec![("x503", "0.000".to_string()), ("x507", "0.000".to_string()), ("x521", "0.000".to_string()), ("x522", "0.000".to_string())];
+    fn no_clouds_write_their_switches_and_the_bodys_rows() {
+        // x507 too, so the fog of the last planet doesn't stay on an airless one; and the body's
+        // radius and air (0 where unknown), so the last planet's don't stay either.
+        let none = vec![("x503", "0.000".to_string()), ("x507", "0.000".to_string()), ("x521", "0.000".to_string()), ("y502", "0".to_string()), ("x550", "0.0000".to_string()), ("y550", "0.0000".to_string()), ("z550", "0.0000".to_string()), ("w550", "0.0000".to_string()), ("w507", "0".to_string()), ("x522", "0.000".to_string())];
         assert_eq!(Clouds::NONE.assignments(), none);
         let names: Vec<_> = sky(&[("Nitrogen", 100.0)], 3000.0, 70.0, 1.0).clouds.assignments().iter().map(|(n, _)| *n).collect();
         assert_eq!(names, ["x503", "y503", "z503", "w503", "x504", "y504", "w504", "z505", "x501", "y501", "z501", "w501", "x502", "y502", "z502", "x550", "y550", "z550", "w550", "x507", "w507", "y507", "x508", "x509", "w509", "x521", "y521", "z521", "w521", "x529", "y529", "z529", "w529", "x530", "y530", "z530", "w530", "x522"]);
@@ -1563,8 +1592,8 @@ mod tests {
         c.volumetric = true;
         c.thickness = 0.0;
         assert_eq!((get(&c, "z505").as_str(), get(&c, "x504").as_str()), ("0.000", "0.090"), "{c:?}");
-        // Without clouds x503 and x507 stay alone in either mode.
-        assert_eq!(Clouds { volumetric: true, ..Clouds::NONE }.assignments(), vec![("x503", "0.000".to_string()), ("x507", "0.000".to_string()), ("x521", "0.000".to_string()), ("x522", "0.000".to_string())]);
+        // Without clouds the same rows in either mode.
+        assert_eq!(Clouds { volumetric: true, ..Clouds::NONE }.assignments(), Clouds::NONE.assignments());
     }
 
     #[test]
@@ -1589,6 +1618,29 @@ mod tests {
         assert_eq!(for_body(&body("None", vec![]), 1.0), Forecast::AIRLESS);
         assert_eq!(for_body(&body("", vec![]), 1.0), Forecast::AIRLESS);
         assert_eq!(for_body(&BodyScan::default(), 1.0), Forecast::AIRLESS);
+    }
+
+    // 2026-11-23: from a cloudy 7,392.5 km planet to a 425.6 km moon without clouds, the moon kept
+    // the planet's radius and air (ed_frame133319). A body without clouds writes its own.
+    #[test]
+    fn a_body_without_clouds_writes_its_own_radius_and_air() {
+        let gas = |name: &str, percent| AtmosphereGas { name: name.to_string(), percent };
+        let moon = BodyScan {
+            surface_temperature: 150.0,
+            surface_gravity: 0.3,
+            radius: 425_600.0,
+            exo: Some(ExoScan { atmosphere_type: "Helium".to_string(), surface_pressure: 200.0, composition: vec![gas("Helium", 100.0)], so2_percent: 0.0 }),
+            ..Default::default()
+        };
+        let f = for_body(&moon, 1.0);
+        assert_eq!(f.source, Err(NoClouds::NothingFreezes));
+        let rows = f.clouds.assignments();
+        let get = |n: &str| rows.iter().find(|(k, _)| *k == n).map(|(_, v)| v.parse::<f32>().unwrap());
+        assert_eq!((get("x503"), get("w507")), (Some(0.0), Some(425_600.0)), "{rows:?}");
+        assert!(get("z550").unwrap() > 0.0 && get("y502").unwrap() > 0.0, "{rows:?}");
+        // With the clouds switched off the same body rows, and nothing else of the clouds.
+        let off = f.body_only();
+        assert_eq!((off.clouds.radius_m, off.clouds.air_depth, off.clouds.haze), (425_600.0, f.clouds.air_depth, Haze::NONE));
     }
 
     #[test]
@@ -1812,7 +1864,9 @@ mod tests {
         let mut c = f.clouds;
         c.haze.radius_m = 1_000_000.0;
         let names: Vec<_> = c.assignments().into_iter().map(|(n, _)| n).collect();
-        assert_eq!(names, ["x503", "x507", "x521", "x522", "y522", "z522", "w522", "x528", "y528", "z528"]);
+        assert_eq!(names, ["x503", "x507", "x521", "y502", "x550", "y550", "z550", "w550", "w507", "x522", "y522", "z522", "w522", "x528", "y528", "z528"]);
+        // The air's column and scale height are the body's, clouds or not.
+        assert!(c.air_depth[2] > 0.0 && c.scale_height_m > 0.0, "{c:?}");
         // Example 9, pure methane: hydrocarbons, half the tholins' depth: (0.01 + 0.09 * 0.82) * 0.5.
         let ch4 = sky_g(&[("Methane", 100.0)], 1000.0, 90.0, 0.15, 0.7).clouds.haze;
         assert!(ch4.kind == Some(HazeKind::Hydrocarbon) && near(ch4.depth.into(), 0.0418, 0.0005), "{ch4:?}");

@@ -636,7 +636,14 @@ float sheetDepth(Dust d, float3 cam, float3 dir, float ground, float pixelAngle,
 	// line there, at eye level, that moved as the commander crouched (2026-10-29). Over 0.2 to
 	// 1.1 degrees it spans some tens of rows; over 0.3 to 3 it took the sheet from beyond 35 m on
 	// foot and the dust was hardly seen (2026-10-29).
-	float near = (1 - smoothstep(DUST_NEAR_M, DUST_FAR_M, ground * d.mPerUnit)) * smoothstep(0.003, 0.02, -dot(dir, normalize(hit)));
+	// The angle is the one the ray meets the terrain at, the planet's up or the terrain's own normal,
+	// whichever is steeper (groundSlope without its floor). Until client 0.43.263 it was the planet's
+	// up alone: ground over eye level, a slope rising ahead, is met by a ray going up, and had no sheet
+	// at all; the sand ended in a straight line across the slope at eye level, which climbed it as the
+	// camera rose (the owner, 2026-11-24, `ed_frame33212.rdc`, `ed_frame39915.rdc` the camera higher).
+	// On level ground the two are the same angle.
+	float meets = max(max(-dot(dir, normalize(hit)), -dot(dir, normal)), 0);
+	float near = (1 - smoothstep(DUST_NEAR_M, DUST_FAR_M, ground * d.mPerUnit)) * smoothstep(0.003, 0.02, meets);
 	// 0.12 / m was tuned for a sheet of SHEET_M: a shallower one is as much denser, so that looking
 	// straight down the sheet is as thick as it was.
 	// The sheet's floor between the gusts, 0.15, by the share of fronts: between them the ground is
@@ -975,6 +982,15 @@ float4 groundDust(float3 v0, float3 v1, Ray ray)
 	// ground the camera is over, as near as the picture tells. Where none was ever kept, the lowest.
 	float4 near = GroundRef.Load(int3(1, 0, 0));
 	float rNear = near.y > 0 ? d.rPlanet + near.x / near.y * (1 - d.rPlanet) : rFloor;
+	// The lowest ground in view is no higher than the ground the camera is over. The probe takes it 300 m
+	// to 3 km off only, and in a hollow looking up a slope that ground lay 105 m over the camera's own:
+	// the air up the slope counted as high over the ground, and the dust ended in a hard line across it,
+	// which climbed the slope as the camera rose (a jump) and other ground came into view (the owner,
+	// 2026-11-23, Outorns EH-S d5-2 A 2 b, `ed_frame100103.rdc`; `ed_frame107780.rdc` the camera raised;
+	// ed-captures/renderdoc/test-dustcut/FINDINGS.md). A floor taken along the ray, from the camera's
+	// ground to the ray's end, is no help: a ray from the eye runs eye-high over that line whatever the
+	// land, and the dust lay on the far walls of a valley as on level land.
+	rFloor = min(rFloor, rNear);
 	float groundM = ground * d.mPerUnit;
 	float maskM = TerrainDist.Load(int3(pixel, 0));
 	bool terrain = abs(maskM - groundM) < 0.2 + 0.02 * groundM;

@@ -88,6 +88,24 @@ pub struct BodyScan {
     /// What the exobiology prediction needs besides the fields above; `None` for bodies
     /// not scanned by the commander (barycentres, the server's bodies).
     pub exo: Option<ExoScan>,
+    /// A star's mass and its orbit round its parent (`StellarMass`, `SemiMajorAxis`, `Eccentricity`,
+    /// `OrbitalInclination`, `AscendingNode`): the black hole's accretion disc reads it (`black_hole`).
+    /// `None` for barycentres, the server's bodies and planets.
+    pub orbit: Option<OrbitScan>,
+}
+
+/// A scanned star's mass and orbit.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct OrbitScan {
+    /// Solar masses.
+    pub stellar_mass: f32,
+    /// Metres, round the body's parent (a barycentre for each star of a pair); 0 when not given.
+    pub semi_major_axis: f32,
+    pub eccentricity: f32,
+    /// Degrees.
+    pub inclination: f32,
+    /// Degrees.
+    pub ascending_node: f32,
 }
 
 /// Scan details only the exobiology prediction reads.
@@ -989,6 +1007,7 @@ impl JournalData {
                 upsert_body(&mut self.bodies, BodyScan {
                     body_id: e.body_id,
                     body_name: format!("{} Barycentre", e.star_system),
+                    orbit: None,
                     planet_class: String::new(),
                     landable: false,
                     scan_type: "AutoScan".into(),
@@ -1718,6 +1737,13 @@ fn body_from_scan(e: &Scan, odyssey: bool) -> BodyScan {
     BodyScan {
         body_id: e.body_id,
         body_name: e.body_name.clone(),
+        orbit: e.stellar_mass.map(|stellar_mass| OrbitScan {
+            stellar_mass,
+            semi_major_axis: e.semi_major_axis.unwrap_or(0.0),
+            eccentricity: e.eccentricity.unwrap_or(0.0),
+            inclination: e.orbital_inclination.unwrap_or(0.0),
+            ascending_node: e.ascending_node.unwrap_or(0.0),
+        }),
         planet_class: e.planet_class.clone().unwrap_or_default(),
         landable: e.landable,
         scan_type: e.scan_type.clone().unwrap_or_default(),
@@ -3139,6 +3165,7 @@ fn load_previous_scans_for_system(
                     data.bodies.push(BodyScan {
                         body_id: e.body_id,
                         body_name: format!("{} Barycentre", e.star_system),
+                        orbit: None,
                         planet_class: String::new(),
                         landable: false,
                         scan_type: "AutoScan".into(),

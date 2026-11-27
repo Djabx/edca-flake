@@ -23,11 +23,10 @@ void main(float3 v0 : TEXCOORD0, float3 v1 : TEXCOORD1, float3 v2 : TEXCOORD2, f
           out float4 o0 : SV_Target0)
 {
 	o0 = 0;
-	float radiusM = IniParams.Load(int2(507, 0)).w;
 	float3 dir;
 	int2 pixel;
 	float ground = viewRay(v0, v1, dir, pixel);
-	if (ground < 0 || radiusM <= 0)
+	if (ground < 0)
 		return;
 	// The cockpit, the ship seen from outside and anything else this close is not ground. Nor does
 	// ground further than 3 km count: fog pools in the valley at hand, and from a free camera high
@@ -44,7 +43,11 @@ void main(float3 v0 : TEXCOORD0, float3 v1 : TEXCOORD1, float3 v2 : TEXCOORD2, f
 	// ground farther off counts too, marked 0.25: edcas_ground_ref.hlsl takes it only while it sees
 	// none of the near kind, so with the valley in view the level is as it was.
 	float rPlanet = cb1[31].z / cb1[31].w;
-	float metres = ground * radiusM / rPlanet;
+	// Metres by the atmosphere's radius (cb1[31].w, km), as the dust has them. Until client 0.43.261
+	// by the journal's radius over the atmosphere's base (w507 / rPlanet): 7 % too far on a 425.6 km
+	// moon, whose base lies 28.7 km under the journal's radius, and 17 times too far where w507 was
+	// still the last planet's (ed_frame133319, 2026-11-23).
+	float metres = ground * cb1[31].w * 1000;
 	float mask = TerrainDist.Load(int3(pixel, 0));
 	float terrain = mask > 0 && abs(mask - metres) < 0.2 + 0.02 * metres ? metres : 0;
 	float kind = metres < 300 || metres > GROUND_FAR_M ? 0 : metres <= 3000 ? 1 : 0.25;

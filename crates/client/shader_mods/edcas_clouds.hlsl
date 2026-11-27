@@ -161,6 +161,33 @@ float fbmD(float3 p, const int n, float scale)
 	return sum / total;
 }
 
+// The spread (standard deviation) of one octave of value noise, noiseD: for the variance fbmFoot takes away.
+#define NOISE_SD 0.17
+
+// fbmD filtered to a footprint (`foot`, in units of p; the first octave's cells are 1 unit): an octave whose
+// cells are under two footprints gives its mean, 0.5, as the waves are filtered (waveKeep), and `lost` comes back
+// with the spread that took away, in fbm's units, for a threshold's edge to widen by: the cover's mean then stays
+// where the pixel holds many cells (2026-11-26: the high clouds' shell from orbit, ed_frame222039, a cell some
+// tenths of a pixel, one fbmD read a pixel thresholded into glitter over the whole disc).
+float fbmFoot(float3 p, const int n, float scale, float foot, out float lost)
+{
+	float sum = 0, amp = 0.5, total = 0, cell = 1;
+	lost = 0;
+	[unroll] for (int i = 0; i < n; i++) {
+		float keep = 1 - smoothstep(0.25 * cell, 0.5 * cell, foot);
+		float v = keep > 0 ? noiseD(p, scale) : 0.5;
+		sum += amp * lerp(0.5, v, keep);
+		lost += amp * amp * (1 - keep * keep);
+		total += amp;
+		p = p * 2.03 + 17.1;
+		scale *= 2.03;
+		amp *= 0.5;
+		cell /= 2.03;
+	}
+	lost = sqrt(lost) / total * NOISE_SD;
+	return sum / total;
+}
+
 // 0..1, n octaves (n is a constant at every call, so the loop unrolls)
 float fbm(float3 p, const int n)
 {
@@ -927,16 +954,21 @@ float viewRay(float3 v0, float3 v1, out float3 dir, out int2 pixel)
 	dir = normalize(float3(dot(cb1[19].xyz, v1), dot(cb1[20].xyz, v1), dot(cb1[21].xyz, v1)));
 	// The pass's own surface, the atmosphere's shell: the clip w of the dome's vertex, or, run over
 	// the whole picture without the dome (edcas_sky_vs.hlsl gives v0.z < 0, 2026-11-08), the shell's
-	// view depth worked out here: the ray's exit from the unit sphere round the planet from inside
-	// it, its entry from outside, in metres by the rows' scale (atmosphere radii per metre), along
-	// the view's forward axis. No hit (outside, looking past the planet) is no surface: all is sky.
+	// view depth worked out here, in metres by the rows' scale (atmosphere radii per metre), along
+	// the view's forward axis. Elite draws the dome's back faces (it culls the front ones,
+	// ed_frame1390264), so its surface is the ray's far crossing of the unit sphere round the
+	// planet: the exit from inside, and from outside the far side, behind the planet's ground. Until
+	// client 0.43.259 the near crossing was taken from outside: the ground lay behind it and counted
+	// as nothing drawn. A ray that misses the sphere (from orbit, past the planet) has no surface:
+	// anything the depth buffer holds nearer than Elite's sky (1e17 m, ed_frame1390264) is drawn
+	// there, a ship against the haze above the atmosphere.
 	float own = v0.z;
 	if (own < 0) {
 		float3 c = cb1[3].xyz;
 		float cd = dot(c, dir), cc = dot(c, c);
 		float disc = cd * cd - cc + 1;
-		float t = disc > 0 ? (cc < 1 ? -cd + sqrt(disc) : -cd - sqrt(disc)) : 0;
-		own = t > 0 ? t / length(cb1[19].xyz) * dot(normalize(v1), cb1[279].xyz) : 0;
+		float t = disc > 0 ? -cd + sqrt(disc) : 0;
+		own = t > 0 ? t / length(cb1[19].xyz) * dot(normalize(v1), cb1[279].xyz) : 1e16;
 	}
 	if (depth >= own)
 		return -1;
@@ -1515,16 +1547,21 @@ float4 highClouds(float3 v0, float3 v1, Ray ray, out bool inFront)
 	float day = dot(up, sun);
 	float local = 1 + 1.5 * ((1.5 - 0.9 * saturate(day)) / 1.05 - 1);
 	float threshold = 0.5 + 0.3 * (0.5 - p21.x * max(local, 0));
+	// The pixel's footprint on the shell (noise units), for the waves and the noise.
+	float foot = t * pixelAngle * k / max(abs(dot(dir, up)), 0.05);
 	// Their waves (y529), as the main layer's.
 	float wave = IniParams.Load(int2(529, 0)).y;
 	if (wave > 0)
 		threshold -= waveLift(wave, up.x * shellN * k, max(p21.w, 0) * clock / mPerUnit * k, warp.x * 1.6 * 0.375,
-		                      t * pixelAngle * k / max(abs(dot(dir, up)), 0.05), threshold, WAVE_KEEP_SHELL);
-	float f = fbmD(at, 5, 1);
-	float base = smoothstep(threshold - 0.03, threshold + 0.12, f);
+		                      foot, threshold, WAVE_KEEP_SHELL);
+	// The noise filtered to the footprint, the edge widened by the spread that took away (fbmFoot).
+	float lost;
+	float f = fbmFoot(at, 5, 1, foot, lost);
+	float base = smoothstep(threshold - 0.03 - 2 * lost, threshold + 0.12 + 2 * lost, f);
 	if (base <= 0)
 		return 0;
-	float erosion = fbmD(at * 4.1 + float3(5.2, 1.3, 8.7) + up * (4 * evolve), 3, 4.1);
+	float lostErosion;
+	float erosion = fbmFoot(at * 4.1 + float3(5.2, 1.3, 8.7) + up * (4 * evolve), 3, 4.1, foot * 4.1, lostErosion);
 	float density = saturate(base - (1 - base) * erosion * 0.5);
 	// Slant path: the vertical optical depth over the cosine of the angle the ray meets the shell at.
 	float mu = max(abs(dot(dir, up)), 0.1);
@@ -1636,6 +1673,59 @@ float hazeColumn(float3 cam, float3 dir, float end, float rG, float H)
 	return hazeOutside(cam, dir, 0, sIn, rG, H) + (sOut - sIn) / H + hazeOutside(cam, dir, sOut, far, rG, H);
 }
 
+// How many samples the haze's column takes where it is summed (hazeInShell).
+#define HAZE_SHELL_STEPS 16
+
+// The haze's column as hazeColumn, but of a haze that ends at the top of Elite's atmosphere (the
+// sphere of radius 1): its density is exp(-h / H) less what that is at the top, so it runs out to
+// nothing there without a step, and times what keeps its vertical column from the ground level the
+// same (x531, x522: the dust is all there, in the air the game has). Only the ray's stretch inside
+// that sphere counts; a ray that misses it has no haze.
+// The chain runs at Elite's sky draws alone, and from outside its atmosphere Elite draws the sky only
+// while the shell is in view: a haze that reached past the shell came and went with a tilt of the
+// camera, over the whole picture. On Outorns EH-S d5-2 A 2 b (0.48 m/s², 415 K, water vapour: a scale
+// height of 397 km on a body of 426 km, the shell's top 92 km up) the dust haze had 67 % of its
+// ground density at the ship 161 km up and lit all of space 120 times as bright as it was, and one
+// frame later was gone (ed_frame110351, ed_frame131055, 2026-11-24).
+// Where the shell is four scale heights deep or more, what is taken off is under 2 % of the density
+// at the ground and the closed form stands (less the constant along the stretch). Under three, the
+// difference would be of two nearly equal numbers, and the Chapman function is good to 2 % only for
+// a radius of many scale heights: there the stretch is summed in HAZE_SHELL_STEPS samples, which a
+// density that changes by less than e³ along it allows. Between, both, blended.
+float hazeInShell(float3 cam, float3 dir, float end, float rG, float H)
+{
+	float b = dot(cam, dir), c = dot(cam, cam) - 1, disc = b * b - c;
+	if (disc <= 0)
+		return 0;
+	float root = sqrt(disc);
+	float s0 = max(-b - root, 0), s1 = -b + root;
+	if (end >= 0)
+		s1 = min(s1, end);
+	if (s1 <= s0)
+		return 0;
+	float len = s1 - s0;
+	float top = max(1 - rG, 0) / H;
+	float eTop = exp(-top);
+	// the vertical column of exp(-h / H) - eTop from the ground level to the top, in scale heights
+	float whole = 1 - eTop * (1 + top);
+	if (whole <= 1e-6)
+		return 0;
+	float3 from = cam + dir * s0;
+	float deep = smoothstep(3, 4, top);
+	float closed = 0, summed = 0;
+	if (deep > 0)
+		closed = max(hazeColumn(from, dir, len, rG, H) - eTop * len / H, 0);
+	if (deep < 1) {
+		float dt = len / HAZE_SHELL_STEPS;
+		for (int i = 0; i < HAZE_SHELL_STEPS; i++) {
+			float h = max(length(from + dir * ((i + 0.5) * dt)) - rG, 0) / H;
+			summed += max(exp(-h) - eTop, 0);
+		}
+		summed *= dt / H;
+	}
+	return lerp(summed, closed, deep) / whole;
+}
+
 // A haze mixed through the air, thinning with the height by the scale height, along a pixel's view ray
 // in front of the ground (or out to space), premultiplied. `p`: its vertical optical depth, its scale
 // height (m), the ground's radius (m), how blue it turns in forward scatter; `colour`: its own.
@@ -1679,7 +1769,7 @@ float4 columnHaze(Ray ray, float4 p22, float3 colour)
 		if (c > 0 && disc > 0 && b < 0)
 			groundN = lerp(groundN, -b - sqrt(disc), smoothstep(HAZE_SPHERE_NEAR_M, HAZE_SPHERE_FAR_M, groundN * mPerUnit) * smoothstep(HAZE_SPHERE_LOW_M, HAZE_SPHERE_HIGH_M, (r0 - rGround) * mPerUnit));
 	}
-	float column = hazeColumn(cam, dir, groundN, rGround, H);
+	float column = hazeInShell(cam, dir, groundN, rGround, H);
 	// Where the haze along the ray is densest, which is where its light is taken: the ray's lowest
 	// point on it, the camera for a ray that climbs and the ground for one that falls all the way. Until
 	// client 0.43.200 a ray that ended on the ground took the camera from eye level up and the ground
@@ -1730,9 +1820,20 @@ float4 photoHaze(float3 v0, float3 v1, Ray ray)
 // Along the horizon the column is some 14 times the vertical one on a body of 1300 km with a 10 km
 // scale height: 0.05 is a clear veil there. It does not follow the hour or the fronts: only the sand
 // near the ground does.
+//
+// The dust is held up by the air, and the air in the picture is Elite's, which thins by e every
+// ELITE_AIR_M whatever the gas: its sky pass's table of the optical depth towards the sun (t2,
+// README-ELITE.md), read for the sun at the zenith, falls by e every 7.5 to 8.0 km on five bodies
+// whose own scale heights are 8.2, 10.3, 17.5, 45.8 and 397 km (renderdoc/airprobe.py, 2026-11-24:
+// ed_frame60273, 31308, 893613, 150885, 54574). With the air's own scale height the dust of a body
+// of light gravity stood far over the blue rim Elite draws: on Outorns EH-S d5-2 A 2 b (397 km,
+// since client 0.43.264 thinned out to the shell's top 92 km up) a brown glow 30 to 100 km over a
+// rim some 10 km deep (ed_frame54574, the owner: "the dust layer goes further than the visible
+// blue atmosphere"). So the dust's scale height is the air's, but no more than Elite's.
+#define ELITE_AIR_M 7900.0
 float4 dustHaze(Ray ray)
 {
 	float4 p31 = IniParams.Load(int2(531, 0));
 	float3 colour = float3(IniParams.Load(int2(516, 0)).xyz);
-	return columnHaze(ray, float4(p31.x, p31.y, IniParams.Load(int2(515, 0)).w, 0), any(colour > 0) ? colour : float3(0.62, 0.45, 0.32));
+	return columnHaze(ray, float4(p31.x, min(p31.y, ELITE_AIR_M), IniParams.Load(int2(515, 0)).w, 0), any(colour > 0) ? colour : float3(0.62, 0.45, 0.32));
 }

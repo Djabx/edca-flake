@@ -140,7 +140,11 @@ fn visible_luminance(kelvin: f32) -> f64 {
 /// The CIE XYZ of a blackbody at `kelvin` (clamped to 300 K to 200 000 K), in arbitrary units:
 /// Planck's law summed over 380 to 780 nm in 5 nm steps against the CIE 1931 2° observer.
 fn blackbody_xyz(kelvin: f32) -> [f64; 3] {
-    let t = f64::from(kelvin.clamp(300.0, 200_000.0));
+    blackbody_xyz_unclamped(f64::from(kelvin.clamp(300.0, 200_000.0)))
+}
+
+/// [`blackbody_xyz`] at any temperature (the black hole's disc, millions of kelvin: `black_hole`).
+pub(crate) fn blackbody_xyz_unclamped(t: f64) -> [f64; 3] {
     let mut xyz = [0.0f64; 3];
     let mut nm = 380.0f64;
     while nm <= 780.0 {

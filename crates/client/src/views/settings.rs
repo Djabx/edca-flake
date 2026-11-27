@@ -13,7 +13,7 @@ use crate::settings::Settings;
 use crate::settings::icons::Icon;
 use crate::game_graphics;
 use crate::shader_mods;
-use crate::settings::game_graphics::{FadeWay, GaugeLook, OverrideChoice, PartLook, TintMode, DUST_REACH_RANGE, FOG_DEPTH_RANGE, HUD_BRIGHTNESS_RANGE, MAX_LOOK_PERCENT};
+use crate::settings::game_graphics::{ColourBlindness, FadeWay, GaugeLook, OverrideChoice, PartLook, TintMode, DUST_REACH_RANGE, FOG_DEPTH_RANGE, HUD_BRIGHTNESS_RANGE, MAX_LOOK_PERCENT};
 use crate::settings::journal_reader::ActionAtShutdownSignal;
 use crate::views::ViewEvent;
 
@@ -79,7 +79,7 @@ enum CellType {
     Button(&'static str),
 }
 
-struct GridRow {
+pub(super) struct GridRow {
     cells: Vec<CellType>,
 }
 
@@ -259,7 +259,10 @@ fn star_class_rank(key: &str) -> usize {
 /// The Game Graphics page's topics, in their order on the page: each a header there and an entry
 /// under Game Graphics in the sidebar that scrolls the page to it (2026-11-19). The override file's
 /// groups (Galaxy Map, Sun Shadows ...) are headers under [`GRAPHICS_OVERRIDES`], not topics.
-pub(super) const GRAPHICS_TOPICS: [&str; 7] = ["Shader Mods (3DMigoto)", "Planet Surface", "Weather", "Lighting", "Cockpit", "HUD", GRAPHICS_OVERRIDES];
+pub(super) const GRAPHICS_TOPICS: [&str; 8] = ["Shader Mods (3DMigoto)", "Planet Surface", "Weather", "Lighting", "Cockpit", "HUD", POST_EFFECTS, GRAPHICS_OVERRIDES];
+
+/// The topic of the picture effects on Elite's tonemapped picture ([`crate::post_effects`]).
+pub(super) const POST_EFFECTS: &str = "Post Effects";
 
 /// The last topic of the Game Graphics page: the game's own override file.
 const GRAPHICS_OVERRIDES: &str = "Graphics Overrides";
@@ -267,7 +270,7 @@ const GRAPHICS_OVERRIDES: &str = "Graphics Overrides";
 /// The Game Graphics topics that act only through the shader mods: greyed out and locked while the
 /// mods are not in the game folder (the owner, 2026-11-19). Shader Mods itself (Install) and the
 /// game's own override file stay usable.
-pub(super) const MOD_TOPICS: [&str; 5] = ["Planet Surface", "Weather", "Lighting", "Cockpit", "HUD"];
+pub(super) const MOD_TOPICS: [&str; 6] = ["Planet Surface", "Weather", "Lighting", "Cockpit", "HUD", POST_EFFECTS];
 
 /// Whether the shader mods are in the game folder (installed, or by another client version): the
 /// topics of [`MOD_TOPICS`] can be changed only then.
@@ -784,6 +787,34 @@ impl SettingsView {
                     }
                 }
                 rows.extend(hud_status(settings).map(|cell| GridRow { cells: vec![cell] }));
+                rows.push(GridRow { cells: vec![CellType::Header(POST_EFFECTS)] });
+                let list = g.post.list();
+                for group in crate::post_effects::GROUPS {
+                    rows.push(GridRow { cells: vec![CellType::Header(group)] });
+                    if group == crate::post_effects::AA {
+                        rows.push(switch(crate::post_effects::DOWNSCALE_LABEL, g.post.supersampling_downscale));
+                    }
+                    for (effect, (_, setting)) in crate::post_effects::EFFECTS.iter().zip(list).filter(|(e, _)| e.group == group) {
+                        rows.push(switch(effect.label, setting.on));
+                        if !setting.on {
+                            continue;
+                        }
+                        if let Some(label) = effect.strength_label {
+                            rows.push(percent(label, setting.strength));
+                        }
+                        let text = |label: &str, value: String| GridRow { cells: vec![CellType::Label(label.to_string()), CellType::StringValue(value)] };
+                        match effect.name {
+                            "lift_gamma_gain" => rows.extend([
+                                text(crate::post_effects::LIFT_LABEL, crate::post_effects::rgb_text(g.post.lift)),
+                                text(crate::post_effects::GAMMA_LABEL, crate::post_effects::rgb_text(g.post.gamma)),
+                                text(crate::post_effects::GAIN_LABEL, crate::post_effects::rgb_text(g.post.gain)),
+                            ]),
+                            "daltonize" => rows.push(text(crate::post_effects::COLOUR_BLINDNESS_LABEL, g.post.colour_blindness.name().to_string())),
+                            "white_balance" => rows.push(text(crate::post_effects::TEMPERATURE_LABEL, g.post.colour_temperature.to_string())),
+                            _ => {}
+                        }
+                    }
+                }
                 rows.extend([
                     GridRow { cells: vec![CellType::Header(GRAPHICS_OVERRIDES)] },
                     GridRow {
@@ -1028,6 +1059,44 @@ impl SettingsView {
                                 info!("Updated {label}: {n}");
                             }
                             _ => self.feedback = Some(format!("Must be a whole number 0-{MAX_LOOK_PERCENT}")),
+                        }
+                    }
+                    Some(label @ (crate::post_effects::LIFT_LABEL | crate::post_effects::GAMMA_LABEL | crate::post_effects::GAIN_LABEL)) => match crate::post_effects::parse_rgb(&value) {
+                        Some(v) => {
+                            let p = &mut settings.game_graphics.post;
+                            match label {
+                                crate::post_effects::LIFT_LABEL => p.lift = v,
+                                crate::post_effects::GAMMA_LABEL => p.gamma = v,
+                                _ => p.gain = v,
+                            }
+                            info!("Updated {}: {}", label.trim(), crate::post_effects::rgb_text(v));
+                        }
+                        None => self.feedback = Some("Three numbers 0-2 (red, green, blue; 1 is neutral), or one for all three".to_string()),
+                    },
+                    Some(crate::post_effects::TEMPERATURE_LABEL) => match value.trim().trim_end_matches('K').trim().parse::<u16>() {
+                        Ok(n) if crate::post_effects::TEMPERATURE_RANGE.contains(&n) => {
+                            settings.game_graphics.post.colour_temperature = n;
+                            info!("Updated colour temperature: {n} K");
+                        }
+                        _ => self.feedback = Some(format!("Must be a whole number {}-{} (kelvin; 6500 is neutral)", crate::post_effects::TEMPERATURE_RANGE.start(), crate::post_effects::TEMPERATURE_RANGE.end())),
+                    },
+                    Some(crate::post_effects::COLOUR_BLINDNESS_LABEL) => match ColourBlindness::ALL.iter().find(|c| c.name().eq_ignore_ascii_case(value.trim())) {
+                        Some(c) => {
+                            settings.game_graphics.post.colour_blindness = *c;
+                            info!("Updated colour blindness: {}", c.name());
+                        }
+                        None => self.feedback = Some("Expected: Protanopia, Deuteranopia or Tritanopia".to_string()),
+                    },
+                    Some(label) if crate::post_effects::EFFECTS.iter().any(|e| e.strength_label == Some(label)) => {
+                        let (effect, top) = crate::post_effects::EFFECTS.iter().find(|e| e.strength_label == Some(label)).map(|e| (e.name, e.max)).unwrap_or_default();
+                        match value.trim().trim_end_matches('%').trim().parse::<u16>() {
+                            Ok(n) if n <= top => {
+                                if let Some(e) = settings.game_graphics.post.get_mut(effect) {
+                                    e.strength = n;
+                                    info!("Updated post effect {effect} strength: {n} %");
+                                }
+                            }
+                            _ => self.feedback = Some(format!("Must be a whole number 0-{top}")),
                         }
                     }
                     Some("  Dust Reach (km)") => match value.trim().trim_end_matches("km").trim().parse::<u16>() {
@@ -1527,6 +1596,18 @@ impl SettingsView {
                     let g = &mut settings.game_graphics;
                     g.hud_target_hologram = !g.hud_target_hologram;
                     info!("Toggled target hologram colour: {}", g.hud_target_hologram);
+                }
+                Some(crate::post_effects::DOWNSCALE_LABEL) => {
+                    let p = &mut settings.game_graphics.post;
+                    p.supersampling_downscale = !p.supersampling_downscale;
+                    info!("Toggled supersampling downscale: {}", p.supersampling_downscale);
+                }
+                Some(label) if crate::post_effects::EFFECTS.iter().any(|e| e.label == label) => {
+                    let effect = crate::post_effects::EFFECTS.iter().find(|e| e.label == label).map(|e| e.name).unwrap_or_default();
+                    if let Some(e) = settings.game_graphics.post.get_mut(effect) {
+                        e.on = !e.on;
+                        info!("Toggled post effect {effect}: {}", e.on);
+                    }
                 }
                 Some("Star Light Colour") => {
                     let g = &mut settings.game_graphics;

@@ -5,9 +5,9 @@
 // own sky smaller still.
 // The texels count by how near their depth is to the pixel's: plain upscaling mixed the fog
 // behind a ship into the texels on its edge and drew a dark, blocky fringe round it (2026-10-27).
-// Runs on the geometry of Elite's atmosphere pass (draw = from_caller), of its sky upsample, or on
-// a full-screen triangle (edcas.ini, 2026-11-08): it reads nothing of a vertex shader but the pixel
-// position, and its constants and depth buffers are bound by name. Within a band only when x525 is
+// Runs on a full-screen triangle (edcas.ini; on the geometry of Elite's atmosphere pass until client
+// 0.43.259, which cut the haze off at the atmosphere's outline seen from orbit): it reads nothing of
+// a vertex shader but the pixel position, and its constants and depth buffers are bound by name. Within a band only when x525 is
 // set: the pixels ResourceEdcasBandMask marks (edcas_copy.hlsl).
 
 cbuffer cb1 : register(b1)

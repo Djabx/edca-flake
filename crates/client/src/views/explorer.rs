@@ -1357,6 +1357,7 @@ mod tests {
             body_id,
             children,
             data: Some(BodyScan {
+                orbit: None,
                 body_id,
                 body_name: name.into(),
                 planet_class: if star { String::new() } else { "Icy body".into() },

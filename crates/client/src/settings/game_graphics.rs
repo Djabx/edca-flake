@@ -149,6 +149,10 @@ pub struct GameGraphicsSettings {
     /// the physical 100 % turned the fog in front of the ship's lights white; 10 % looked right.
     #[serde(default = "default_lamp_glow")]
     pub planet_lamp_glow: u16,
+    /// Picture effects (fake HDR, film looks, blur, chromatic aberration, grain),
+    /// on Elite's tonemapped picture (see [`crate::post_effects`]). All off unless the player asks.
+    #[serde(default)]
+    pub post: PostEffects,
     /// The game folder holding 3DMigoto; empty to find it from the journal folder.
     #[serde(default)]
     pub game_folder: String,
@@ -318,6 +322,199 @@ impl HudGauges {
     }
 }
 
+/// One post effect: whether it is on and how strong, in percent of its usual strength.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+#[serde(default)]
+pub struct PostEffect {
+    pub on: bool,
+    pub strength: u16,
+}
+
+impl Default for PostEffect {
+    fn default() -> Self {
+        PostEffect { on: false, strength: 100 }
+    }
+}
+
+/// Which colour blindness Daltonize corrects for.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum ColourBlindness {
+    /// Red-blind.
+    #[default]
+    Protanopia,
+    /// Green-blind.
+    Deuteranopia,
+    /// Blue-blind.
+    Tritanopia,
+}
+
+impl ColourBlindness {
+    pub const ALL: [ColourBlindness; 3] = [ColourBlindness::Protanopia, ColourBlindness::Deuteranopia, ColourBlindness::Tritanopia];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            ColourBlindness::Protanopia => "Protanopia (red)",
+            ColourBlindness::Deuteranopia => "Deuteranopia (green)",
+            ColourBlindness::Tritanopia => "Tritanopia (blue)",
+        }
+    }
+
+    /// The shader's number for it (`y607`).
+    pub fn index(self) -> u8 {
+        match self {
+            ColourBlindness::Protanopia => 0,
+            ColourBlindness::Deuteranopia => 1,
+            ColourBlindness::Tritanopia => 2,
+        }
+    }
+}
+
+/// The post effects, in the order the shaders apply them (see [`crate::post_effects`]).
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+#[serde(default)]
+pub struct PostEffects {
+    pub deband: PostEffect,
+    pub smaa: PostEffect,
+    pub cas: PostEffect,
+    pub luma_sharpen: PostEffect,
+    pub clarity: PostEffect,
+    pub fake_hdr: PostEffect,
+    pub levels: PostEffect,
+    pub lift_gamma_gain: PostEffect,
+    pub dpx: PostEffect,
+    pub technicolor: PostEffect,
+    pub curves: PostEffect,
+    pub vibrance: PostEffect,
+    pub gaussian_blur: PostEffect,
+    pub chromatic_aberration: PostEffect,
+    pub vignette: PostEffect,
+    pub film_grain: PostEffect,
+    pub daltonize: PostEffect,
+    pub white_balance: PostEffect,
+    pub bleach_bypass: PostEffect,
+    pub monochrome: PostEffect,
+    pub sepia: PostEffect,
+    pub lens_flare: PostEffect,
+    pub anamorphic_streaks: PostEffect,
+    pub diffraction_spikes: PostEffect,
+    pub lens_dirt: PostEffect,
+    /// White Balance's colour temperature, in kelvin: the picture as if lit by a light of this colour (6500 neutral).
+    pub colour_temperature: u16,
+    /// Lift, gamma and gain per channel (red, green, blue), 1 neutral, 0 to 2.
+    pub lift: [f32; 3],
+    pub gamma: [f32; 3],
+    pub gain: [f32; 3],
+    pub colour_blindness: ColourBlindness,
+    /// The supersampled picture brought down to the screen by a filter over each pixel's whole
+    /// footprint instead of Elite's one bilinear read (see `edcas_downscale.hlsl`).
+    pub supersampling_downscale: bool,
+}
+
+impl Default for PostEffects {
+    fn default() -> Self {
+        let off = PostEffect::default();
+        PostEffects {
+            deband: off,
+            smaa: off,
+            cas: off,
+            luma_sharpen: off,
+            clarity: off,
+            fake_hdr: off,
+            levels: off,
+            lift_gamma_gain: off,
+            dpx: off,
+            technicolor: off,
+            curves: off,
+            vibrance: off,
+            gaussian_blur: off,
+            chromatic_aberration: off,
+            vignette: off,
+            film_grain: off,
+            daltonize: off,
+            white_balance: off,
+            bleach_bypass: off,
+            monochrome: off,
+            sepia: off,
+            lens_flare: off,
+            anamorphic_streaks: off,
+            diffraction_spikes: off,
+            lens_dirt: off,
+            colour_temperature: 5000,
+            lift: [1.0; 3],
+            gamma: [1.0; 3],
+            gain: [1.0; 3],
+            colour_blindness: ColourBlindness::default(),
+            supersampling_downscale: false,
+        }
+    }
+}
+
+impl PostEffects {
+    /// Each effect by its name in [`crate::post_effects::EFFECTS`], in that order.
+    pub fn list(&self) -> [(&'static str, PostEffect); 25] {
+        [
+            ("deband", self.deband),
+            ("smaa", self.smaa),
+            ("cas", self.cas),
+            ("luma_sharpen", self.luma_sharpen),
+            ("clarity", self.clarity),
+            ("fake_hdr", self.fake_hdr),
+            ("levels", self.levels),
+            ("lift_gamma_gain", self.lift_gamma_gain),
+            ("dpx", self.dpx),
+            ("technicolor", self.technicolor),
+            ("curves", self.curves),
+            ("vibrance", self.vibrance),
+            ("gaussian_blur", self.gaussian_blur),
+            ("chromatic_aberration", self.chromatic_aberration),
+            ("vignette", self.vignette),
+            ("film_grain", self.film_grain),
+            ("daltonize", self.daltonize),
+            ("white_balance", self.white_balance),
+            ("bleach_bypass", self.bleach_bypass),
+            ("monochrome", self.monochrome),
+            ("sepia", self.sepia),
+            ("lens_flare", self.lens_flare),
+            ("anamorphic_streaks", self.anamorphic_streaks),
+            ("diffraction_spikes", self.diffraction_spikes),
+            ("lens_dirt", self.lens_dirt),
+        ]
+    }
+
+    /// The effect of that name, to change it.
+    pub fn get_mut(&mut self, name: &str) -> Option<&mut PostEffect> {
+        match name {
+            "deband" => Some(&mut self.deband),
+            "smaa" => Some(&mut self.smaa),
+            "cas" => Some(&mut self.cas),
+            "luma_sharpen" => Some(&mut self.luma_sharpen),
+            "clarity" => Some(&mut self.clarity),
+            "fake_hdr" => Some(&mut self.fake_hdr),
+            "levels" => Some(&mut self.levels),
+            "lift_gamma_gain" => Some(&mut self.lift_gamma_gain),
+            "dpx" => Some(&mut self.dpx),
+            "technicolor" => Some(&mut self.technicolor),
+            "curves" => Some(&mut self.curves),
+            "vibrance" => Some(&mut self.vibrance),
+            "gaussian_blur" => Some(&mut self.gaussian_blur),
+            "chromatic_aberration" => Some(&mut self.chromatic_aberration),
+            "vignette" => Some(&mut self.vignette),
+            "film_grain" => Some(&mut self.film_grain),
+            "daltonize" => Some(&mut self.daltonize),
+            "white_balance" => Some(&mut self.white_balance),
+            "bleach_bypass" => Some(&mut self.bleach_bypass),
+            "monochrome" => Some(&mut self.monochrome),
+            "sepia" => Some(&mut self.sepia),
+            "lens_flare" => Some(&mut self.lens_flare),
+            "anamorphic_streaks" => Some(&mut self.anamorphic_streaks),
+            "diffraction_spikes" => Some(&mut self.diffraction_spikes),
+            "lens_dirt" => Some(&mut self.lens_dirt),
+            _ => None,
+        }
+    }
+}
+
 fn default_tint_strength() -> u8 {
     70
 }
@@ -442,6 +639,7 @@ impl Default for GameGraphicsSettings {
             hud_target_hologram: false,
             hud_target_hologram_colour: default_hud_hologram_colour(),
             planet_lamp_glow: default_lamp_glow(),
+            post: PostEffects::default(),
             game_folder: String::new(),
         }
     }
