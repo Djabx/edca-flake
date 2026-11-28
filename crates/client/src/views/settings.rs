@@ -315,6 +315,9 @@ pub struct SettingsView {
     /// What another installer (EDHM's) has undone in the game folder, checked at most every
     /// few seconds: the check reads the dll and `d3dx.ini`.
     damage: std::cell::RefCell<Option<(std::time::Instant, Vec<&'static str>)>>,
+    /// Whether the game folder's 3DMigoto is an older build of EDCAS's
+    /// ([`shader_mods::runtime_outdated`]), looked up every few seconds as `damage` is.
+    runtime_outdated: std::cell::Cell<Option<(std::time::Instant, bool)>>,
     /// The diagnostics zip being written, and the path of the last one written (for Copy Path).
     diagnostics_rx: Option<mpsc::Receiver<Result<PathBuf, String>>>,
     diagnostics_path: Option<String>,
@@ -346,6 +349,7 @@ impl SettingsView {
             shader_step: String::new(),
             shader_result: None,
             damage: std::cell::RefCell::new(None),
+            runtime_outdated: std::cell::Cell::new(None),
             diagnostics_rx: None,
             diagnostics_path: None,
             clipboard: None,
@@ -1363,14 +1367,28 @@ impl SettingsView {
                         }
                     }
                 };
+                // An installed set whose 3DMigoto is an older build of EDCAS's: only a download
+                // brings the new one, which Update is (the update the client runs by itself is not).
+                let old_runtime = matches!(status, Status::Installed { .. }) && self.shader_rx.is_none() && shader_mods::auto_step().is_none() && {
+                    let fresh = self.runtime_outdated.get().filter(|(at, _)| at.elapsed() < std::time::Duration::from_secs(5));
+                    let (at, old) = fresh.unwrap_or_else(|| (std::time::Instant::now(), shader_mods::runtime_outdated(&dir)));
+                    self.runtime_outdated.set(Some((at, old)));
+                    old
+                };
                 let mut cells = vec![CellType::Label("Shader Mods".to_string())];
                 if !damage.is_empty() {
                     cells.push(CellType::Button("[ Repair ]"));
+                }
+                if old_runtime {
+                    cells.push(CellType::Button("[ Update ]"));
                 }
                 cells.extend(buttons.iter().map(|b| CellType::Button(b)));
                 diagnostics(&mut cells);
                 rows.push(GridRow { cells });
                 rows.push(info(text, false));
+                if old_runtime {
+                    rows.push(info("A newer 3DMigoto build is ready: it keeps the compiled shaders, so the game no longer compiles them at every start (30 to 50 s). Press Update (close the game first on Windows).".to_string(), false));
+                }
                 if !damage.is_empty() {
                     rows.push(info("⚠ Another installer changed the game folder (most often EDHM's, or what EDHM left behind: uninstalling EDHM keeps its d3d11.dll). Press Repair (close the game first on Windows); EDCAS also repairs it by itself when the game closes.".to_string(), true));
                     rows.extend(damage.iter().map(|d| info(format!("   • {d}"), true)));
@@ -1449,6 +1467,7 @@ impl SettingsView {
             self.shader_rx = None;
             // The folder is as the job left it: check it afresh, not by a result from before or during it.
             *self.damage.borrow_mut() = None;
+            self.runtime_outdated.set(None);
         }
     }
 

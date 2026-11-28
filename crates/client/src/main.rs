@@ -4,41 +4,11 @@ use anyhow::Result;
 use tracing::info;
 use tracing_appender::non_blocking::WorkerGuard;
 
-mod alert_service;
-mod alerts;
-mod api_client;
-mod app;
-mod body_finds;
-mod build_info;
-mod carrier_log;
-mod cartography;
+// The modules live in the library (lib.rs): declared here a second time, the whole client
+// compiled twice and every unit test ran twice (2026-11-27).
+use edcas_client::{build_info, gui, journal_reader, settings};
+
 mod cli;
-mod diagnostics;
-mod direct_upload;
-mod eddn;
-mod game_graphics;
-mod ground_detail;
-mod ground_tint;
-mod engineering_data;
-mod event_shim;
-mod gui;
-mod journal_follow;
-mod journal_reader;
-mod my_carriers;
-mod pins;
-mod planet_clouds;
-mod planet_dust;
-mod post_effects;
-mod settings;
-mod shader_mods;
-mod black_hole;
-mod star_light;
-mod text;
-mod theme;
-mod todo;
-mod tts;
-mod views;
-mod wake;
 
 
 fn main() -> Result<()> {

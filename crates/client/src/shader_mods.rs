@@ -2141,6 +2141,10 @@ pub fn comment_out(ini: &str, key: &str) -> String {
 /// `reload_config`, and 3DMigoto registers `reload_config` with hunting off too: F10 is Elite's screenshot key, so
 /// every screenshot compiled all of EDCAS's shaders again and froze the game for some 30 s (a player's report,
 /// 2026-11-26).
+///
+/// `wipe_user_config` (Ctrl+Alt+F10 in the release) goes out whole with [`comment_out`]: AltGr is Ctrl+Alt to
+/// Windows, so AltGr+F10 (Elite's large screenshot, Alt+F10, with the other Alt key) reloaded the config in the
+/// middle of the picture (a player's report, 2026-11-27).
 pub fn unbind_plain(ini: &str, key: &str) -> String {
     let plain = |l: &str| {
         is_assignment(l, key, false)
@@ -2353,8 +2357,13 @@ fn setup_ini(dir: &Path) -> Result<(), String> {
         let ini = add_include(&ini);
         let ini = set_option(&ini, "Hunting", "hunting", "0");
         let ini = comment_out(&ini, "analyse_frame");
+        // EDCAS's 3DMigoto keeps each custom shader's bytecode beside it (`*.cache`, keyed by the
+        // shader's text and every file it includes): the cloud pass alone takes 30 to 50 s to
+        // compile, which the game paid at every start (2026-11-27). Another 3DMigoto ignores it.
+        let ini = set_option(&ini, "Rendering", "cache_custom_shaders", "1");
         // F10 is Elite's screenshot key: no reload of every shader on it.
-        unbind_plain(&unbind_plain(&ini, "reload_fixes"), "reload_config")
+        // Nor a wipe and reload on Ctrl+Alt+F10: AltGr is Ctrl+Alt, and Alt+F10 is Elite's large screenshot.
+        comment_out(&unbind_plain(&unbind_plain(&ini, "reload_fixes"), "reload_config"), "wipe_user_config")
     })
 }
 
@@ -2486,14 +2495,25 @@ fn ground_texture_recipe() -> String {
     format!("{h:016x}")
 }
 
+/// The shader a file of `ShaderFixes` is the kept bytecode of, when it is one of EDCAS's
+/// (`cache_custom_shaders` in [`setup_ini`]): `edcas_clouds_final.ps_5_0.8000.cache` belongs to
+/// `edcas_clouds_final.hlsl`. The `.tmp` such a file is written as counts too. `name` in lower case.
+fn cached_shader(name: &str) -> Option<String> {
+    let cache = name.starts_with("edcas") && (name.ends_with(".cache") || name.ends_with(".cache.tmp"));
+    cache.then(|| format!("{}.hlsl", name.split('.').next().unwrap_or_default()))
+}
+
 /// Deletes EDCAS's shaders that are no longer in [`SKY_SHADERS`] (the landing dust's ship probe,
-/// 2026-10-29) and the [`STALE_SHADERS`]: nothing of ours runs them, but they would stay in
-/// `ShaderFixes` for good (the stale ones even run, 3DMigoto loads them by hash).
+/// 2026-10-29), with the bytecode 3DMigoto kept of them ([`cached_shader`]; a kept shader's
+/// stays, 3DMigoto itself compiles anew when the text changed), and the [`STALE_SHADERS`]:
+/// nothing of ours runs them, but they would stay in `ShaderFixes` for good (the stale ones
+/// even run, 3DMigoto loads them by hash).
 fn remove_retired_shaders(fixes: &Path) -> Result<(), String> {
     let Ok(read) = fs::read_dir(fixes) else { return Ok(()) };
     for entry in read.flatten() {
         let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
-        let retired = name.starts_with("edcas") && name.ends_with(".hlsl") && !SKY_SHADERS.iter().any(|(n, _)| *n == name);
+        let shader = cached_shader(&name).unwrap_or_else(|| name.clone());
+        let retired = shader.starts_with("edcas") && shader.ends_with(".hlsl") && !SKY_SHADERS.iter().any(|(n, _)| *n == shader);
         if retired || STALE_SHADERS.contains(&name.as_str()) {
             fs::remove_file(entry.path()).map_err(|e| io_error("delete", &entry.path(), &e))?;
         }
@@ -2690,6 +2710,21 @@ fn is_edcas_dll(bytes: &[u8]) -> bool {
     bytes.windows(MARK.len()).any(|w| w == MARK)
 }
 
+/// Whether the 3DMigoto the game loads is EDCAS's build from before it kept the compiled
+/// shaders (`cache_custom_shaders`, 2026-11-27): the game then compiles every custom shader
+/// at each start, 30 to 50 s for the cloud pass. An update the client runs by itself brings
+/// no new dll (that is a download), so Settings offers Update while this holds.
+pub fn runtime_outdated(dir: &Path) -> bool {
+    migoto_dll(dir).and_then(|name| fs::read(dir.join(name)).ok()).is_some_and(|b| is_edcas_dll(&b) && !keeps_bytecode(&b))
+}
+
+/// Whether a `d3d11.dll` reads `[Rendering] cache_custom_shaders` (the key's name, as the
+/// wide string the dll looks it up by).
+fn keeps_bytecode(bytes: &[u8]) -> bool {
+    let mark: Vec<u8> = "cache_custom_shaders".encode_utf16().flat_map(u16::to_le_bytes).collect();
+    bytes.windows(mark.len()).any(|w| w == mark.as_slice())
+}
+
 /// EDCAS's `d3d11.dll` kept beside the live one, so [`repair`] can put it back after
 /// another installer (EDHM's) has overwritten it, without a download.
 pub(crate) const EDCAS_DLL_COPY: &str = "d3d11.dll.edcas";
@@ -2765,7 +2800,8 @@ fn locked_or(path: &Path, e: &std::io::Error) -> String {
 ///
 /// - the include of `edcas.ini` goes from `d3dx.ini`, and `export_shaders` is switched off
 ///   if the ground tint was waiting for a landing;
-/// - `ShaderFixes` loses `edcas.ini`, `edcas*.hlsl`, the ground textures (`edcas_ground_*.dds`),
+/// - `ShaderFixes` loses `edcas.ini`, `edcas*.hlsl` with the bytecode 3DMigoto kept of them
+///   (`edcas*.cache`), the ground textures (`edcas_ground_*.dds`),
 ///   `edcas_version.txt` and the tinted ground shaders. `edcas_params.txt` stays: it is the player's file too (the hand-tuned
 ///   glow scale `x505` lives in it), nothing reads it without the include, and a reinstall
 ///   finds it again;
@@ -2811,7 +2847,7 @@ pub fn remove(dir: &Path) -> Result<String, String> {
     if let Ok(read) = fs::read_dir(&fixes) {
         for entry in read.flatten() {
             let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
-            if name.starts_with("edcas") && name.ends_with(".hlsl") {
+            if name.starts_with("edcas") && (name.ends_with(".hlsl") || cached_shader(&name).is_some()) {
                 doomed.push(entry.path());
             }
         }
@@ -4444,7 +4480,7 @@ ret\n";
         assert_eq!(get_option(&ini, "Rendering", "export_shaders").as_deref(), Some("1"), "the export is on until the shaders are there");
         assert_eq!(ini.matches("include = ShaderFixes\\edcas.ini").count(), 1);
         assert!(ini.contains(";analyse_frame = 1"));
-        assert!(ini.contains(";reload_fixes = no_modifiers VK_F10\n;reload_config = no_modifiers VK_F10\nwipe_user_config = ctrl alt no_shift VK_F10"), "F10 is Elite's screenshot key: {ini}");
+        assert!(ini.contains(";reload_fixes = no_modifiers VK_F10\n;reload_config = no_modifiers VK_F10\n;wipe_user_config = ctrl alt no_shift VK_F10"), "F10 is Elite's screenshot key: {ini}");
 
         // Installed, ground tint to come: the exports aren't there.
         assert_eq!(status(&dir, "1.0.0"), Status::Installed { ground_tint: false, star_light: 0 });
@@ -4592,6 +4628,9 @@ ret\n";
         for name in STALE_SHADERS {
             fs::write(dir.join("ShaderFixes").join(name), "old").unwrap();
         }
+        // The bytecode 3DMigoto kept of the custom shaders goes with them.
+        fs::write(dir.join("ShaderFixes/edcas_clouds_final.ps_5_0.8000.cache"), "bytecode").unwrap();
+        fs::write(dir.join("ShaderFixes/edcas_copy.ps_5_0.8000.cache.tmp"), "half").unwrap();
 
         remove(&dir).unwrap();
         assert_eq!(status(&dir, "1.0.0"), Status::NotInstalled);
@@ -4606,6 +4645,42 @@ ret\n";
         // Removing again is harmless.
         remove(&dir).unwrap();
         assert_eq!(fs::read(dir.join("d3d11.dll")).unwrap(), STOCK_DLL);
+    }
+
+    #[test]
+    fn an_edcas_dll_from_before_the_kept_bytecode_is_outdated() {
+        let dir = game("runtime-outdated");
+        assert!(!runtime_outdated(&dir), "no dll");
+        fs::write(dir.join("d3d11.dll"), STOCK_DLL).unwrap();
+        assert!(!runtime_outdated(&dir), "another 3DMigoto is not ours to update");
+        fs::write(dir.join("d3d11.dll"), EDCAS_DLL).unwrap();
+        assert!(runtime_outdated(&dir));
+        let mut new = EDCAS_DLL.to_vec();
+        new.extend("cache_custom_shaders".encode_utf16().flat_map(u16::to_le_bytes));
+        fs::write(dir.join("d3d11.dll"), new).unwrap();
+        assert!(!runtime_outdated(&dir));
+    }
+
+    #[test]
+    fn the_kept_bytecode_is_switched_on_and_only_a_retired_shaders_is_deleted() {
+        let dir = game("shader-cache");
+        install(&dir, &bundle(EDCAS_DLL), "1.0.0", Wanted::ALL, |_| {}).unwrap();
+        assert_eq!(get_option(&read(&dir, "d3dx.ini").replace("\r\n", "\n"), "Rendering", "cache_custom_shaders").as_deref(), Some("1"));
+        // What the game leaves after a start: one cache per custom shader.
+        let fixes = dir.join("ShaderFixes");
+        fs::write(fixes.join("edcas_clouds_final.ps_5_0.8000.cache"), "kept").unwrap();
+        fs::write(fixes.join("edcas_sky_vs.vs_5_0.8000.cache"), "kept").unwrap();
+        fs::write(fixes.join("edcas_landing_probe.ps_5_0.8000.cache"), "of a shader EDCAS no longer ships").unwrap();
+        fs::write(fixes.join("other_mod.ps_5_0.8000.cache"), "not ours").unwrap();
+        // An update: the caches of today's shaders stay (3DMigoto compiles anew by itself when
+        // a text changed), so a new client version doesn't cost a 50 s game start.
+        install(&dir, &bundle(EDCAS_DLL), "1.0.1", Wanted::ALL, |_| {}).unwrap();
+        assert!(fixes.join("edcas_clouds_final.ps_5_0.8000.cache").is_file());
+        assert!(fixes.join("edcas_sky_vs.vs_5_0.8000.cache").is_file());
+        assert!(!fixes.join("edcas_landing_probe.ps_5_0.8000.cache").exists());
+        assert!(fixes.join("other_mod.ps_5_0.8000.cache").is_file());
+        assert_eq!(cached_shader("edcas_clouds_final.ps_5_0.8000.cache").as_deref(), Some("edcas_clouds_final.hlsl"));
+        assert_eq!(cached_shader("edcas_clouds_final.hlsl"), None);
     }
 
     #[test]
